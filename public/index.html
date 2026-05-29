@@ -1032,13 +1032,67 @@ const Stock = () => {
   );
 };
 
+// ── COMPONENTE FILTRO COLUMNA ──
+const FiltroColumna = ({values, value, onChange, tipo="select", placeholder=""}) => {
+  const unicos = [...new Set(values.filter(Boolean))].sort();
+  if (tipo === "text") return (
+    <input
+      value={value} onChange={e=>onChange(e.target.value)}
+      placeholder={placeholder||"Filtrar..."}
+      style={{width:"100%",padding:"3px 6px",fontSize:11,background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:4,color:"#e8eaf0",marginTop:3}}
+    />
+  );
+  return (
+    <select
+      value={value} onChange={e=>onChange(e.target.value)}
+      style={{width:"100%",padding:"3px 4px",fontSize:11,background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:4,color:"#e8eaf0",marginTop:3}}
+    >
+      <option value="">Todos</option>
+      {unicos.map(v=><option key={v} value={v}>{v}</option>)}
+    </select>
+  );
+};
+
 // ── REPORTE FLETES ──
 const ReporteFletes = ({modulo}) => {
   const [seleccionados, setSeleccionados] = useState([]);
   const [tarifaMasiva, setTarifaMasiva] = useState("");
   const [showPreliq, setShowPreliq] = useState(false);
+  const [orden, setOrden] = useState({col:"numero", dir:"asc"});
+  const [filtros, setFiltros] = useState({
+    numero:"", especie:"", productor:"", comprador:"",
+    origen:"", destino:"", transportista:"", chofer:"",
+    patente_chasis:"", tarifa_real:"", calidad:"", estado_liq:""
+  });
 
-  const movs = mockMovimientos.filter(m => m.modalidad === modulo);
+  const setFiltro = (k,v) => setFiltros(prev=>({...prev,[k]:v}));
+  const limpiarFiltros = () => setFiltros({numero:"",especie:"",productor:"",comprador:"",origen:"",destino:"",transportista:"",chofer:"",patente_chasis:"",tarifa_real:"",calidad:"",estado_liq:""});
+  const toggleOrden = (col) => setOrden(prev=>({col, dir: prev.col===col && prev.dir==="asc"?"desc":"asc"}));
+  const iconOrden = (col) => orden.col===col?(orden.dir==="asc"?"↑":"↓"):"↕";
+
+  const todosMovs = mockMovimientos.filter(m=>m.modalidad===modulo);
+
+  const movsFiltrados = todosMovs
+    .filter(m=>!filtros.numero||m.numero?.toLowerCase().includes(filtros.numero.toLowerCase()))
+    .filter(m=>!filtros.especie||m.especie===filtros.especie)
+    .filter(m=>!filtros.productor||m.productor===filtros.productor)
+    .filter(m=>!filtros.origen||m.origen?.toLowerCase().includes(filtros.origen.toLowerCase()))
+    .filter(m=>!filtros.destino||m.destino?.toLowerCase().includes(filtros.destino.toLowerCase()))
+    .filter(m=>!filtros.transportista||m.transportista===filtros.transportista)
+    .filter(m=>!filtros.chofer||m.chofer===filtros.chofer)
+    .filter(m=>!filtros.patente_chasis||m.patente_chasis===filtros.patente_chasis)
+    .filter(m=>!filtros.tarifa_real||String(m.tarifa_real)===filtros.tarifa_real)
+    .filter(m=>!filtros.calidad||(filtros.calidad==="OK"?m.factor!==null:m.factor===null))
+    .filter(m=>!filtros.estado_liq||m.estado_liq===filtros.estado_liq)
+    .sort((a,b)=>{
+      let va=a[orden.col]??"", vb=b[orden.col]??"";
+      if(typeof va==="string") va=va.toLowerCase();
+      if(typeof vb==="string") vb=vb.toLowerCase();
+      return va<vb?(orden.dir==="asc"?-1:1):va>vb?(orden.dir==="asc"?1:-1):0;
+    });
+
+  const movs = movsFiltrados;
+  const hayFiltros = Object.values(filtros).some(v=>v!=="");
 
   const toggleSelect = (id) => {
     setSeleccionados(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id]);
@@ -1087,25 +1141,48 @@ const ReporteFletes = ({modulo}) => {
         </div>
       )}
 
+      {/* INFO RESULTADOS */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <div style={{fontSize:12,color:"#8890a8"}}>
+          Mostrando <strong style={{color:"#e8eaf0"}}>{movsFiltrados.length}</strong> de {todosMovs.length} movimiento(s)
+          {seleccionados.length>0&&<span style={{color:"#f5a623",marginLeft:8}}>· {seleccionados.length} seleccionado(s)</span>}
+        </div>
+        {hayFiltros&&<Btn variant="danger" size="sm" onClick={limpiarFiltros}>✕ Limpiar filtros</Btn>}
+      </div>
+
       <div className="card" style={{overflowX:"auto"}}>
         <table>
           <thead>
-            <tr>
-              <th><input type="checkbox" onChange={toggleAll} checked={seleccionados.length===movs.length&&movs.length>0}/></th>
-              <th>Fecha Carga</th>
-              <th>N° Mov / CTG</th>
-              <th>Productor</th>
-              <th>Comprador</th>
-              <th>Procedencia</th>
-              <th>Destino</th>
-              <th>Kg Carga</th>
-              <th>Kg Descarga</th>
-              <th>Transportista</th>
-              <th>Chofer</th>
-              <th>Patente</th>
-              <th>Tarifa</th>
+            <tr style={{borderBottom:"none"}}>
+              <th rowSpan={2} style={{verticalAlign:"middle"}}><input type="checkbox" onChange={toggleAll} checked={seleccionados.length===movs.length&&movs.length>0}/></th>
+              <th onClick={()=>toggleOrden("numero")} style={{cursor:"pointer",userSelect:"none"}}>N° Mov {iconOrden("numero")}</th>
+              <th>CTG</th>
+              <th onClick={()=>toggleOrden("productor")} style={{cursor:"pointer",userSelect:"none"}}>Productor {iconOrden("productor")}</th>
+              <th onClick={()=>toggleOrden("destino")} style={{cursor:"pointer",userSelect:"none"}}>Destino {iconOrden("destino")}</th>
+              <th onClick={()=>toggleOrden("origen")} style={{cursor:"pointer",userSelect:"none"}}>Procedencia {iconOrden("origen")}</th>
+              <th onClick={()=>toggleOrden("peso_neto_salida")} style={{cursor:"pointer",userSelect:"none"}}>Kg Carga {iconOrden("peso_neto_salida")}</th>
+              <th onClick={()=>toggleOrden("peso_neto_llegada")} style={{cursor:"pointer",userSelect:"none"}}>Kg Desc. {iconOrden("peso_neto_llegada")}</th>
+              <th onClick={()=>toggleOrden("transportista")} style={{cursor:"pointer",userSelect:"none"}}>Transportista {iconOrden("transportista")}</th>
+              <th onClick={()=>toggleOrden("chofer")} style={{cursor:"pointer",userSelect:"none"}}>Chofer {iconOrden("chofer")}</th>
+              <th onClick={()=>toggleOrden("patente_chasis")} style={{cursor:"pointer",userSelect:"none"}}>Patente {iconOrden("patente_chasis")}</th>
+              <th onClick={()=>toggleOrden("tarifa_real")} style={{cursor:"pointer",userSelect:"none"}}>Tarifa {iconOrden("tarifa_real")}</th>
               <th>Calidad</th>
-              <th>Estado Flete</th>
+              <th onClick={()=>toggleOrden("estado_liq")} style={{cursor:"pointer",userSelect:"none"}}>Estado {iconOrden("estado_liq")}</th>
+            </tr>
+            <tr style={{background:"#0a0c12"}}>
+              <td style={{padding:"4px 6px"}}><FiltroColumna values={todosMovs.map(m=>m.numero)} value={filtros.numero} onChange={v=>setFiltro("numero",v)} tipo="text" placeholder="Buscar..."/></td>
+              <td style={{padding:"4px 6px"}}></td>
+              <td style={{padding:"4px 6px"}}><FiltroColumna values={todosMovs.map(m=>m.productor)} value={filtros.productor} onChange={v=>setFiltro("productor",v)}/></td>
+              <td style={{padding:"4px 6px"}}><FiltroColumna values={todosMovs.map(m=>m.destino?.split(",")[0])} value={filtros.destino} onChange={v=>setFiltro("destino",v)}/></td>
+              <td style={{padding:"4px 6px"}}><FiltroColumna values={todosMovs.map(m=>m.origen?.split(",")[0])} value={filtros.origen} onChange={v=>setFiltro("origen",v)}/></td>
+              <td style={{padding:"4px 6px"}}></td>
+              <td style={{padding:"4px 6px"}}></td>
+              <td style={{padding:"4px 6px"}}><FiltroColumna values={todosMovs.map(m=>m.transportista)} value={filtros.transportista} onChange={v=>setFiltro("transportista",v)}/></td>
+              <td style={{padding:"4px 6px"}}><FiltroColumna values={todosMovs.map(m=>m.chofer)} value={filtros.chofer} onChange={v=>setFiltro("chofer",v)}/></td>
+              <td style={{padding:"4px 6px"}}><FiltroColumna values={todosMovs.map(m=>m.patente_chasis)} value={filtros.patente_chasis} onChange={v=>setFiltro("patente_chasis",v)}/></td>
+              <td style={{padding:"4px 6px"}}><FiltroColumna values={todosMovs.map(m=>String(m.tarifa_real||""))} value={filtros.tarifa_real} onChange={v=>setFiltro("tarifa_real",v)}/></td>
+              <td style={{padding:"4px 6px"}}><FiltroColumna values={["OK","Falta"]} value={filtros.calidad} onChange={v=>setFiltro("calidad",v)}/></td>
+              <td style={{padding:"4px 6px"}}><FiltroColumna values={todosMovs.map(m=>m.estado_liq)} value={filtros.estado_liq} onChange={v=>setFiltro("estado_liq",v)}/></td>
             </tr>
           </thead>
           <tbody>
@@ -1190,23 +1267,37 @@ const ReporteFletes = ({modulo}) => {
 const ReporteCalidades = ({modulo}) => {
   const [seleccionados, setSeleccionados] = useState([]);
   const [factorMasivo, setFactorMasivo] = useState("");
+  const [orden, setOrden] = useState({col:"numero", dir:"asc"});
+  const [filtros, setFiltros] = useState({
+    numero:"", especie:"", productor:"", kg_liquidables:"",
+    factor:"", humedad_llegada:"", estado_liq:""
+  });
 
-  const movsSinCalidad = mockMovimientos.filter(m =>
-    m.modalidad === modulo &&
-    m.estado === "DESCARGADO" &&
-    m.factor === null
-  );
-  const movsConCalidad = mockMovimientos.filter(m =>
-    m.modalidad === modulo &&
-    m.factor !== null
-  );
+  const setFiltro = (k,v) => setFiltros(prev=>({...prev,[k]:v}));
+  const limpiarFiltros = () => setFiltros({numero:"",especie:"",productor:"",kg_liquidables:"",factor:"",humedad_llegada:"",estado_liq:""});
+  const toggleOrden = (col) => setOrden(prev=>({col, dir:prev.col===col&&prev.dir==="asc"?"desc":"asc"}));
+  const iconOrden = (col) => orden.col===col?(orden.dir==="asc"?"↑":"↓"):"↕";
+  const hayFiltros = Object.values(filtros).some(v=>v!=="");
 
-  const toggleSelect = (id) => {
-    setSeleccionados(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id]);
-  };
-  const toggleAll = () => {
-    setSeleccionados(seleccionados.length===movsSinCalidad.length ? [] : movsSinCalidad.map(m=>m.id));
-  };
+  const todosMovs = mockMovimientos.filter(m=>m.modalidad===modulo);
+
+  const aplicar = (lista) => lista
+    .filter(m=>!filtros.numero||m.numero?.toLowerCase().includes(filtros.numero.toLowerCase()))
+    .filter(m=>!filtros.especie||m.especie===filtros.especie)
+    .filter(m=>!filtros.productor||m.productor===filtros.productor)
+    .filter(m=>!filtros.estado_liq||m.estado_liq===filtros.estado_liq)
+    .sort((a,b)=>{
+      let va=a[orden.col]??"", vb=b[orden.col]??"";
+      if(typeof va==="string") va=va.toLowerCase();
+      if(typeof vb==="string") vb=vb.toLowerCase();
+      return va<vb?(orden.dir==="asc"?-1:1):va>vb?(orden.dir==="asc"?1:-1):0;
+    });
+
+  const movsSinCalidad = aplicar(todosMovs.filter(m=>m.estado==="DESCARGADO"&&m.factor===null));
+  const movsConCalidad = aplicar(todosMovs.filter(m=>m.factor!==null));
+
+  const toggleSelect = (id) => setSeleccionados(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);
+  const toggleAll = () => setSeleccionados(seleccionados.length===movsSinCalidad.length?[]:movsSinCalidad.map(m=>m.id));
 
   return (
     <div className="fade-in">
@@ -1218,6 +1309,17 @@ const ReporteCalidades = ({modulo}) => {
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
         <StatCard label="Sin Calidad Cargada" value={movsSinCalidad.length} sub="requieren calidad para preliquidar" color="#e74c3c"/>
         <StatCard label="Con Calidad OK" value={movsConCalidad.length} sub="listos para preliquidar" color="#27ae60"/>
+      </div>
+
+      {/* INFO + LIMPIAR */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <div style={{fontSize:12,color:"#8890a8"}}>
+          Sin calidad: <strong style={{color:"#e74c3c"}}>{movsSinCalidad.length}</strong>
+          <span style={{margin:"0 8px",color:"#2a2d3e"}}>|</span>
+          Con calidad: <strong style={{color:"#27ae60"}}>{movsConCalidad.length}</strong>
+          {seleccionados.length>0&&<span style={{color:"#f5a623",marginLeft:8}}>· {seleccionados.length} seleccionado(s)</span>}
+        </div>
+        {hayFiltros&&<Btn variant="danger" size="sm" onClick={limpiarFiltros}>✕ Limpiar filtros</Btn>}
       </div>
 
       {/* PENDIENTES SIN CALIDAD */}
@@ -1272,7 +1374,22 @@ const ReporteCalidades = ({modulo}) => {
         <div className="card-header"><span style={{fontWeight:600,fontSize:14}}>✓ Con Calidad Cargada</span></div>
         <table>
           <thead>
-            <tr><th>N° Mov</th><th>Especie</th><th>Productor</th><th>Kg Liquidables</th><th>Factor</th><th>Estado Liq.</th></tr>
+            <tr>
+              <th onClick={()=>toggleOrden("numero")} style={{cursor:"pointer",userSelect:"none"}}>N° Mov {iconOrden("numero")}</th>
+              <th onClick={()=>toggleOrden("especie")} style={{cursor:"pointer",userSelect:"none"}}>Especie {iconOrden("especie")}</th>
+              <th onClick={()=>toggleOrden("productor")} style={{cursor:"pointer",userSelect:"none"}}>Productor {iconOrden("productor")}</th>
+              <th onClick={()=>toggleOrden("kg_liquidables")} style={{cursor:"pointer",userSelect:"none"}}>Kg Liquidables {iconOrden("kg_liquidables")}</th>
+              <th onClick={()=>toggleOrden("factor")} style={{cursor:"pointer",userSelect:"none"}}>Factor {iconOrden("factor")}</th>
+              <th onClick={()=>toggleOrden("estado_liq")} style={{cursor:"pointer",userSelect:"none"}}>Estado Liq. {iconOrden("estado_liq")}</th>
+            </tr>
+            <tr style={{background:"#0a0c12"}}>
+              <td style={{padding:"4px 6px"}}><FiltroColumna values={todosMovs.map(m=>m.numero)} value={filtros.numero} onChange={v=>setFiltro("numero",v)} tipo="text" placeholder="Buscar..."/></td>
+              <td style={{padding:"4px 6px"}}><FiltroColumna values={todosMovs.map(m=>m.especie)} value={filtros.especie} onChange={v=>setFiltro("especie",v)}/></td>
+              <td style={{padding:"4px 6px"}}><FiltroColumna values={todosMovs.map(m=>m.productor)} value={filtros.productor} onChange={v=>setFiltro("productor",v)}/></td>
+              <td style={{padding:"4px 6px"}}></td>
+              <td style={{padding:"4px 6px"}}></td>
+              <td style={{padding:"4px 6px"}}><FiltroColumna values={todosMovs.map(m=>m.estado_liq)} value={filtros.estado_liq} onChange={v=>setFiltro("estado_liq",v)}/></td>
+            </tr>
           </thead>
           <tbody>
             {movsConCalidad.map(m=>(
@@ -1447,6 +1564,366 @@ const PosicionAbierta = ({modulo}) => {
   );
 };
 
+// ── IMPORTADOR EXCEL ──
+const ImportadorExcel = ({modulo}) => {
+  const [paso, setPaso] = useState(1); // 1=subir, 2=preview, 3=resultado
+  const [datos, setDatos] = useState([]);
+  const [errores, setErrores] = useState([]);
+  const [procesando, setProcesando] = useState(false);
+  const [seleccionados, setSeleccionados] = useState([]);
+
+  // Columnas esperadas en el Excel
+  const COLUMNAS = [
+    {key:"productor", label:"Productor", requerido:true, tipo:"text"},
+    {key:"comprador", label:"Comprador / Destino", requerido:true, tipo:"text"},
+    {key:"especie", label:"Especie", requerido:true, tipo:"select"},
+    {key:"campana", label:"Campaña", requerido:true, tipo:"text"},
+    {key:"nro_ctg", label:"N° CTG", requerido:false, tipo:"text"},
+    {key:"nro_cpe", label:"N° CPE", requerido:false, tipo:"text"},
+    {key:"patente_chasis", label:"Patente Chasis", requerido:true, tipo:"text"},
+    {key:"patente_acoplado", label:"Patente Acoplado", requerido:false, tipo:"text"},
+    {key:"transportista", label:"Transportista", requerido:true, tipo:"text"},
+    {key:"chofer", label:"Chofer", requerido:false, tipo:"text"},
+    {key:"localidad_origen", label:"Localidad Origen", requerido:false, tipo:"text"},
+    {key:"provincia_origen", label:"Provincia Origen", requerido:false, tipo:"text"},
+    {key:"localidad_destino", label:"Localidad Destino", requerido:false, tipo:"text"},
+    {key:"km", label:"Km", requerido:false, tipo:"number"},
+    {key:"tarifa_catac", label:"Tarifa CATAC", requerido:false, tipo:"number"},
+    {key:"tarifa_real", label:"Tarifa Real", requerido:false, tipo:"number"},
+    {key:"kg_bruto_salida", label:"Kg Bruto Salida", requerido:true, tipo:"number"},
+    {key:"kg_tara_salida", label:"Kg Tara Salida", requerido:true, tipo:"number"},
+    {key:"humedad_salida", label:"Humedad Salida %", requerido:false, tipo:"number"},
+    // DESCARGA — opcionales
+    {key:"kg_bruto_llegada", label:"Kg Bruto Llegada", requerido:false, tipo:"number"},
+    {key:"kg_tara_llegada", label:"Kg Tara Llegada", requerido:false, tipo:"number"},
+    {key:"humedad_llegada", label:"Humedad Llegada %", requerido:false, tipo:"number"},
+    {key:"nro_turno", label:"N° Turno", requerido:false, tipo:"text"},
+    // CALIDAD — opcional
+    {key:"factor", label:"Factor Calidad", requerido:false, tipo:"number"},
+    {key:"contrato_compra", label:"Contrato Compra", requerido:false, tipo:"text"},
+    {key:"contrato_venta", label:"Contrato Venta", requerido:false, tipo:"text"},
+  ];
+
+  const COLS_REQUERIDAS = COLUMNAS.filter(c=>c.requerido);
+
+  // Simular procesamiento de Excel con datos demo
+  const simularImport = () => {
+    setProcesando(true);
+    setTimeout(()=>{
+      const datosMock = [
+        {
+          productor:"García Juan Carlos", comprador:"Bunge Argentina S.A.",
+          especie:"Soja", campana:"2024/2025", nro_ctg:"10129526900",
+          patente_chasis:"AB123CD", patente_acoplado:"AD999ZZ",
+          transportista:"Logística Centro S.R.L.", chofer:"López Mario",
+          localidad_origen:"Gramilla", provincia_origen:"Santiago del Estero",
+          localidad_destino:"Timbúes", km:760, tarifa_catac:411, tarifa_real:390,
+          kg_bruto_salida:52100, kg_tara_salida:17400, humedad_salida:13.2,
+          kg_bruto_llegada:52080, kg_tara_llegada:17400, humedad_llegada:13.0,
+          nro_turno:"RTSOCOM260220001001", factor:0.982,
+          contrato_compra:"OC-2025-0001", contrato_venta:"OV-2025-0001",
+          _estado:"OK", _errores:[], _tiene_descarga:true, _tiene_calidad:true,
+        },
+        {
+          productor:"García Juan Carlos", comprador:"Bunge Argentina S.A.",
+          especie:"Soja", campana:"2024/2025", nro_ctg:"10129526901",
+          patente_chasis:"AC456EF", patente_acoplado:"",
+          transportista:"Logística Centro S.R.L.", chofer:"Ramírez Pedro",
+          localidad_origen:"Gramilla", provincia_origen:"Santiago del Estero",
+          localidad_destino:"Timbúes", km:760, tarifa_catac:411, tarifa_real:390,
+          kg_bruto_salida:51800, kg_tara_salida:17200, humedad_salida:13.8,
+          kg_bruto_llegada:null, kg_tara_llegada:null, humedad_llegada:null,
+          nro_turno:"", factor:null,
+          contrato_compra:"OC-2025-0001", contrato_venta:"",
+          _estado:"OK", _errores:[], _tiene_descarga:false, _tiene_calidad:false,
+        },
+        {
+          productor:"", comprador:"Bunge Argentina S.A.",
+          especie:"Soja", campana:"2024/2025", nro_ctg:"",
+          patente_chasis:"", patente_acoplado:"",
+          transportista:"", chofer:"",
+          kg_bruto_salida:null, kg_tara_salida:null,
+          _estado:"ERROR", _errores:["Productor requerido","Patente Chasis requerida","Transportista requerido","Kg Bruto Salida requerido"],
+          _tiene_descarga:false, _tiene_calidad:false,
+        },
+      ];
+      // Calcular kg netos
+      datosMock.forEach(r=>{
+        if(r.kg_bruto_salida&&r.kg_tara_salida) r._kg_neto_salida=r.kg_bruto_salida-r.kg_tara_salida;
+        if(r.kg_bruto_llegada&&r.kg_tara_llegada) r._kg_neto_llegada=r.kg_bruto_llegada-r.kg_tara_llegada;
+        if(r._kg_neto_salida&&r._kg_neto_llegada){
+          const dif = r._kg_neto_salida-r._kg_neto_llegada;
+          const tol = r._kg_neto_salida*0.0003;
+          r._faltante = Math.max(0,dif-tol);
+        }
+      });
+      const errs = datosMock.filter(r=>r._estado==="ERROR");
+      setDatos(datosMock);
+      setErrores(errs);
+      setSeleccionados(datosMock.filter(r=>r._estado==="OK").map((_,i)=>i));
+      setProcesando(false);
+      setPaso(2);
+    },1800);
+  };
+
+  const confirmarImport = () => {
+    setProcesando(true);
+    setTimeout(()=>{
+      setProcesando(false);
+      setPaso(3);
+    },1200);
+  };
+
+  const toggleSel = (i) => setSeleccionados(prev=>prev.includes(i)?prev.filter(x=>x!==i):[...prev,i]);
+  const ok = datos.filter(r=>r._estado==="OK");
+  const err = datos.filter(r=>r._estado==="ERROR");
+
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:20}}>
+        <h2 style={{fontSize:18,fontWeight:700}}>Importar Movimientos desde Excel</h2>
+        <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>
+          Cargá múltiples movimientos a la vez. Si tienen datos de descarga y calidad también los importa.
+        </p>
+      </div>
+
+      {/* PASOS */}
+      <div style={{display:"flex",gap:0,marginBottom:24}}>
+        {[
+          {n:1,label:"Subir archivo"},
+          {n:2,label:"Revisar y validar"},
+          {n:3,label:"Importado"},
+        ].map((p,i)=>(
+          <div key={p.n} style={{display:"flex",alignItems:"center"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",borderRadius:6,background:paso===p.n?"rgba(245,166,35,.12)":paso>p.n?"rgba(39,174,96,.1)":"transparent",border:`1px solid ${paso===p.n?"rgba(245,166,35,.3)":paso>p.n?"rgba(39,174,96,.3)":"#2a2d3e"}`}}>
+              <div style={{width:22,height:22,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,background:paso===p.n?"#f5a623":paso>p.n?"#27ae60":"#2a2d3e",color:paso>=p.n?"#000":"#8890a8"}}>
+                {paso>p.n?"✓":p.n}
+              </div>
+              <span style={{fontSize:13,fontWeight:paso===p.n?600:400,color:paso===p.n?"#f5a623":paso>p.n?"#27ae60":"#8890a8"}}>{p.label}</span>
+            </div>
+            {i<2&&<div style={{width:30,height:1,background:"#2a2d3e"}}/>}
+          </div>
+        ))}
+      </div>
+
+      {/* PASO 1 — SUBIR */}
+      {paso===1&&(
+        <div>
+          {/* PLANTILLA */}
+          <div className="card" style={{marginBottom:16,padding:"18px 20px"}}>
+            <div style={{fontWeight:600,marginBottom:8,fontSize:14}}>📋 Plantilla de Excel</div>
+            <p style={{color:"#8890a8",fontSize:13,marginBottom:14}}>
+              Usá esta estructura de columnas. Las marcadas con * son obligatorias. Si tenés datos de descarga completá esas columnas también — el sistema las importa automáticamente.
+            </p>
+            <div style={{overflowX:"auto"}}>
+              <table style={{fontSize:11}}>
+                <thead>
+                  <tr>
+                    {COLUMNAS.map(c=>(
+                      <th key={c.key} style={{background:c.requerido?"rgba(245,166,35,.15)":"rgba(52,152,219,.1)",color:c.requerido?"#f5a623":"#3498db",whiteSpace:"nowrap",padding:"6px 10px"}}>
+                        {c.label}{c.requerido?" *":""}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    {COLUMNAS.map(c=>(
+                      <td key={c.key} style={{color:"#565d7a",fontSize:11,whiteSpace:"nowrap",padding:"5px 10px"}}>
+                        {c.tipo==="number"?"0.000":c.tipo==="select"?ESPECIES[0]:"Ejemplo"}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div style={{marginTop:12,display:"flex",gap:8,flexWrap:"wrap"}}>
+              <div style={{padding:"4px 10px",background:"rgba(245,166,35,.1)",border:"1px solid rgba(245,166,35,.2)",borderRadius:4,fontSize:11,color:"#f5a623"}}>* Columnas obligatorias</div>
+              <div style={{padding:"4px 10px",background:"rgba(52,152,219,.1)",border:"1px solid rgba(52,152,219,.2)",borderRadius:4,fontSize:11,color:"#3498db"}}>Columnas opcionales</div>
+              <div style={{padding:"4px 10px",background:"rgba(39,174,96,.1)",border:"1px solid rgba(39,174,96,.2)",borderRadius:4,fontSize:11,color:"#27ae60"}}>Si tenés Kg Bruto/Tara Llegada → importa descarga</div>
+              <div style={{padding:"4px 10px",background:"rgba(155,89,182,.1)",border:"1px solid rgba(155,89,182,.2)",borderRadius:4,fontSize:11,color:"#9b59b6"}}>Si tenés Factor → importa calidad</div>
+            </div>
+          </div>
+
+          {/* DROP ZONE */}
+          <div className="drop-zone" style={{marginBottom:16}}>
+            <div style={{fontSize:40,marginBottom:12}}>📊</div>
+            <div style={{fontWeight:600,fontSize:15,marginBottom:6}}>Arrastrá el archivo Excel acá</div>
+            <div style={{color:"#8890a8",fontSize:13,marginBottom:16}}>Formatos soportados: .xlsx / .xls / .csv</div>
+            <Btn variant="secondary">Seleccionar archivo</Btn>
+          </div>
+
+          <div className="alert-info" style={{marginBottom:16}}>
+            💡 El sistema valida cada fila antes de importar. Las filas con errores se muestran en rojo y podés corregirlas o saltearlas. Las filas OK se importan todas juntas.
+          </div>
+
+          {procesando?(
+            <div style={{textAlign:"center",padding:"16px 0"}}>
+              <div className="pulse" style={{color:"#f5a623",fontWeight:600,marginBottom:6}}>Procesando archivo...</div>
+              <div style={{color:"#8890a8",fontSize:13}}>Validando filas y calculando kg netos</div>
+            </div>
+          ):(
+            <Btn onClick={simularImport} style={{width:"100%",justifyContent:"center",padding:12,fontSize:14}}>
+              Procesar archivo (demo con datos de ejemplo)
+            </Btn>
+          )}
+        </div>
+      )}
+
+      {/* PASO 2 — PREVIEW */}
+      {paso===2&&(
+        <div>
+          {/* RESUMEN */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:16}}>
+            <StatCard label="Total Filas" value={datos.length} sub="en el archivo" color="#3498db"/>
+            <StatCard label="Filas OK" value={ok.length} sub="listas para importar" color="#27ae60"/>
+            <StatCard label="Con Errores" value={err.length} sub="no se importarán" color="#e74c3c"/>
+            <StatCard label="Seleccionadas" value={seleccionados.length} sub="se van a importar" color="#f5a623"/>
+          </div>
+
+          {/* ALERTAS */}
+          {datos.some(r=>r._tiene_descarga)&&(
+            <div className="alert-success" style={{marginBottom:10}}>
+              ✓ {datos.filter(r=>r._tiene_descarga).length} fila(s) tienen datos de descarga — se importarán automáticamente
+            </div>
+          )}
+          {datos.some(r=>r._tiene_calidad)&&(
+            <div style={{padding:"10px 14px",background:"rgba(155,89,182,.1)",border:"1px solid rgba(155,89,182,.3)",borderRadius:6,marginBottom:10,fontSize:12,color:"#9b59b6"}}>
+              ✓ {datos.filter(r=>r._tiene_calidad).length} fila(s) tienen factor de calidad — se importarán automáticamente
+            </div>
+          )}
+          {err.length>0&&(
+            <div className="alert-danger" style={{marginBottom:10}}>
+              ⚠ {err.length} fila(s) tienen errores y no se importarán. Revisalas abajo.
+            </div>
+          )}
+
+          {/* TABLA PREVIEW */}
+          <div className="card" style={{overflowX:"auto",marginBottom:16}}>
+            <table style={{fontSize:12}}>
+              <thead>
+                <tr>
+                  <th>
+                    <input type="checkbox"
+                      checked={seleccionados.length===ok.length&&ok.length>0}
+                      onChange={()=>setSeleccionados(seleccionados.length===ok.length?[]:ok.map((_,i)=>datos.indexOf(_)))}
+                    />
+                  </th>
+                  <th>Estado</th>
+                  <th>Productor</th>
+                  <th>Comprador</th>
+                  <th>Especie</th>
+                  <th>Campaña</th>
+                  <th>CTG</th>
+                  <th>Patente</th>
+                  <th>Transportista</th>
+                  <th>Kg Neto Salida</th>
+                  <th>Kg Neto Llegada</th>
+                  <th>Faltante</th>
+                  <th>Factor</th>
+                  <th>Contrato C.</th>
+                  <th>Descarga</th>
+                  <th>Calidad</th>
+                </tr>
+              </thead>
+              <tbody>
+                {datos.map((r,i)=>(
+                  <tr key={i} style={{background:r._estado==="ERROR"?"rgba(231,76,60,.08)":seleccionados.includes(i)?"rgba(245,166,35,.05)":""}}>
+                    <td>
+                      {r._estado==="OK"&&(
+                        <input type="checkbox" checked={seleccionados.includes(i)} onChange={()=>toggleSel(i)}/>
+                      )}
+                    </td>
+                    <td>
+                      {r._estado==="OK"
+                        ?<Badge label="OK" color="green"/>
+                        :<div>
+                          <Badge label="ERROR" color="red"/>
+                          <div style={{marginTop:4}}>
+                            {r._errores.map((e,j)=>(
+                              <div key={j} style={{fontSize:10,color:"#e74c3c"}}>• {e}</div>
+                            ))}
+                          </div>
+                        </div>
+                      }
+                    </td>
+                    <td style={{fontWeight:500}}>{r.productor||<span style={{color:"#e74c3c"}}>—</span>}</td>
+                    <td style={{color:"#8890a8"}}>{r.comprador||"—"}</td>
+                    <td>{r.especie}</td>
+                    <td><span className="mono" style={{fontSize:11}}>{r.campana}</span></td>
+                    <td><span className="mono" style={{fontSize:11,color:"#8890a8"}}>{r.nro_ctg||"—"}</span></td>
+                    <td><span className="mono" style={{fontSize:11}}>{r.patente_chasis||<span style={{color:"#e74c3c"}}>—</span>}</span></td>
+                    <td style={{fontSize:11}}>{r.transportista||<span style={{color:"#e74c3c"}}>—</span>}</td>
+                    <td><span className="mono">{r._kg_neto_salida?.toLocaleString()||"—"}</span></td>
+                    <td><span className="mono" style={{color:r._tiene_descarga?"#27ae60":"#565d7a"}}>{r._kg_neto_llegada?.toLocaleString()||"—"}</span></td>
+                    <td>
+                      {r._faltante>0
+                        ?<span className="mono" style={{color:"#e74c3c"}}>-{r._faltante}</span>
+                        :r._tiene_descarga?<span style={{color:"#27ae60"}}>✓</span>:"—"
+                      }
+                    </td>
+                    <td>
+                      {r.factor
+                        ?<span className="mono" style={{color:"#9b59b6"}}>{r.factor}</span>
+                        :"—"
+                      }
+                    </td>
+                    <td><span className="mono" style={{fontSize:11,color:"#f5a623"}}>{r.contrato_compra||"Sin contrato"}</span></td>
+                    <td>{r._tiene_descarga?<Badge label="Sí" color="green"/>:<Badge label="No" color="gray"/>}</td>
+                    <td>{r._tiene_calidad?<Badge label="Sí" color="purple"/>:<Badge label="No" color="gray"/>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <Btn variant="secondary" onClick={()=>{setPaso(1);setDatos([]);setSeleccionados([]);}}>← Volver</Btn>
+            <Btn
+              disabled={seleccionados.length===0||procesando}
+              onClick={confirmarImport}
+            >
+              {procesando
+                ? <span className="pulse">Importando...</span>
+                : `Importar ${seleccionados.length} movimiento(s)`
+              }
+            </Btn>
+          </div>
+        </div>
+      )}
+
+      {/* PASO 3 — RESULTADO */}
+      {paso===3&&(
+        <div style={{textAlign:"center",padding:"40px 20px"}}>
+          <div style={{fontSize:60,marginBottom:16}}>✅</div>
+          <div style={{fontWeight:700,fontSize:22,marginBottom:8}}>
+            {seleccionados.length} movimiento(s) importados correctamente
+          </div>
+          <div style={{color:"#8890a8",fontSize:14,marginBottom:8}}>
+            {datos.filter((_,i)=>seleccionados.includes(i)&&datos[i]._tiene_descarga).length} con descarga incluida
+          </div>
+          <div style={{color:"#9b59b6",fontSize:14,marginBottom:32}}>
+            {datos.filter((_,i)=>seleccionados.includes(i)&&datos[i]._tiene_calidad).length} con calidad/factor incluido
+          </div>
+          {err.length>0&&(
+            <div className="alert-danger" style={{maxWidth:400,margin:"0 auto 24px",textAlign:"left"}}>
+              ⚠ {err.length} fila(s) no se importaron por errores. Corregí el Excel y volvé a importarlas.
+            </div>
+          )}
+          <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+            <Btn variant="secondary" onClick={()=>{setPaso(1);setDatos([]);setSeleccionados([]);}}>
+              Importar otro archivo
+            </Btn>
+            <Btn onClick={()=>alert("Ir a Movimientos")}>
+              Ver Movimientos →
+            </Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── APP PRINCIPAL ──
 const MENU = [
   {id:"dashboard",label:"Dashboard",icon:"⊞"},
@@ -1459,6 +1936,7 @@ const MENU = [
   {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚"},
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
+  {id:"importador_excel",label:"Importar Excel",icon:"📥"},
 ];
 
 function App() {
@@ -1478,6 +1956,7 @@ function App() {
       case "rep_fletes": return <ReporteFletes modulo={modulo}/>;
       case "rep_calidades": return <ReporteCalidades modulo={modulo}/>;
       case "posicion_abierta": return <PosicionAbierta modulo={modulo}/>;
+      case "importador_excel": return <ImportadorExcel modulo={modulo}/>;
       default: return <Dashboard {...p}/>;
     }
   };
