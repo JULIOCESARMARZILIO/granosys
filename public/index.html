@@ -34,16 +34,16 @@ tr:last-child td{border-bottom:none}
 .tab:hover{color:#e8eaf0}
 .tab.active{color:#f5a623;border-bottom-color:#f5a623}
 .tab-bar{display:flex;border-bottom:1px solid #2a2d3e;overflow-x:auto}
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto}
-.modal{background:#1a1d27;border:1px solid #2a2d3e;border-radius:12px;width:100%;max-height:calc(100vh - 40px);display:flex;flex-direction:column;margin:auto}
-.modal-header{padding:14px 20px;border-bottom:1px solid #2a2d3e;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;position:sticky;top:0;background:#1a1d27;z-index:10;border-radius:12px 12px 0 0}
-.modal-body{padding:20px;overflow-y:auto;flex:1}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:1000;display:flex;align-items:stretch;justify-content:center;padding:0}
+.modal{background:#1a1d27;border-left:1px solid #2a2d3e;border-right:1px solid #2a2d3e;width:100%;max-width:960px;height:100vh;display:flex;flex-direction:column;margin:0 auto;overflow:hidden;border-radius:0}
+.modal-header{padding:14px 20px;border-bottom:1px solid #2a2d3e;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:#1a1d27;z-index:10}
+.modal-body{padding:18px 20px 40px 20px;overflow-y:auto;flex:1;scroll-behavior:smooth}
 .card{background:#1a1d27;border:1px solid #2a2d3e;border-radius:10px;overflow:hidden}
 .card-header{padding:14px 18px;border-bottom:1px solid #2a2d3e;display:flex;align-items:center;justify-content:space-between}
-.form-field{margin-bottom:14px}
+.form-field{margin-bottom:11px}
 .form-label{display:block;font-size:11px;font-weight:600;color:#8890a8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
-.form-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
-.form-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px}
+.form-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px;align-items:start}
+.form-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px;align-items:start}
 .stat-card{background:#1a1d27;border:1px solid #2a2d3e;border-radius:10px;padding:18px 20px;position:relative;overflow:hidden}
 .stat-top{position:absolute;top:0;left:0;right:0;height:2px;opacity:.6}
 .nav-btn{width:100%;display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:7px;margin-bottom:2px;background:transparent;color:#8890a8;border:1px solid transparent;font-size:13px;text-align:left;cursor:pointer;transition:all .15s}
@@ -244,7 +244,7 @@ const Contrapartes = ({modulo}) => {
         {lista.length===0&&<div style={{padding:40,textAlign:"center",color:"#565d7a"}}>No se encontraron contrapartes</div>}
       </div>
       {showForm&&(
-        <Modal title={`Nueva Contraparte ${modulo==="FORMAL"?"Formal":"Informal"}`} onClose={()=>setShowForm(false)} width={640}>
+        <Modal title={`Nueva Contraparte ${modulo==="FORMAL"?"Formal":"Informal"}`} onClose={()=>setShowForm(false)} width={860}>
           <div className="form-grid-2">
             {modulo==="FORMAL"&&<FF label="CUIT" required><input placeholder="20-12345678-9" value={form.cuit} onChange={e=>setForm({...form,cuit:e.target.value})}/></FF>}
             <FF label="Razón Social / Nombre" required span={modulo==="INFORMAL"?2:1}><input placeholder="Nombre completo o razón social" value={form.razon_social} onChange={e=>setForm({...form,razon_social:e.target.value})}/></FF>
@@ -308,7 +308,7 @@ const Contratos = ({modulo}) => {
         {lista.length===0&&<div style={{padding:40,textAlign:"center",color:"#565d7a"}}>No hay contratos de {tab.toLowerCase()} en modalidad {modulo.toLowerCase()}</div>}
       </div>
       {showForm&&(
-        <Modal title="Nuevo Contrato" onClose={()=>setShowForm(false)} width={720}>
+        <Modal title="Nuevo Contrato" onClose={()=>setShowForm(false)} width={900}>
           <div style={{display:"flex",gap:8,marginBottom:18}}>
             {["COMPRA","VENTA","CANJE"].map(t=><Btn key={t} variant={form.tipo===t?"primary":"secondary"} size="sm" onClick={()=>setForm({...form,tipo:t})}>{t}</Btn>)}
           </div>
@@ -349,6 +349,29 @@ const Contratos = ({modulo}) => {
               <span style={{color:"#8890a8",fontSize:13}}>Margen estimado: </span>
               <span className="mono" style={{fontWeight:700,color:"#27ae60",fontSize:15}}>$ {((parseFloat(form.precio_venta_est)-parseFloat(form.precio)-parseFloat(form.flete_est||0))).toLocaleString()} / tn</span>
             </div>}
+          </div>
+          {/* COSTOS DE SERVICIOS */}
+          <div style={{marginTop:8,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e"}}>
+            <div style={{fontSize:11,color:"#f5a623",marginBottom:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>📦 Costos Pactados con el Productor (lo que le cobramos)</div>
+            <div className="form-grid-3">
+              <FF label="Secada ($ por punto)"><input type="number" placeholder="0.00"/></FF>
+              <FF label="Zarandeo ($ por tn)"><input type="number" placeholder="0.00"/></FF>
+              <FF label="Paritaria ($ por tn)"><input type="number" placeholder="0.00"/></FF>
+              <FF label="Fumigación ($ fijo)"><input type="number" placeholder="0.00"/></FF>
+              <FF label="Humedad máx. seco (%)"><input type="number" step="0.1" placeholder="13.5"/></FF>
+              <FF label="Otros — Descripción"><input placeholder="Descripción del servicio"/></FF>
+            </div>
+          </div>
+          <div style={{marginTop:8,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e"}}>
+            <div style={{fontSize:11,color:"#3498db",marginBottom:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>🏭 Costos que nos Cobran en Destino</div>
+            <div className="form-grid-3">
+              <FF label="Secada ($ por punto)"><input type="number" placeholder="0.00"/></FF>
+              <FF label="Zarandeo ($ por tn)"><input type="number" placeholder="0.00"/></FF>
+              <FF label="Paritaria ($ por tn)"><input type="number" placeholder="0.00"/></FF>
+              <FF label="Fumigación ($ fijo)"><input type="number" placeholder="0.00"/></FF>
+              <FF label="Otros — Descripción"><input placeholder="Descripción del servicio"/></FF>
+              <FF label="Otros — Valor"><input type="number" placeholder="0.00"/></FF>
+            </div>
           </div>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}>
             <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn>
@@ -465,7 +488,7 @@ const Movimientos = ({modulo}) => {
 
       {/* IMPORTADOR CPE */}
       {showImport&&(
-        <Modal title="Importar Carta de Porte Electrónica" onClose={()=>{setShowImport(false);setImportResult(null);}} width={680}>
+        <Modal title="Importar Carta de Porte Electrónica" onClose={()=>{setShowImport(false);setImportResult(null);}} width={900}>
           {!importResult?(
             <div>
               <div className="drop-zone" style={{marginBottom:16}}>
@@ -514,7 +537,7 @@ const Movimientos = ({modulo}) => {
 
       {/* DETALLE MOVIMIENTO */}
       {showForm&&(
-        <Modal title={selected?`Movimiento ${selected.numero}`:"Nuevo Movimiento"} onClose={()=>setShowForm(false)} width={760}>
+        <Modal title={selected?`Movimiento ${selected.numero}`:"Nuevo Movimiento"} onClose={()=>setShowForm(false)} width={960}>
           <div className="tab-bar" style={{marginBottom:20}}>
             {["salida","llegada","calidad","liquidacion","flete"].map(t=>(
               <button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>
@@ -526,9 +549,53 @@ const Movimientos = ({modulo}) => {
           {tab==="salida"&&(
             <div>
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>Contratos</div>
+              {/* PRODUCTOR — siempre obligatorio */}
+              <div style={{padding:"12px 14px",background:"rgba(52,152,219,.06)",border:"1px solid rgba(52,152,219,.2)",borderRadius:6,marginBottom:14,fontSize:12,color:"#8890a8"}}>
+                💡 El <strong style={{color:"#e8eaf0"}}>productor</strong> y el <strong style={{color:"#e8eaf0"}}>comprador</strong> siempre se registran aunque no haya contrato. Si no hay contrato la mercadería queda como <strong style={{color:"#f5a623"}}>posición abierta a fijar</strong> y se asigna después.
+              </div>
               <div className="form-grid-2" style={{marginBottom:18}}>
-                <FF label="Contrato de Compra"><select defaultValue={selected?.contrato_compra||""}><option value="">Sin asignar</option>{mockContratos.filter(c=>c.tipo==="COMPRA").map(c=><option key={c.id} value={c.numero}>{c.numero} — {c.contraparte}</option>)}</select></FF>
-                <FF label="Contrato de Venta"><select defaultValue={selected?.contrato_venta||""}><option value="">Sin asignar</option>{mockContratos.filter(c=>c.tipo==="VENTA").map(c=><option key={c.id} value={c.numero}>{c.numero} — {c.contraparte}</option>)}</select></FF>
+                <FF label="Productor" required>
+                  <select defaultValue={selected?.productor||""}>
+                    <option value="">Seleccionar productor...</option>
+                    {mockContrapartes.filter(c=>c.tipo==="PRODUCTOR"||c.tipo==="AMBOS").map(c=>(
+                      <option key={c.id} value={c.razon_social}>{c.codigo} — {c.razon_social} {c.cuit?"("+c.cuit+")":""}</option>
+                    ))}
+                  </select>
+                </FF>
+                <FF label="Comprador / Destino" required>
+                  <select defaultValue={selected?.comprador||""}>
+                    <option value="">Seleccionar comprador...</option>
+                    {mockContrapartes.filter(c=>c.tipo==="COMPRADOR"||c.tipo==="AMBOS").map(c=>(
+                      <option key={c.id} value={c.razon_social}>{c.codigo} — {c.razon_social} {c.cuit?"("+c.cuit+")":""}</option>
+                    ))}
+                  </select>
+                </FF>
+              </div>
+
+              {/* CONTRATOS — opcionales */}
+              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>
+                Contratos (opcional — si no hay queda como posición abierta)
+              </div>
+              <div className="form-grid-2" style={{marginBottom:8}}>
+                <FF label="Contrato de Compra">
+                  <select defaultValue={selected?.contrato_compra||""}>
+                    <option value="">Sin contrato → Posición Abierta A Fijar</option>
+                    {mockContratos.filter(c=>c.tipo==="COMPRA").map(c=>(
+                      <option key={c.id} value={c.numero}>{c.numero} — {c.contraparte} — {c.especie} {c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString()}</option>
+                    ))}
+                  </select>
+                </FF>
+                <FF label="Contrato de Venta">
+                  <select defaultValue={selected?.contrato_venta||""}>
+                    <option value="">Sin contrato → Posición Abierta A Fijar</option>
+                    {mockContratos.filter(c=>c.tipo==="VENTA").map(c=>(
+                      <option key={c.id} value={c.numero}>{c.numero} — {c.contraparte} — {c.especie} {c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString()}</option>
+                    ))}
+                  </select>
+                </FF>
+              </div>
+              <div style={{padding:"10px 14px",background:"rgba(155,89,182,.08)",border:"1px solid rgba(155,89,182,.2)",borderRadius:6,marginBottom:18,fontSize:12,color:"#9b59b6"}}>
+                📌 Si dejás sin contrato, la mercadería queda registrada como <strong>stock a fijar del productor</strong> sin condiciones prepactadas. Desde el módulo de Posición Abierta la podés asignar a un contrato o vender directamente cuando se cierre el precio.
               </div>
               {modulo==="FORMAL"&&<>
                 <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>Carta de Porte Electrónica</div>
@@ -813,34 +880,572 @@ const CuentaCorriente = ({modulo}) => {
 };
 
 // ── STOCK ──
-const Stock = () => (
-  <div className="fade-in">
-    <h2 style={{fontSize:18,fontWeight:700,marginBottom:20}}>Stock por Especie y Ubicación</h2>
-    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:20}}>
-      <StatCard label="Soja — Total" value="420 tn" sub="280 con precio · 140 a fijar" color="#e67e22"/>
-      <StatCard label="Maíz — Total" value="150 tn" sub="0 con precio · 150 a fijar" color="#f1c40f"/>
-      <StatCard label="Trigo — Total" value="60 tn" sub="60 con precio · 0 a fijar" color="#e74c3c"/>
+const stockData = [
+  {
+    productor:"García Juan Carlos", cuit:"20-12345678-9",
+    especie:"Soja", campana:"2024/2025", ubicacion:"Planta Propia",
+    tn_total: 180,
+    con_contrato: [
+      {contrato:"OC-2025-0001", tn:180, precio:285000, moneda:"PESOS", tipo:"PRECIO_HECHO", estado:"EN_CURSO"}
+    ],
+    sin_contrato: 0,
+  },
+  {
+    productor:"García Juan Carlos", cuit:"20-12345678-9",
+    especie:"Trigo", campana:"2024/2025", ubicacion:"Acopio Tercero",
+    tn_total: 60,
+    con_contrato: [
+      {contrato:"OC-2025-0003", tn:60, precio:180000, moneda:"PESOS", tipo:"PRECIO_HECHO", estado:"CONFIRMADO"}
+    ],
+    sin_contrato: 0,
+  },
+  {
+    productor:"Rodríguez Pedro", cuit:null,
+    especie:"Maíz", campana:"2024/2025", ubicacion:"Planta Propia",
+    tn_total: 31.4,
+    con_contrato: [],
+    sin_contrato: 31.4,
+  },
+];
+
+const Stock = () => {
+  const [expandido, setExpandido] = useState({});
+  const toggle = (key) => setExpandido(prev => ({...prev, [key]: !prev[key]}));
+
+  // Agrupar por productor
+  const porProductor = stockData.reduce((acc, s) => {
+    const key = s.productor;
+    if (!acc[key]) acc[key] = {productor:s.productor, cuit:s.cuit, items:[]};
+    acc[key].items.push(s);
+    return acc;
+  }, {});
+
+  const totalSoja = stockData.filter(s=>s.especie==="Soja").reduce((a,s)=>a+s.tn_total,0);
+  const totalMaiz = stockData.filter(s=>s.especie==="Maíz").reduce((a,s)=>a+s.tn_total,0);
+  const totalTrigo = stockData.filter(s=>s.especie==="Trigo").reduce((a,s)=>a+s.tn_total,0);
+  const totalSinContrato = stockData.reduce((a,s)=>a+s.sin_contrato,0);
+
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:20}}>
+        <h2 style={{fontSize:18,fontWeight:700}}>Stock por Productor</h2>
+        <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Total con contrato y sin contrato desglosado por productor</p>
+      </div>
+
+      {/* RESUMEN GENERAL */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:20}}>
+        <StatCard label="Soja — Total" value={`${totalSoja} tn`} sub="todas las posiciones" color="#e67e22"/>
+        <StatCard label="Maíz — Total" value={`${totalMaiz} tn`} sub="todas las posiciones" color="#f1c40f"/>
+        <StatCard label="Trigo — Total" value={`${totalTrigo} tn`} sub="todas las posiciones" color="#e74c3c"/>
+        <StatCard label="Sin Contrato" value={`${totalSinContrato.toFixed(1)} tn`} sub="posición abierta a fijar" color="#9b59b6"/>
+      </div>
+
+      {/* POR PRODUCTOR */}
+      {Object.values(porProductor).map(prod => {
+        const tnTotal = prod.items.reduce((a,s)=>a+s.tn_total,0);
+        const tnConContrato = prod.items.reduce((a,s)=>a+s.con_contrato.reduce((b,c)=>b+c.tn,0),0);
+        const tnSinContrato = prod.items.reduce((a,s)=>a+s.sin_contrato,0);
+        const key = prod.productor;
+        const isOpen = expandido[key];
+
+        return (
+          <div key={key} className="card" style={{marginBottom:14}}>
+            {/* CABECERA PRODUCTOR */}
+            <div
+              onClick={()=>toggle(key)}
+              style={{padding:"14px 18px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:isOpen?"1px solid #2a2d3e":"none"}}
+            >
+              <div style={{display:"flex",alignItems:"center",gap:14}}>
+                <span style={{color:"#565d7a",fontSize:16}}>{isOpen?"▼":"▶"}</span>
+                <div>
+                  <div style={{fontWeight:700,fontSize:15}}>{prod.productor}</div>
+                  <div style={{fontSize:12,color:"#8890a8",marginTop:2}}>{prod.cuit||"Informal"}</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:24,alignItems:"center"}}>
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontSize:10,color:"#8890a8",textTransform:"uppercase",letterSpacing:".06em"}}>Total</div>
+                  <div className="mono" style={{fontWeight:700,fontSize:18,color:"#e8eaf0"}}>{tnTotal.toFixed(3)} tn</div>
+                </div>
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontSize:10,color:"#8890a8",textTransform:"uppercase",letterSpacing:".06em"}}>Con Contrato</div>
+                  <div className="mono" style={{fontWeight:700,fontSize:16,color:"#27ae60"}}>{tnConContrato.toFixed(3)} tn</div>
+                </div>
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontSize:10,color:"#8890a8",textTransform:"uppercase",letterSpacing:".06em"}}>Sin Contrato</div>
+                  <div className="mono" style={{fontWeight:700,fontSize:16,color:tnSinContrato>0?"#9b59b6":"#565d7a"}}>{tnSinContrato.toFixed(3)} tn</div>
+                </div>
+              </div>
+            </div>
+
+            {/* DETALLE EXPANDIDO */}
+            {isOpen && (
+              <div style={{padding:"0 0 4px 0"}}>
+                {prod.items.map((s,idx) => (
+                  <div key={idx}>
+                    {/* FILA ESPECIE */}
+                    <div style={{padding:"10px 18px 6px 18px",background:"rgba(255,255,255,.02)",borderBottom:"1px solid #1e2133",display:"flex",alignItems:"center",gap:12}}>
+                      <span style={{fontWeight:600,fontSize:13,minWidth:60}}>{s.especie}</span>
+                      <span className="mono" style={{fontSize:11,color:"#565d7a"}}>{s.campana}</span>
+                      <span style={{fontSize:12,color:"#8890a8"}}>{s.ubicacion}</span>
+                      <span className="mono" style={{marginLeft:"auto",fontWeight:700,color:"#f5a623"}}>{s.tn_total.toFixed(3)} tn total</span>
+                    </div>
+
+                    {/* CON CONTRATO */}
+                    {s.con_contrato.length > 0 && s.con_contrato.map((cc,ci) => (
+                      <div key={ci} style={{padding:"8px 18px 8px 40px",borderBottom:"1px solid #1a1d27",display:"flex",alignItems:"center",gap:12}}>
+                        <div style={{width:6,height:6,borderRadius:"50%",background:"#27ae60",flexShrink:0}}/>
+                        <span style={{fontSize:12,color:"#27ae60",fontWeight:600,minWidth:80}}>Con contrato</span>
+                        <span className="mono" style={{fontSize:12,color:"#f5a623"}}>{cc.contrato}</span>
+                        <span className="mono" style={{fontSize:12}}>{cc.tn.toFixed(3)} tn</span>
+                        <span style={{fontSize:12,color:"#8890a8"}}>
+                          {cc.tipo==="A_FIJAR"
+                            ? <Badge label="A FIJAR" color="purple"/>
+                            : `$ ${cc.precio?.toLocaleString()} ${cc.moneda==="PESOS"?"$":cc.moneda==="DOLARES"?"USD":"USD Bill."}`
+                          }
+                        </span>
+                        <Badge label={cc.estado} color={cc.estado==="EN_CURSO"?"green":"blue"} />
+                      </div>
+                    ))}
+
+                    {/* SIN CONTRATO */}
+                    {s.sin_contrato > 0 && (
+                      <div style={{padding:"8px 18px 8px 40px",borderBottom:"1px solid #1a1d27",display:"flex",alignItems:"center",gap:12}}>
+                        <div style={{width:6,height:6,borderRadius:"50%",background:"#9b59b6",flexShrink:0}}/>
+                        <span style={{fontSize:12,color:"#9b59b6",fontWeight:600,minWidth:80}}>Sin contrato</span>
+                        <span className="mono" style={{fontSize:12}}>{s.sin_contrato.toFixed(3)} tn</span>
+                        <Badge label="POSICIÓN ABIERTA" color="purple"/>
+                        <Badge label="A FIJAR" color="purple"/>
+                        <Btn variant="ghost" size="sm" onClick={()=>alert("Ir a Posición Abierta para asignar contrato")}>
+                          Asignar contrato →
+                        </Btn>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
-    <div className="card">
-      <div className="card-header"><span style={{fontWeight:600,fontSize:14}}>Detalle por Ubicación</span></div>
-      <table><thead><tr><th>Especie</th><th>Campaña</th><th>Ubicación</th><th>Tn Totales</th><th>Con Precio</th><th>A Fijar</th><th>Comprometidas</th><th>Disponibles</th></tr></thead>
-      <tbody>
-        {[["Soja","2024/2025","Planta Propia",420,280,140,180,240],["Maíz","2024/2025","Planta Propia",150,0,150,0,150],["Trigo","2024/2025","Acopio Tercero",60,60,0,60,0]].map(([e,c,u,t,cp,af,co,d])=>(
-          <tr key={e+u}>
-            <td style={{fontWeight:500}}>{e}</td>
-            <td><span className="mono" style={{fontSize:11}}>{c}</span></td>
-            <td style={{color:"#8890a8"}}>{u}</td>
-            <td><span className="mono">{t}</span></td>
-            <td><span className="mono" style={{color:"#27ae60"}}>{cp}</span></td>
-            <td><span className="mono" style={{color:"#9b59b6"}}>{af}</span></td>
-            <td><span className="mono" style={{color:"#f5a623"}}>{co}</span></td>
-            <td><span className="mono" style={{fontWeight:700}}>{d}</span></td>
-          </tr>
-        ))}
-      </tbody></table>
+  );
+};
+
+// ── REPORTE FLETES ──
+const ReporteFletes = ({modulo}) => {
+  const [seleccionados, setSeleccionados] = useState([]);
+  const [tarifaMasiva, setTarifaMasiva] = useState("");
+  const [showPreliq, setShowPreliq] = useState(false);
+
+  const movs = mockMovimientos.filter(m => m.modalidad === modulo);
+
+  const toggleSelect = (id) => {
+    setSeleccionados(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id]);
+  };
+  const toggleAll = () => {
+    setSeleccionados(seleccionados.length === movs.length ? [] : movs.map(m=>m.id));
+  };
+
+  const puedePreLiq = (m) => m.factor !== null && m.kg_liquidables !== null;
+  const todosConCalidad = seleccionados.every(id => {
+    const m = movs.find(x=>x.id===id);
+    return m && puedePreLiq(m);
+  });
+
+  return (
+    <div className="fade-in">
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+        <div>
+          <h2 style={{fontSize:18,fontWeight:700}}>Reporte de Fletes</h2>
+          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Modificación masiva de tarifas y preliquidación</p>
+        </div>
+      </div>
+
+      {/* ACCIONES MASIVAS */}
+      {seleccionados.length > 0 && (
+        <div style={{padding:"14px 18px",background:"rgba(245,166,35,.08)",border:"1px solid rgba(245,166,35,.25)",borderRadius:8,marginBottom:16,display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+          <span style={{color:"#f5a623",fontWeight:600,fontSize:13}}>{seleccionados.length} movimiento(s) seleccionado(s)</span>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <input type="number" placeholder="Nueva tarifa $" value={tarifaMasiva} onChange={e=>setTarifaMasiva(e.target.value)}
+              style={{width:160,padding:"6px 10px",fontSize:13}}/>
+            <Btn variant="secondary" size="sm" onClick={()=>tarifaMasiva&&alert(`✓ Tarifa $${tarifaMasiva} aplicada a ${seleccionados.length} movimiento(s)`)}>
+              Aplicar Tarifa
+            </Btn>
+          </div>
+          <Btn
+            variant={todosConCalidad?"success":"secondary"}
+            size="sm"
+            disabled={!todosConCalidad}
+            onClick={()=>{
+              if(!todosConCalidad){alert("⚠ Hay movimientos sin calidad cargada. Cargá las calidades primero.");return;}
+              setShowPreliq(true);
+            }}
+          >
+            {todosConCalidad ? "✓ Preliquidar Fletes" : "⚠ Faltan Calidades"}
+          </Btn>
+        </div>
+      )}
+
+      <div className="card" style={{overflowX:"auto"}}>
+        <table>
+          <thead>
+            <tr>
+              <th><input type="checkbox" onChange={toggleAll} checked={seleccionados.length===movs.length&&movs.length>0}/></th>
+              <th>Fecha Carga</th>
+              <th>N° Mov / CTG</th>
+              <th>Productor</th>
+              <th>Comprador</th>
+              <th>Procedencia</th>
+              <th>Destino</th>
+              <th>Kg Carga</th>
+              <th>Kg Descarga</th>
+              <th>Transportista</th>
+              <th>Chofer</th>
+              <th>Patente</th>
+              <th>Tarifa</th>
+              <th>Calidad</th>
+              <th>Estado Flete</th>
+            </tr>
+          </thead>
+          <tbody>
+            {movs.map(m=>(
+              <tr key={m.id} style={{background:seleccionados.includes(m.id)?"rgba(245,166,35,.05)":""}}>
+                <td><input type="checkbox" checked={seleccionados.includes(m.id)} onChange={()=>toggleSelect(m.id)}/></td>
+                <td style={{color:"#8890a8",fontSize:12,whiteSpace:"nowrap"}}>16/02/2026</td>
+                <td>
+                  <div><span className="mono" style={{color:"#f5a623",fontSize:12}}>{m.numero}</span></div>
+                  {m.nro_ctg&&<div><span className="mono" style={{fontSize:10,color:"#565d7a"}}>{m.nro_ctg}</span></div>}
+                </td>
+                <td style={{fontWeight:500,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.productor}</td>
+                <td style={{color:"#8890a8",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.contrato_venta?mockContrapartes.find(c=>c.tipo==="COMPRADOR")?.razon_social:"—"}</td>
+                <td style={{fontSize:12,color:"#8890a8",whiteSpace:"nowrap"}}>{m.origen}</td>
+                <td style={{fontSize:12,color:"#8890a8",whiteSpace:"nowrap"}}>{m.destino}</td>
+                <td><span className="mono">{m.peso_neto_salida?.toLocaleString()}</span></td>
+                <td><span className="mono">{m.peso_neto_llegada?.toLocaleString()||<span style={{color:"#565d7a"}}>—</span>}</span></td>
+                <td style={{fontSize:12,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.transportista}</td>
+                <td style={{fontSize:12,whiteSpace:"nowrap"}}>{m.chofer}</td>
+                <td><span className="mono" style={{fontSize:12}}>{m.patente_chasis}</span></td>
+                <td>
+                  <span className="mono" style={{fontSize:12}}>$ {m.tarifa_real||"—"}</span>
+                </td>
+                <td>
+                  {puedePreLiq(m)
+                    ? <Badge label="OK" color="green"/>
+                    : <Badge label="Falta" color="red"/>
+                  }
+                </td>
+                <td>
+                  <Badge
+                    label={m.estado_liq==="LIQUIDADO"?"Liquidado":m.estado_liq==="PRELIQUIDADO"?"Preliq.":"Pendiente"}
+                    color={m.estado_liq==="LIQUIDADO"?"green":m.estado_liq==="PRELIQUIDADO"?"blue":"orange"}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* MODAL PRELIQUIDACION */}
+      {showPreliq&&(
+        <Modal title="Confirmar Preliquidación de Fletes" onClose={()=>setShowPreliq(false)}>
+          <div className="alert-info" style={{marginBottom:16}}>
+            Se van a preliquidar {seleccionados.length} flete(s). Una vez confirmado no se podrán modificar kilos ni calidad.
+          </div>
+          <table>
+            <thead><tr><th>Movimiento</th><th>Transportista</th><th>Kg Liq.</th><th>Tarifa</th><th>Monto Est.</th></tr></thead>
+            <tbody>
+              {seleccionados.map(id=>{
+                const m = movs.find(x=>x.id===id);
+                if(!m) return null;
+                const monto = m.km && m.tarifa_real && m.kg_liquidables
+                  ? Math.round(m.km * m.tarifa_real * m.kg_liquidables/1000/100)
+                  : 0;
+                return (
+                  <tr key={id}>
+                    <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{m.numero}</span></td>
+                    <td style={{fontSize:12}}>{m.transportista}</td>
+                    <td><span className="mono">{m.kg_liquidables?.toLocaleString()}</span></td>
+                    <td><span className="mono">$ {m.tarifa_real}</span></td>
+                    <td><span className="mono" style={{color:"#f5a623",fontWeight:700}}>$ {monto.toLocaleString()}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
+            <Btn variant="secondary" onClick={()=>setShowPreliq(false)}>Cancelar</Btn>
+            <Btn variant="success" onClick={()=>{alert(`✓ ${seleccionados.length} flete(s) preliquidados. Kilos y calidad bloqueados.`);setShowPreliq(false);setSeleccionados([]);}}>
+              Confirmar Preliquidación
+            </Btn>
+          </div>
+        </Modal>
+      )}
     </div>
-  </div>
-);
+  );
+};
+
+// ── REPORTE CALIDADES ──
+const ReporteCalidades = ({modulo}) => {
+  const [seleccionados, setSeleccionados] = useState([]);
+  const [factorMasivo, setFactorMasivo] = useState("");
+
+  const movsSinCalidad = mockMovimientos.filter(m =>
+    m.modalidad === modulo &&
+    m.estado === "DESCARGADO" &&
+    m.factor === null
+  );
+  const movsConCalidad = mockMovimientos.filter(m =>
+    m.modalidad === modulo &&
+    m.factor !== null
+  );
+
+  const toggleSelect = (id) => {
+    setSeleccionados(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id]);
+  };
+  const toggleAll = () => {
+    setSeleccionados(seleccionados.length===movsSinCalidad.length ? [] : movsSinCalidad.map(m=>m.id));
+  };
+
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:20}}>
+        <h2 style={{fontSize:18,fontWeight:700}}>Reporte de Calidades</h2>
+        <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Calidades pendientes de carga y asignación masiva</p>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
+        <StatCard label="Sin Calidad Cargada" value={movsSinCalidad.length} sub="requieren calidad para preliquidar" color="#e74c3c"/>
+        <StatCard label="Con Calidad OK" value={movsConCalidad.length} sub="listos para preliquidar" color="#27ae60"/>
+      </div>
+
+      {/* PENDIENTES SIN CALIDAD */}
+      <div className="card" style={{marginBottom:16}}>
+        <div className="card-header">
+          <span style={{fontWeight:600,fontSize:14}}>⚠ Pendientes sin Calidad</span>
+          {seleccionados.length>0&&(
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <input type="number" step="0.001" placeholder="Factor directo (ej: 0.980)" value={factorMasivo}
+                onChange={e=>setFactorMasivo(e.target.value)}
+                style={{width:200,padding:"5px 10px",fontSize:13}}/>
+              <Btn variant="primary" size="sm"
+                onClick={()=>factorMasivo&&alert(`✓ Factor ${factorMasivo} aplicado a ${seleccionados.length} movimiento(s)`)}>
+                Aplicar Factor Masivo
+              </Btn>
+            </div>
+          )}
+        </div>
+        {movsSinCalidad.length===0?(
+          <div style={{padding:30,textAlign:"center",color:"#27ae60",fontWeight:600}}>
+            ✓ Todos los movimientos tienen calidad cargada
+          </div>
+        ):(
+          <table>
+            <thead>
+              <tr>
+                <th><input type="checkbox" onChange={toggleAll} checked={seleccionados.length===movsSinCalidad.length&&movsSinCalidad.length>0}/></th>
+                <th>N° Mov</th><th>Especie</th><th>Productor</th>
+                <th>Fecha Descarga</th><th>Kg Llegada</th><th>Humedad</th><th>Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              {movsSinCalidad.map(m=>(
+                <tr key={m.id} style={{background:seleccionados.includes(m.id)?"rgba(231,76,60,.05)":""}}>
+                  <td><input type="checkbox" checked={seleccionados.includes(m.id)} onChange={()=>toggleSelect(m.id)}/></td>
+                  <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{m.numero}</span></td>
+                  <td>{m.especie}</td>
+                  <td>{m.productor}</td>
+                  <td style={{color:"#8890a8",fontSize:12}}>—</td>
+                  <td><span className="mono">{m.peso_neto_llegada?.toLocaleString()||"—"}</span></td>
+                  <td><span className="mono">{m.humedad_llegada||"—"}</span></td>
+                  <td><Btn variant="ghost" size="sm" onClick={()=>alert("Cargar calidad rubro a rubro para "+m.numero)}>Cargar Calidad</Btn></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* CON CALIDAD OK */}
+      <div className="card">
+        <div className="card-header"><span style={{fontWeight:600,fontSize:14}}>✓ Con Calidad Cargada</span></div>
+        <table>
+          <thead>
+            <tr><th>N° Mov</th><th>Especie</th><th>Productor</th><th>Kg Liquidables</th><th>Factor</th><th>Estado Liq.</th></tr>
+          </thead>
+          <tbody>
+            {movsConCalidad.map(m=>(
+              <tr key={m.id}>
+                <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{m.numero}</span></td>
+                <td>{m.especie}</td>
+                <td>{m.productor}</td>
+                <td><span className="mono" style={{color:"#27ae60",fontWeight:600}}>{m.kg_liquidables?.toLocaleString()}</span></td>
+                <td><span className="mono" style={{color:"#f5a623"}}>{m.factor}</span></td>
+                <td><Badge label={m.estado_liq} color={m.estado_liq==="LIQUIDADO"?"green":m.estado_liq==="ASIGNADO"?"blue":"orange"}/></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// ── POSICIÓN ABIERTA ──
+const PosicionAbierta = ({modulo}) => {
+  const [showAsignar, setShowAsignar] = useState(false);
+  const [seleccionado, setSeleccionado] = useState(null);
+
+  // Movimientos sin contrato asignado
+  const movsSinContrato = mockMovimientos.filter(m =>
+    m.modalidad === modulo && !m.contrato_compra
+  );
+
+  // Agrupar por productor y especie
+  const posiciones = mockContrapartes
+    .filter(c => c.tipo === "PRODUCTOR" || c.tipo === "AMBOS")
+    .map(prod => {
+      const movs = movsSinContrato.filter(m => m.productor === prod.razon_social);
+      if (movs.length === 0) return null;
+      const tn = movs.reduce((a, m) => a + (m.kg_liquidables || m.peso_neto_salida || 0) / 1000, 0);
+      return { productor: prod, movs, tn };
+    })
+    .filter(Boolean);
+
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:20}}>
+        <h2 style={{fontSize:18,fontWeight:700}}>Posición Abierta Sin Contrato</h2>
+        <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>
+          Mercadería recibida sin contrato asignado — stock a fijar sin condiciones prepactadas
+        </p>
+      </div>
+
+      {posiciones.length === 0 ? (
+        <div style={{padding:40,textAlign:"center",color:"#27ae60",fontWeight:600,fontSize:15}}>
+          ✓ No hay mercadería sin contrato asignado
+        </div>
+      ) : (
+        posiciones.map(pos => (
+          <div key={pos.productor.id} className="card" style={{marginBottom:14}}>
+            <div className="card-header">
+              <div>
+                <span style={{fontWeight:700,fontSize:15}}>{pos.productor.razon_social}</span>
+                <span style={{color:"#8890a8",fontSize:12,marginLeft:12}}>{pos.productor.cuit||"Informal"}</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <span className="mono" style={{color:"#f5a623",fontWeight:700,fontSize:16}}>
+                  {pos.tn.toFixed(3)} tn sin asignar
+                </span>
+                <Badge label="A FIJAR" color="purple"/>
+              </div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>N° Mov</th><th>Especie</th><th>Campaña</th>
+                  <th>Comprador</th><th>Kg Liquidables</th>
+                  <th>Humedad</th><th>Factor</th><th>Estado Calidad</th><th>Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pos.movs.map(m => (
+                  <tr key={m.id}>
+                    <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{m.numero}</span></td>
+                    <td>{m.especie}</td>
+                    <td><span className="mono" style={{fontSize:11}}>{m.campana}</span></td>
+                    <td style={{color:"#8890a8",fontSize:12}}>{m.destino?.split(",")[0]||"—"}</td>
+                    <td>
+                      <span className="mono" style={{fontWeight:600}}>
+                        {m.kg_liquidables?.toLocaleString() || <span style={{color:"#565d7a"}}>Sin calidad</span>}
+                      </span>
+                    </td>
+                    <td><span className="mono">{m.humedad_llegada||"—"}</span></td>
+                    <td>
+                      {m.factor
+                        ? <span className="mono" style={{color:"#f5a623"}}>{m.factor}</span>
+                        : <Badge label="Falta" color="red"/>
+                      }
+                    </td>
+                    <td>
+                      {m.factor
+                        ? <Badge label="OK" color="green"/>
+                        : <Badge label="Sin calidad" color="red"/>
+                      }
+                    </td>
+                    <td>
+                      <div style={{display:"flex",gap:6}}>
+                        <Btn variant="secondary" size="sm"
+                          onClick={()=>{setSeleccionado(m);setShowAsignar(true);}}>
+                          Asignar Contrato
+                        </Btn>
+                        <Btn variant="ghost" size="sm"
+                          onClick={()=>alert("Crear venta directa desde posición abierta para "+m.numero)}>
+                          Vender
+                        </Btn>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))
+      )}
+
+      {/* MODAL ASIGNAR CONTRATO */}
+      {showAsignar && seleccionado && (
+        <Modal title={`Asignar Contrato — ${seleccionado.numero}`} onClose={()=>setShowAsignar(false)}>
+          <div className="alert-info" style={{marginBottom:16}}>
+            Seleccioná un contrato existente o creá uno nuevo para asignar esta mercadería.
+          </div>
+          <div style={{padding:"12px 14px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",marginBottom:16}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+              {[
+                ["Productor", seleccionado.productor],
+                ["Especie", seleccionado.especie],
+                ["Kg Liquidables", seleccionado.kg_liquidables?.toLocaleString()||"Sin calidad"],
+              ].map(([l,v])=>(
+                <div key={l}>
+                  <div style={{fontSize:11,color:"#8890a8"}}>{l}</div>
+                  <div style={{fontWeight:600,marginTop:2}}>{v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="form-grid-2">
+            <FF label="Asignar a Contrato de Compra Existente">
+              <select>
+                <option value="">Seleccionar contrato...</option>
+                {mockContratos.filter(c=>c.tipo==="COMPRA").map(c=>(
+                  <option key={c.id}>{c.numero} — {c.contraparte} — {c.especie}</option>
+                ))}
+              </select>
+            </FF>
+            <FF label="Asignar a Contrato de Venta Existente">
+              <select>
+                <option value="">Seleccionar contrato...</option>
+                {mockContratos.filter(c=>c.tipo==="VENTA").map(c=>(
+                  <option key={c.id}>{c.numero} — {c.contraparte} — {c.especie}</option>
+                ))}
+              </select>
+            </FF>
+          </div>
+          <div style={{padding:"12px 14px",background:"rgba(39,174,96,.06)",border:"1px solid rgba(39,174,96,.2)",borderRadius:6,marginTop:8,marginBottom:16,fontSize:12,color:"#27ae60"}}>
+            ¿No hay contrato? → Podés crear uno nuevo desde el módulo de Contratos y después volver acá a asignarlo.
+          </div>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <Btn variant="secondary" onClick={()=>setShowAsignar(false)}>Cancelar</Btn>
+            <Btn onClick={()=>{alert("✓ Contrato asignado al movimiento "+seleccionado.numero);setShowAsignar(false);}}>
+              Confirmar Asignación
+            </Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+};
 
 // ── APP PRINCIPAL ──
 const MENU = [
@@ -851,6 +1456,9 @@ const MENU = [
   {id:"liquidaciones",label:"Liquidaciones",icon:"📊"},
   {id:"cc",label:"Cuenta Corriente",icon:"💰"},
   {id:"stock",label:"Stock",icon:"🌾"},
+  {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚"},
+  {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
+  {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
 ];
 
 function App() {
@@ -867,6 +1475,9 @@ function App() {
       case "liquidaciones": return <Liquidaciones {...p}/>;
       case "cc": return <CuentaCorriente {...p}/>;
       case "stock": return <Stock/>;
+      case "rep_fletes": return <ReporteFletes modulo={modulo}/>;
+      case "rep_calidades": return <ReporteCalidades modulo={modulo}/>;
+      case "posicion_abierta": return <PosicionAbierta modulo={modulo}/>;
       default: return <Dashboard {...p}/>;
     }
   };
