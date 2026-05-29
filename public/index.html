@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GranoSYS — Sistema de Comercialización</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0f1117;color:#e8eaf0;font-family:'IBM Plex Sans',sans-serif;font-size:14px;line-height:1.5;height:100vh;overflow:hidden}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:#0f1117}
+::-webkit-scrollbar-thumb{background:#2a2d3e;border-radius:3px}
+.mono{font-family:'IBM Plex Mono',monospace}
+input,select,textarea{background:#0f1117;border:1px solid #2a2d3e;color:#e8eaf0;padding:8px 12px;border-radius:6px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;outline:none;width:100%;transition:border-color 0.2s}
+input:focus,select:focus{border-color:#f5a623}
+input::placeholder{color:#565d7a}
+select option{background:#1a1d27}
+button{font-family:'IBM Plex Sans',sans-serif;cursor:pointer;border:none;transition:all 0.2s}
+table{width:100%;border-collapse:collapse}
+th{background:#0f1117;color:#8890a8;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.08em;padding:10px 14px;text-align:left;border-bottom:1px solid #2a2d3e;white-space:nowrap}
+td{padding:10px 14px;border-bottom:1px solid #1e2133;font-size:13px;vertical-align:middle}
+tr:hover td{background:rgba(255,255,255,.02)}
+tr:last-child td{border-bottom:none}
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.fade-in{animation:fadeIn .2s ease forwards}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.pulse{animation:pulse 1.5s ease infinite}
+.tab{padding:9px 16px;font-size:13px;font-weight:500;color:#8890a8;background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:all .2s;margin-bottom:-1px;white-space:nowrap}
+.tab:hover{color:#e8eaf0}
+.tab.active{color:#f5a623;border-bottom-color:#f5a623}
+.tab-bar{display:flex;border-bottom:1px solid #2a2d3e;overflow-x:auto}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto}
+.modal{background:#1a1d27;border:1px solid #2a2d3e;border-radius:12px;width:100%;max-height:calc(100vh - 40px);display:flex;flex-direction:column;margin:auto}
+.modal-header{padding:14px 20px;border-bottom:1px solid #2a2d3e;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;position:sticky;top:0;background:#1a1d27;z-index:10;border-radius:12px 12px 0 0}
+.modal-body{padding:20px;overflow-y:auto;flex:1}
+.card{background:#1a1d27;border:1px solid #2a2d3e;border-radius:10px;overflow:hidden}
+.card-header{padding:14px 18px;border-bottom:1px solid #2a2d3e;display:flex;align-items:center;justify-content:space-between}
+.form-field{margin-bottom:14px}
+.form-label{display:block;font-size:11px;font-weight:600;color:#8890a8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.form-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+.form-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px}
+.stat-card{background:#1a1d27;border:1px solid #2a2d3e;border-radius:10px;padding:18px 20px;position:relative;overflow:hidden}
+.stat-top{position:absolute;top:0;left:0;right:0;height:2px;opacity:.6}
+.nav-btn{width:100%;display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:7px;margin-bottom:2px;background:transparent;color:#8890a8;border:1px solid transparent;font-size:13px;text-align:left;cursor:pointer;transition:all .15s}
+.nav-btn:hover{color:#e8eaf0;background:rgba(255,255,255,.03)}
+.nav-btn.active{background:rgba(245,166,35,.12);color:#f5a623;border-color:rgba(245,166,35,.2);font-weight:600}
+.drop-zone{border:2px dashed #2a2d3e;border-radius:10px;padding:36px;text-align:center;cursor:pointer;transition:border-color .2s}
+.drop-zone:hover{border-color:#f5a623}
+.alert-info{padding:10px 14px;background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.2);border-radius:6px;font-size:12px;color:#ffd280}
+.alert-success{padding:10px 14px;background:rgba(39,174,96,.1);border:1px solid rgba(39,174,96,.3);border-radius:6px;font-size:12px;color:#27ae60}
+.alert-danger{padding:10px 14px;background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);border-radius:6px;font-size:12px;color:#e74c3c}
+.progress-bar{height:6px;background:#0f1117;border-radius:3px;overflow:hidden;min-width:60px}
+.progress-fill{height:100%;border-radius:3px;background:#f5a623;transition:width .3s}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState, useEffect} = React;
+
+// DATOS MOCK
+const ESPECIES = ["Soja","Trigo","Maíz","Girasol","Sorgo","Cebada"];
+const CAMPANAS = ["2023/2024","2024/2025","2025/2026"];
+const PROVINCIAS = ["Buenos Aires","Córdoba","Santa Fe","Entre Ríos","Santiago del Estero","Chaco","La Pampa","Salta","Tucumán"];
+
+const mockContrapartes = [
+  {id:1,codigo:"P-0001",cuit:"20-12345678-9",razon_social:"García Juan Carlos",tipo:"PRODUCTOR",canal:"FORMAL",provincia:"Santiago del Estero",localidad:"Gramilla",activo:true},
+  {id:2,codigo:"P-0002",cuit:null,razon_social:"Rodríguez Pedro",tipo:"PRODUCTOR",canal:"INFORMAL",provincia:"Chaco",localidad:"Presidencia Roque Sáenz Peña",activo:true},
+  {id:3,codigo:"C-0001",cuit:"30-71234567-8",razon_social:"Bunge Argentina S.A.",tipo:"COMPRADOR",canal:"FORMAL",provincia:"Santa Fe",localidad:"Timbúes",activo:true},
+  {id:4,codigo:"C-0002",cuit:"30-65432198-7",razon_social:"Aceitera General Deheza",tipo:"COMPRADOR",canal:"FORMAL",provincia:"Córdoba",localidad:"Gral. Deheza",activo:true},
+  {id:5,codigo:"P-0003",cuit:"20-98765432-1",razon_social:"López María Elena",tipo:"PRODUCTOR",canal:"FORMAL",provincia:"Córdoba",localidad:"Marcos Juárez",activo:true},
+];
+
+const mockContratos = [
+  {id:1,numero:"OC-2025-0001",tipo:"COMPRA",modalidad:"FORMAL",fecha:"2025-03-15",especie:"Soja",campana:"2024/2025",contraparte:"García Juan Carlos",toneladas:300,tipo_precio:"PRECIO_HECHO",precio:285000,moneda:"PESOS",tipo_entrega:"A_RETIRAR",estado:"EN_CURSO",asignadas:180,tipo_liq:"INCISO_A"},
+  {id:2,numero:"OV-2025-0001",tipo:"VENTA",modalidad:"FORMAL",fecha:"2025-03-15",especie:"Soja",campana:"2024/2025",contraparte:"Bunge Argentina S.A.",toneladas:300,tipo_precio:"PRECIO_HECHO",precio:292000,moneda:"PESOS",tipo_entrega:"PUESTO_DESTINO",estado:"EN_CURSO",asignadas:180,tipo_liq:"INCISO_A"},
+  {id:3,numero:"OC-2025-0002",tipo:"COMPRA",modalidad:"INFORMAL",fecha:"2025-04-02",especie:"Maíz",campana:"2024/2025",contraparte:"Rodríguez Pedro",toneladas:150,tipo_precio:"A_FIJAR",precio:null,moneda:"DOLARES",tipo_entrega:"A_RETIRAR",estado:"CONFIRMADO",asignadas:0,tipo_liq:null},
+  {id:4,numero:"OC-2025-0003",tipo:"COMPRA",modalidad:"FORMAL",fecha:"2025-04-10",especie:"Trigo",campana:"2024/2025",contraparte:"García Juan Carlos",toneladas:200,tipo_precio:"PRECIO_HECHO",precio:180000,moneda:"PESOS",tipo_entrega:"A_RETIRAR",estado:"CONFIRMADO",asignadas:60,tipo_liq:"INCISO_B"},
+  {id:5,numero:"OV-2025-0002",tipo:"VENTA",modalidad:"INFORMAL",fecha:"2025-04-05",especie:"Maíz",campana:"2024/2025",contraparte:"Rodríguez Pedro",toneladas:150,tipo_precio:"A_FIJAR",precio:null,moneda:"DOLARES",tipo_entrega:"PUESTO_DESTINO",estado:"CONFIRMADO",asignadas:0,tipo_liq:null},
+];
+
+const mockMovimientos = [
+  {id:1,numero:"MOV-0001",nro_ctg:"10129526726",nro_cpe:"00000-00001444",especie:"Soja",campana:"2024/2025",contrato_compra:"OC-2025-0001",contrato_venta:"OV-2025-0001",productor:"García Juan Carlos",origen:"Gramilla, Sgo. del Estero",destino:"Timbúes, Santa Fe",transportista:"Logística Centro S.R.L.",chofer:"Zamora Pablo Leandro",patente_chasis:"AA496YI",patente_acoplado:"AD846IU",km:760,tarifa_catac:411,tarifa_real:395,peso_bruto_salida:52380,peso_tara_salida:17400,peso_neto_salida:34980,humedad_salida:13.2,peso_bruto_llegada:52320,peso_tara_llegada:17400,peso_neto_llegada:34920,humedad_llegada:13.0,faltante:60,estado:"DESCARGADO",estado_liq:"ASIGNADO",factor:0.98,kg_liquidables:34221.6,modalidad:"FORMAL"},
+  {id:2,numero:"MOV-0002",nro_ctg:"10129526800",nro_cpe:"00000-00001445",especie:"Soja",campana:"2024/2025",contrato_compra:"OC-2025-0001",contrato_venta:"OV-2025-0001",productor:"García Juan Carlos",origen:"Gramilla, Sgo. del Estero",destino:"Timbúes, Santa Fe",transportista:"Logística Centro S.R.L.",chofer:"Zamora Pablo Leandro",patente_chasis:"AA496YI",patente_acoplado:"AD846IU",km:760,tarifa_catac:411,tarifa_real:395,peso_bruto_salida:52100,peso_tara_salida:17400,peso_neto_salida:34700,humedad_salida:13.5,peso_bruto_llegada:52100,peso_tara_llegada:17400,peso_neto_llegada:34700,humedad_llegada:13.1,faltante:0,estado:"LIQUIDADO",estado_liq:"LIQUIDADO",factor:0.985,kg_liquidables:34179.5,modalidad:"FORMAL"},
+  {id:3,numero:"MOV-0003",nro_ctg:null,nro_cpe:null,especie:"Maíz",campana:"2024/2025",contrato_compra:"OC-2025-0002",contrato_venta:null,productor:"Rodríguez Pedro",origen:"Sáenz Peña, Chaco",destino:"Sin asignar",transportista:"Sin registrar",chofer:"Sin registrar",patente_chasis:"AC234BB",patente_acoplado:null,km:null,tarifa_catac:null,tarifa_real:null,peso_bruto_salida:48200,peso_tara_salida:16800,peso_neto_salida:31400,humedad_salida:14.0,peso_bruto_llegada:null,peso_tara_llegada:null,peso_neto_llegada:null,humedad_llegada:null,faltante:null,estado:"EN_TRANSITO",estado_liq:"SIN_ASIGNAR",factor:null,kg_liquidables:null,modalidad:"INFORMAL"},
+];
+
+const mockLiquidaciones = [
+  {id:1,numero:"LIQ-2025-0001",tipo:"COMPRA",tipo_liq:"INCISO_A",contraparte:"García Juan Carlos",contrato:"OC-2025-0001",fecha:"2025-03-20",camiones:1,kg:34179,monto_bruto:9741165,descuentos:73000,retenciones:487058,monto_neto:9181107,estado:"PAGADA",modalidad:"FORMAL"},
+  {id:2,numero:"LIQ-2025-0002",tipo:"COMPRA",tipo_liq:"INCISO_A",contraparte:"García Juan Carlos",contrato:"OC-2025-0001",fecha:"2025-03-28",camiones:1,kg:34221,monto_bruto:9753135,descuentos:68000,retenciones:484307,monto_neto:9200828,estado:"EMITIDA",modalidad:"FORMAL"},
+];
+
+// HELPERS
+const Badge = ({label, color}) => {
+  const colors = {
+    green:{bg:"rgba(39,174,96,.15)",text:"#27ae60",border:"rgba(39,174,96,.3)"},
+    red:{bg:"rgba(231,76,60,.15)",text:"#e74c3c",border:"rgba(231,76,60,.3)"},
+    orange:{bg:"rgba(245,166,35,.15)",text:"#f5a623",border:"rgba(245,166,35,.3)"},
+    blue:{bg:"rgba(52,152,219,.15)",text:"#3498db",border:"rgba(52,152,219,.3)"},
+    purple:{bg:"rgba(155,89,182,.15)",text:"#9b59b6",border:"rgba(155,89,182,.3)"},
+    gray:{bg:"rgba(136,144,168,.15)",text:"#8890a8",border:"rgba(136,144,168,.3)"},
+  };
+  const c = colors[color]||colors.gray;
+  return <span className="badge" style={{background:c.bg,color:c.text,border:`1px solid ${c.border}`}}>{label}</span>;
+};
+
+const Btn = ({children,onClick,variant="primary",size="md",disabled=false,style={}}) => {
+  const v = {
+    primary:{background:"#f5a623",color:"#000",fontWeight:600},
+    secondary:{background:"transparent",color:"#e8eaf0",border:"1px solid #2a2d3e"},
+    ghost:{background:"transparent",color:"#8890a8"},
+    danger:{background:"rgba(231,76,60,.15)",color:"#e74c3c",border:"1px solid rgba(231,76,60,.3)"},
+    success:{background:"rgba(39,174,96,.15)",color:"#27ae60",border:"1px solid rgba(39,174,96,.3)"},
+  };
+  const s = {sm:{padding:"5px 12px",fontSize:12,borderRadius:5},md:{padding:"8px 16px",fontSize:13,borderRadius:6},lg:{padding:"11px 22px",fontSize:14,borderRadius:8}};
+  return <button onClick={onClick} disabled={disabled} style={{...v[variant],...s[size],opacity:disabled?.4:1,display:"inline-flex",alignItems:"center",gap:6,fontWeight:500,...style}}>{children}</button>;
+};
+
+const Modal = ({title,onClose,children,width=600}) => (
+  <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)onClose()}}>
+    <div className="modal fade-in" style={{maxWidth:width}}>
+      <div className="modal-header">
+        <span style={{fontWeight:600,fontSize:15}}>{title}</span>
+        <button onClick={onClose} style={{background:"none",color:"#8890a8",fontSize:22,lineHeight:1,padding:"0 4px"}}>×</button>
+      </div>
+      <div className="modal-body">{children}</div>
+    </div>
+  </div>
+);
+
+const FF = ({label,children,required,span}) => (
+  <div className="form-field" style={span?{gridColumn:`span ${span}`}:{}}>
+    <label className="form-label">{label}{required&&<span style={{color:"#f5a623",marginLeft:3}}>*</span>}</label>
+    {children}
+  </div>
+);
+
+const StatCard = ({label,value,sub,color="#f5a623"}) => (
+  <div className="stat-card">
+    <div className="stat-top" style={{background:color}}/>
+    <div style={{fontSize:11,color:"#8890a8",textTransform:"uppercase",letterSpacing:".07em",marginBottom:8}}>{label}</div>
+    <div className="mono" style={{fontSize:24,fontWeight:700,color,letterSpacing:"-.02em"}}>{value}</div>
+    {sub&&<div style={{fontSize:12,color:"#565d7a",marginTop:4}}>{sub}</div>}
+  </div>
+);
+
+// ── DASHBOARD ──
+const Dashboard = ({modulo}) => {
+  const contratos = mockContratos.filter(c=>c.modalidad===modulo);
+  const movs = mockMovimientos.filter(m=>m.modalidad===modulo);
+  const enTransito = movs.filter(m=>m.estado==="EN_TRANSITO").length;
+  const aLiquidar = movs.filter(m=>m.estado==="DESCARGADO"&&m.estado_liq!=="LIQUIDADO").length;
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:22}}>
+        <h2 style={{fontSize:20,fontWeight:700,marginBottom:4}}>Dashboard — {modulo==="FORMAL"?"Operaciones Formales":"Operaciones Informales"}</h2>
+        <p style={{color:"#8890a8",fontSize:13}}>Resumen operativo</p>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:22}}>
+        <StatCard label="Contratos Activos" value={contratos.filter(c=>c.estado!=="CANCELADO").length} sub={`${contratos.filter(c=>c.tipo==="COMPRA").length} compra · ${contratos.filter(c=>c.tipo==="VENTA").length} venta`}/>
+        <StatCard label="En Tránsito" value={enTransito} sub="camiones en ruta" color="#3498db"/>
+        <StatCard label="A Liquidar" value={aLiquidar} sub="movimientos descargados" color="#27ae60"/>
+        <StatCard label="A Fijar" value={contratos.filter(c=>c.tipo_precio==="A_FIJAR").length} sub="contratos sin precio" color="#9b59b6"/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+        <div className="card">
+          <div className="card-header"><span style={{fontWeight:600,fontSize:14}}>Últimos Movimientos</span></div>
+          <table><thead><tr><th>N° Mov</th>{modulo==="FORMAL"&&<th>CTG</th>}<th>Especie</th><th>Kg Neto</th><th>Estado</th></tr></thead>
+          <tbody>{movs.slice(0,5).map(m=>(
+            <tr key={m.id}>
+              <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{m.numero}</span></td>
+              {modulo==="FORMAL"&&<td><span className="mono" style={{fontSize:11,color:"#8890a8"}}>{m.nro_ctg||"—"}</span></td>}
+              <td>{m.especie}</td>
+              <td><span className="mono">{m.peso_neto_llegada?m.peso_neto_llegada.toLocaleString():m.peso_neto_salida.toLocaleString()}</span></td>
+              <td><Badge label={m.estado} color={m.estado==="EN_TRANSITO"?"orange":m.estado==="DESCARGADO"?"blue":"green"}/></td>
+            </tr>
+          ))}</tbody></table>
+        </div>
+        <div className="card">
+          <div className="card-header"><span style={{fontWeight:600,fontSize:14}}>Contratos Abiertos</span></div>
+          <table><thead><tr><th>Número</th><th>Tipo</th><th>Especie</th><th>Progreso</th></tr></thead>
+          <tbody>{contratos.filter(c=>c.estado!=="CUMPLIDO"&&c.estado!=="CANCELADO").map(c=>(
+            <tr key={c.id}>
+              <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{c.numero}</span></td>
+              <td><Badge label={c.tipo} color={c.tipo==="COMPRA"?"orange":"blue"}/></td>
+              <td>{c.especie}</td>
+              <td>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div className="progress-bar" style={{flex:1}}><div className="progress-fill" style={{width:`${(c.asignadas/c.toneladas)*100}%`}}/></div>
+                  <span className="mono" style={{fontSize:11,color:"#8890a8",minWidth:60}}>{c.asignadas}/{c.toneladas}tn</span>
+                </div>
+              </td>
+            </tr>
+          ))}</tbody></table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── CONTRAPARTES ──
+const Contrapartes = ({modulo}) => {
+  const [showForm,setShowForm]=useState(false);
+  const [search,setSearch]=useState("");
+  const [form,setForm]=useState({cuit:"",razon_social:"",tipo:"PRODUCTOR",condicion_iva:"RI",provincia:"",localidad:"",telefono:"",email:""});
+  const lista = mockContrapartes.filter(c=>{
+    if(modulo==="FORMAL"&&!c.cuit) return false;
+    return c.razon_social.toLowerCase().includes(search.toLowerCase())||(c.cuit&&c.cuit.includes(search));
+  });
+  return (
+    <div className="fade-in">
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+        <div>
+          <h2 style={{fontSize:18,fontWeight:700}}>{modulo==="FORMAL"?"Contrapartes Formales":"Contrapartes Informales"}</h2>
+          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>{modulo==="FORMAL"?"Con CUIT registrado en AFIP":"Identificación interna del sistema"}</p>
+        </div>
+        <Btn onClick={()=>setShowForm(true)}>+ Nueva Contraparte</Btn>
+      </div>
+      <div className="card" style={{marginBottom:14}}>
+        <div style={{padding:"12px 16px"}}>
+          <input placeholder="Buscar por nombre o CUIT..." value={search} onChange={e=>setSearch(e.target.value)} style={{maxWidth:360}}/>
+        </div>
+      </div>
+      <div className="card">
+        <table><thead><tr>
+          <th>Código</th>{modulo==="FORMAL"&&<th>CUIT</th>}<th>Razón Social</th><th>Tipo</th><th>Provincia</th><th>Estado</th><th></th>
+        </tr></thead>
+        <tbody>{lista.map(c=>(
+          <tr key={c.id}>
+            <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{c.codigo}</span></td>
+            {modulo==="FORMAL"&&<td><span className="mono" style={{fontSize:12}}>{c.cuit||"—"}</span></td>}
+            <td style={{fontWeight:500}}>{c.razon_social}</td>
+            <td><Badge label={c.tipo} color={c.tipo==="PRODUCTOR"?"orange":"blue"}/></td>
+            <td style={{color:"#8890a8"}}>{c.provincia}</td>
+            <td><Badge label={c.activo?"Activo":"Inactivo"} color={c.activo?"green":"gray"}/></td>
+            <td><Btn variant="ghost" size="sm">Editar</Btn></td>
+          </tr>
+        ))}</tbody></table>
+        {lista.length===0&&<div style={{padding:40,textAlign:"center",color:"#565d7a"}}>No se encontraron contrapartes</div>}
+      </div>
+      {showForm&&(
+        <Modal title={`Nueva Contraparte ${modulo==="FORMAL"?"Formal":"Informal"}`} onClose={()=>setShowForm(false)} width={640}>
+          <div className="form-grid-2">
+            {modulo==="FORMAL"&&<FF label="CUIT" required><input placeholder="20-12345678-9" value={form.cuit} onChange={e=>setForm({...form,cuit:e.target.value})}/></FF>}
+            <FF label="Razón Social / Nombre" required span={modulo==="INFORMAL"?2:1}><input placeholder="Nombre completo o razón social" value={form.razon_social} onChange={e=>setForm({...form,razon_social:e.target.value})}/></FF>
+            <FF label="Tipo"><select value={form.tipo} onChange={e=>setForm({...form,tipo:e.target.value})}><option value="PRODUCTOR">Productor</option><option value="COMPRADOR">Comprador</option><option value="AMBOS">Ambos</option></select></FF>
+            {modulo==="FORMAL"&&<FF label="Condición IVA"><select value={form.condicion_iva} onChange={e=>setForm({...form,condicion_iva:e.target.value})}><option value="RI">Responsable Inscripto</option><option value="MONO">Monotributo</option><option value="EXENTO">Exento</option></select></FF>}
+            <FF label="Provincia"><select value={form.provincia} onChange={e=>setForm({...form,provincia:e.target.value})}><option value="">Seleccionar...</option>{PROVINCIAS.map(p=><option key={p} value={p}>{p}</option>)}</select></FF>
+            <FF label="Localidad"><input placeholder="Ciudad / Localidad" value={form.localidad} onChange={e=>setForm({...form,localidad:e.target.value})}/></FF>
+            <FF label="Teléfono"><input placeholder="Teléfono" value={form.telefono} onChange={e=>setForm({...form,telefono:e.target.value})}/></FF>
+            <FF label="Email"><input placeholder="correo@ejemplo.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></FF>
+          </div>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:8}}>
+            <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn>
+            <Btn onClick={()=>{alert("✓ Contraparte guardada");setShowForm(false);}}>Guardar</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+};
+
+// ── CONTRATOS ──
+const Contratos = ({modulo}) => {
+  const [tab,setTab]=useState("COMPRA");
+  const [showForm,setShowForm]=useState(false);
+  const [form,setForm]=useState({tipo:"COMPRA",especie:"Soja",campana:"2024/2025",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:""});
+  const lista = mockContratos.filter(c=>c.modalidad===modulo&&c.tipo===tab);
+  const estadoColor = e=>({EN_CURSO:"green",CONFIRMADO:"blue",CUMPLIDO:"gray",CANCELADO:"red",BORRADOR:"gray"}[e]||"gray");
+  return (
+    <div className="fade-in">
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+        <h2 style={{fontSize:18,fontWeight:700}}>Contratos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
+        <Btn onClick={()=>setShowForm(true)}>+ Nuevo Contrato</Btn>
+      </div>
+      <div className="tab-bar" style={{marginBottom:16}}>
+        {["COMPRA","VENTA","CANJE"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t==="COMPRA"?"Compras":t==="VENTA"?"Ventas":"Canjes"}</button>)}
+      </div>
+      <div className="card">
+        <table><thead><tr>
+          <th>Número</th><th>Fecha</th><th>Contraparte</th><th>Especie</th><th>Campaña</th><th>Tn Pact.</th><th>Cumplimiento</th><th>Precio</th>{modulo==="FORMAL"&&<th>Inc.</th>}<th>Estado</th><th></th>
+        </tr></thead>
+        <tbody>{lista.map(c=>(
+          <tr key={c.id}>
+            <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{c.numero}</span></td>
+            <td style={{color:"#8890a8",fontSize:12}}>{c.fecha}</td>
+            <td style={{fontWeight:500,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.contraparte}</td>
+            <td>{c.especie}</td>
+            <td><span className="mono" style={{fontSize:11}}>{c.campana}</span></td>
+            <td><span className="mono">{c.toneladas} tn</span></td>
+            <td>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div className="progress-bar" style={{width:70}}><div className="progress-fill" style={{width:`${Math.round((c.asignadas/c.toneladas)*100)}%`}}/></div>
+                <span style={{fontSize:11,color:"#8890a8"}}>{Math.round((c.asignadas/c.toneladas)*100)}%</span>
+              </div>
+            </td>
+            <td>{c.tipo_precio==="A_FIJAR"?<Badge label="A FIJAR" color="purple"/>:<span className="mono" style={{fontSize:12}}>${c.precio?.toLocaleString()}</span>}</td>
+            {modulo==="FORMAL"&&<td>{c.tipo_liq?<Badge label={c.tipo_liq==="INCISO_A"?"Inc.A":"Inc.B"} color={c.tipo_liq==="INCISO_A"?"blue":"purple"}/>:"—"}</td>}
+            <td><Badge label={c.estado} color={estadoColor(c.estado)}/></td>
+            <td><Btn variant="ghost" size="sm">Ver</Btn></td>
+          </tr>
+        ))}</tbody></table>
+        {lista.length===0&&<div style={{padding:40,textAlign:"center",color:"#565d7a"}}>No hay contratos de {tab.toLowerCase()} en modalidad {modulo.toLowerCase()}</div>}
+      </div>
+      {showForm&&(
+        <Modal title="Nuevo Contrato" onClose={()=>setShowForm(false)} width={720}>
+          <div style={{display:"flex",gap:8,marginBottom:18}}>
+            {["COMPRA","VENTA","CANJE"].map(t=><Btn key={t} variant={form.tipo===t?"primary":"secondary"} size="sm" onClick={()=>setForm({...form,tipo:t})}>{t}</Btn>)}
+          </div>
+          <div className="form-grid-2">
+            <FF label="Contraparte" required><select><option value="">Seleccionar...</option>{mockContrapartes.map(c=><option key={c.id} value={c.id}>{c.razon_social}</option>)}</select></FF>
+            <FF label="Fecha Contrato" required><input type="date" defaultValue={new Date().toISOString().split("T")[0]}/></FF>
+            <FF label="Especie" required><select value={form.especie} onChange={e=>setForm({...form,especie:e.target.value})}>{ESPECIES.map(e=><option key={e} value={e}>{e}</option>)}</select></FF>
+            <FF label="Campaña" required><select value={form.campana} onChange={e=>setForm({...form,campana:e.target.value})}>{CAMPANAS.map(c=><option key={c} value={c}>{c}</option>)}</select></FF>
+            <FF label="Toneladas" required><input type="number" placeholder="0.000" value={form.toneladas} onChange={e=>setForm({...form,toneladas:e.target.value})}/></FF>
+            <FF label="Tipo de Precio" required><select value={form.tipo_precio} onChange={e=>setForm({...form,tipo_precio:e.target.value})}><option value="PRECIO_HECHO">Precio Hecho</option><option value="A_FIJAR">A Fijar</option></select></FF>
+            {form.tipo_precio==="PRECIO_HECHO"?<>
+              <FF label="Moneda"><select value={form.moneda} onChange={e=>setForm({...form,moneda:e.target.value})}><option value="PESOS">Pesos $</option><option value="DOLARES">Dólares USD</option><option value="DOLARES_BILLETE">Dólares Billete</option></select></FF>
+              <FF label="Precio" required><input type="number" placeholder="0.00" value={form.precio} onChange={e=>setForm({...form,precio:e.target.value})}/></FF>
+            </>:<>
+              <FF label="Referencia"><select value={form.referencia} onChange={e=>setForm({...form,referencia:e.target.value})}><option value="MATBA_ROFEX">MATBA-ROFEX</option><option value="CAMARA">Cámara Arbitral</option></select></FF>
+              <FF label="Diferencial">
+                <div style={{display:"flex",gap:8}}>
+                  <input type="number" placeholder="-10" value={form.diferencial} onChange={e=>setForm({...form,diferencial:e.target.value})} style={{flex:1}}/>
+                  <select value={form.tipo_diferencial} onChange={e=>setForm({...form,tipo_diferencial:e.target.value})} style={{width:90}}><option value="USD">USD</option><option value="ARS">ARS</option><option value="LLENO">Lleno</option></select>
+                </div>
+              </FF>
+            </>}
+            <FF label="Tipo de Entrega"><select value={form.tipo_entrega} onChange={e=>setForm({...form,tipo_entrega:e.target.value})}><option value="A_RETIRAR">A Retirar</option><option value="PUESTO_DESTINO">Puesto en Destino</option></select></FF>
+            {modulo==="FORMAL"&&<FF label="Tipo Liquidación"><select value={form.tipo_liq} onChange={e=>setForm({...form,tipo_liq:e.target.value})}><option value="INCISO_A">Inciso A — Compraventa</option><option value="INCISO_B">Inciso B — Consignación</option></select></FF>}
+            <FF label="Entrega Desde"><input type="date"/></FF>
+            <FF label="Entrega Hasta"><input type="date"/></FF>
+            <FF label="Forma de Pago"><select value={form.forma_pago} onChange={e=>setForm({...form,forma_pago:e.target.value})}><option value="TRANSFERENCIA">Transferencia</option><option value="CHEQUE_PROPIO">Cheque Propio</option><option value="CHEQUE_TERCEROS">Cheque de Terceros</option><option value="EFECTIVO">Efectivo</option></select></FF>
+            <FF label="Plazo de Pago (días)"><input type="number" value={form.plazo} onChange={e=>setForm({...form,plazo:e.target.value})}/></FF>
+          </div>
+          <div style={{marginTop:8,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e"}}>
+            <div style={{fontSize:11,color:"#8890a8",marginBottom:10,fontWeight:600,textTransform:"uppercase",letterSpacing:".06em"}}>📊 Presupuesto del Negocio</div>
+            <div className="form-grid-3">
+              <FF label="Precio Venta Estimado"><input type="number" placeholder="0.00" value={form.precio_venta_est} onChange={e=>setForm({...form,precio_venta_est:e.target.value})}/></FF>
+              <FF label="Flete Estimado"><input type="number" placeholder="0.00" value={form.flete_est} onChange={e=>setForm({...form,flete_est:e.target.value})}/></FF>
+              <FF label="Destino Estimado"><input placeholder="Puerto / Planta..." value={form.destino_est} onChange={e=>setForm({...form,destino_est:e.target.value})}/></FF>
+            </div>
+            {form.precio&&form.precio_venta_est&&<div style={{padding:"10px 12px",background:"rgba(39,174,96,.08)",border:"1px solid rgba(39,174,96,.2)",borderRadius:6,marginTop:4}}>
+              <span style={{color:"#8890a8",fontSize:13}}>Margen estimado: </span>
+              <span className="mono" style={{fontWeight:700,color:"#27ae60",fontSize:15}}>$ {((parseFloat(form.precio_venta_est)-parseFloat(form.precio)-parseFloat(form.flete_est||0))).toLocaleString()} / tn</span>
+            </div>}
+          </div>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}>
+            <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn>
+            <Btn onClick={()=>{alert("✓ Contrato guardado correctamente");setShowForm(false);}}>Guardar Contrato</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+};
+
+// ── MOVIMIENTOS ──
+const Movimientos = ({modulo}) => {
+  const [showForm,setShowForm]=useState(false);
+  const [showImport,setShowImport]=useState(false);
+  const [showRapido,setShowRapido]=useState(false);
+  const [selected,setSelected]=useState(null);
+  const [tab,setTab]=useState("salida");
+  const [importing,setImporting]=useState(false);
+  const [importResult,setImportResult]=useState(null);
+  const movs = mockMovimientos.filter(m=>m.modalidad===modulo);
+  const estadoColor = e=>({EN_TRANSITO:"orange",DESCARGADO:"blue",LIQUIDADO:"green",ANULADO:"red",BORRADOR:"gray"}[e]||"gray");
+  const liqColor = e=>({LIQUIDADO:"green",ASIGNADO:"blue",PRELIQUIDADO:"orange",SIN_ASIGNAR:"gray"}[e]||"gray");
+
+  const handleImport = () => {
+    setImporting(true);
+    setTimeout(()=>{
+      setImporting(false);
+      setImportResult({
+        nro_cpe:"00000-00001444",nro_ctg:"10129526726",fecha:"16/02/2026",vencimiento:"19/02/2026",
+        titular:"INVERSIONES DEL SALADO S.A.",rte_primaria:"ENRIQUE TOYA E HIJOS S A",
+        destinatario:"BUNGE ARGENTINA S.A.",destino:"RENOVA S.A.",
+        transportista:"LOGISTICA CENTRO S.R.L.",chofer:"ZAMORA PABLO LEANDRO",
+        especie:"Soja",campana:"2424",declaracion:"CONFORME",
+        peso_bruto:52380,peso_tara:17400,peso_neto:34980,
+        origen_loc:"GRAMILLA",origen_prov:"SGO. DEL ESTERO",renspa:"gramilla",
+        destino_loc:"TIMBUES JOSE MARIA",destino_prov:"SANTA FE",nro_planta:"518477",
+        chasis:"AA496YI",acoplado:"AD846IU",km:760,tarifa:411,
+      });
+    },2000);
+  };
+
+  return (
+    <div className="fade-in">
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+        <h2 style={{fontSize:18,fontWeight:700}}>Movimientos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
+        <div style={{display:"flex",gap:8}}>
+          <Btn variant="secondary" size="sm" onClick={()=>setShowRapido(true)}>⚡ Carga Rápida</Btn>
+          {modulo==="FORMAL"&&<Btn variant="secondary" size="sm" onClick={()=>setShowImport(true)}>↑ Importar CPE</Btn>}
+          <Btn onClick={()=>{setSelected(null);setTab("salida");setShowForm(true);}}>+ Nuevo</Btn>
+        </div>
+      </div>
+
+      {movs.some(m=>m.estado==="EN_TRANSITO")&&(
+        <div className="alert-info" style={{marginBottom:14}}>
+          ⚠ Hay {movs.filter(m=>m.estado==="EN_TRANSITO").length} camión(es) en tránsito pendiente(s) de descarga
+        </div>
+      )}
+
+      <div className="card">
+        <div style={{overflowX:"auto"}}>
+        <table><thead><tr>
+          <th>N° Mov</th>{modulo==="FORMAL"&&<th>CTG</th>}<th>Especie</th><th>Productor</th>
+          <th>Contrato C.</th><th>Kg Salida</th><th>Kg Llegada</th><th>Faltante</th>
+          <th>Kg Liq.</th><th>Estado</th><th>Liq.</th><th></th>
+        </tr></thead>
+        <tbody>{movs.map(m=>(
+          <tr key={m.id}>
+            <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{m.numero}</span></td>
+            {modulo==="FORMAL"&&<td><span className="mono" style={{fontSize:11,color:"#8890a8"}}>{m.nro_ctg||"—"}</span></td>}
+            <td>{m.especie}</td>
+            <td style={{maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#8890a8"}}>{m.productor}</td>
+            <td><span className="mono" style={{fontSize:11}}>{m.contrato_compra||"—"}</span></td>
+            <td><span className="mono">{m.peso_neto_salida?.toLocaleString()}</span></td>
+            <td><span className="mono">{m.peso_neto_llegada?.toLocaleString()||"—"}</span></td>
+            <td>{m.faltante===null?"—":m.faltante>0?<span className="mono" style={{color:"#e74c3c"}}>-{m.faltante}</span>:<span style={{color:"#27ae60"}}>✓</span>}</td>
+            <td><span className="mono" style={{fontWeight:600}}>{m.kg_liquidables?.toLocaleString()||"—"}</span></td>
+            <td><Badge label={m.estado} color={estadoColor(m.estado)}/></td>
+            <td><Badge label={m.estado_liq} color={liqColor(m.estado_liq)}/></td>
+            <td><Btn variant="ghost" size="sm" onClick={()=>{setSelected(m);setTab("salida");setShowForm(true);}}>Ver</Btn></td>
+          </tr>
+        ))}</tbody></table>
+        </div>
+      </div>
+
+      {/* CARGA RÁPIDA */}
+      {showRapido&&(
+        <Modal title="⚡ Carga Rápida de Movimiento" onClose={()=>setShowRapido(false)} width={560}>
+          <div className="alert-info" style={{marginBottom:16}}>Registrá lo mínimo ahora. Los datos faltantes se completan después.</div>
+          <div className="form-grid-2">
+            <FF label="Productor" required><select><option value="">Seleccionar...</option>{mockContrapartes.filter(c=>c.tipo!=="COMPRADOR").map(c=><option key={c.id}>{c.razon_social}</option>)}</select></FF>
+            <FF label="Especie / Campaña" required>
+              <div style={{display:"flex",gap:8}}>
+                <select style={{flex:1}}>{ESPECIES.map(e=><option key={e}>{e}</option>)}</select>
+                <select style={{width:110}}>{CAMPANAS.map(c=><option key={c}>{c}</option>)}</select>
+              </div>
+            </FF>
+            <FF label="Contrato de Compra"><select><option value="">Sin asignar</option>{mockContratos.filter(c=>c.tipo==="COMPRA").map(c=><option key={c.id}>{c.numero} — {c.especie}</option>)}</select></FF>
+            <FF label="Patente Chasis"><input placeholder="AA496YI"/></FF>
+            <FF label="Kg Bruto Salida" required><input type="number" placeholder="52.380"/></FF>
+            <FF label="Kg Tara Salida" required><input type="number" placeholder="17.400"/></FF>
+            <FF label="Humedad Salida (%)"><input type="number" step="0.1" placeholder="13.2"/></FF>
+            <FF label="Destino"><input placeholder="Planta / Localidad destino"/></FF>
+          </div>
+          <div style={{padding:"10px 14px",background:"rgba(245,166,35,.06)",border:"1px solid rgba(245,166,35,.15)",borderRadius:6,marginBottom:16,fontSize:12,color:"#8890a8"}}>
+            Creado por: <strong style={{color:"#e8eaf0"}}>usuario_actual</strong> — {new Date().toLocaleString("es-AR")}
+          </div>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <Btn variant="secondary" onClick={()=>setShowRapido(false)}>Cancelar</Btn>
+            <Btn onClick={()=>{alert("✓ Movimiento creado en estado BORRADOR — completar datos faltantes");setShowRapido(false);}}>Crear Movimiento Incompleto</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {/* IMPORTADOR CPE */}
+      {showImport&&(
+        <Modal title="Importar Carta de Porte Electrónica" onClose={()=>{setShowImport(false);setImportResult(null);}} width={680}>
+          {!importResult?(
+            <div>
+              <div className="drop-zone" style={{marginBottom:16}}>
+                <div style={{fontSize:36,marginBottom:10}}>📄</div>
+                <div style={{fontWeight:600,marginBottom:6}}>Arrastrá el PDF de la CPE acá</div>
+                <div style={{color:"#8890a8",fontSize:13,marginBottom:14}}>o hacé click para seleccionar</div>
+                <Btn variant="secondary" size="sm">Seleccionar archivo PDF</Btn>
+              </div>
+              <div className="alert-info" style={{marginBottom:16}}>💡 La IA extrae automáticamente todos los datos. Validás antes de confirmar.</div>
+              {importing?(
+                <div style={{textAlign:"center",padding:"16px 0"}}>
+                  <div className="pulse" style={{color:"#f5a623",fontWeight:600,marginBottom:6}}>Leyendo PDF con IA...</div>
+                  <div style={{color:"#8890a8",fontSize:13}}>Extrayendo datos de la Carta de Porte</div>
+                </div>
+              ):(
+                <Btn onClick={handleImport} style={{width:"100%",justifyContent:"center",padding:"10px"}}>
+                  Procesar CPE (demo con archivo cargado)
+                </Btn>
+              )}
+            </div>
+          ):(
+            <div>
+              <div className="alert-success" style={{marginBottom:16}}>✓ CPE procesada correctamente — Validá los datos antes de confirmar</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px 16px",marginBottom:16,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e"}}>
+                {[["N° CPE",importResult.nro_cpe],["CTG",importResult.nro_ctg],["Fecha",importResult.fecha],["Vencimiento",importResult.vencimiento],["Especie",importResult.especie],["Campaña",importResult.campana],["Titular",importResult.titular],["Transportista",importResult.transportista],["Chofer",importResult.chofer],["Origen",`${importResult.origen_loc}, ${importResult.origen_prov}`],["Destino",`${importResult.destino_loc}, ${importResult.destino_prov}`],["Patente Chasis",importResult.chasis],["Patente Acoplado",importResult.acoplado],["Km",importResult.km],["Tarifa CATAC",importResult.tarifa],["Kg Bruto",importResult.peso_bruto?.toLocaleString()],["Kg Tara",importResult.peso_tara?.toLocaleString()],["Kg Neto Salida",importResult.peso_neto?.toLocaleString()],].map(([l,v])=>(
+                  <div key={l} style={{display:"flex",alignItems:"baseline",gap:6}}>
+                    <span style={{fontSize:11,color:"#8890a8",minWidth:110,flexShrink:0}}>{l}:</span>
+                    <span className="mono" style={{fontSize:12,fontWeight:500}}>{v}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="form-grid-2" style={{marginBottom:14}}>
+                <FF label="Asignar a Contrato de Compra"><select><option value="">Sin asignar</option>{mockContratos.filter(c=>c.tipo==="COMPRA").map(c=><option key={c.id}>{c.numero} — {c.especie}</option>)}</select></FF>
+                <FF label="Tarifa Flete Real Pactada"><input type="number" placeholder={importResult.tarifa}/></FF>
+                <FF label="Humedad de Salida (%)"><input type="number" placeholder="13.2" step="0.1"/></FF>
+                <FF label="Contrato de Venta"><select><option value="">Sin asignar</option>{mockContratos.filter(c=>c.tipo==="VENTA").map(c=><option key={c.id}>{c.numero} — {c.especie}</option>)}</select></FF>
+              </div>
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                <Btn variant="secondary" onClick={()=>setImportResult(null)}>← Volver</Btn>
+                <Btn onClick={()=>{alert("✓ Movimiento MOV-0004 creado desde CPE\nEstado: EN_TRÁNSITO");setShowImport(false);setImportResult(null);}}>Confirmar y Crear Movimiento</Btn>
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {/* DETALLE MOVIMIENTO */}
+      {showForm&&(
+        <Modal title={selected?`Movimiento ${selected.numero}`:"Nuevo Movimiento"} onClose={()=>setShowForm(false)} width={760}>
+          <div className="tab-bar" style={{marginBottom:20}}>
+            {["salida","llegada","calidad","liquidacion","flete"].map(t=>(
+              <button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>
+                {t.charAt(0).toUpperCase()+t.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          {tab==="salida"&&(
+            <div>
+              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>Contratos</div>
+              <div className="form-grid-2" style={{marginBottom:18}}>
+                <FF label="Contrato de Compra"><select defaultValue={selected?.contrato_compra||""}><option value="">Sin asignar</option>{mockContratos.filter(c=>c.tipo==="COMPRA").map(c=><option key={c.id} value={c.numero}>{c.numero} — {c.contraparte}</option>)}</select></FF>
+                <FF label="Contrato de Venta"><select defaultValue={selected?.contrato_venta||""}><option value="">Sin asignar</option>{mockContratos.filter(c=>c.tipo==="VENTA").map(c=><option key={c.id} value={c.numero}>{c.numero} — {c.contraparte}</option>)}</select></FF>
+              </div>
+              {modulo==="FORMAL"&&<>
+                <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>Carta de Porte Electrónica</div>
+                <div className="form-grid-2" style={{marginBottom:18}}>
+                  <FF label="N° CPE"><input defaultValue={selected?.nro_cpe||""} placeholder="00000-00001444"/></FF>
+                  <FF label="N° CTG"><input defaultValue={selected?.nro_ctg||""} placeholder="10129526726"/></FF>
+                  <FF label="Fecha CPE"><input type="date"/></FF>
+                  <FF label="Vencimiento CPE"><input type="date"/></FF>
+                </div>
+                <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>A — Intervinientes</div>
+                <div className="form-grid-2" style={{marginBottom:18}}>
+                  <FF label="Titular CPE — CUIT"><input defaultValue={selected?.titular_cpe_cuit||""} placeholder="30-71018399-2"/></FF>
+                  <FF label="Titular CPE — Nombre"><input defaultValue={selected?.titular_cpe_nombre||""} placeholder="Razón social"/></FF>
+                  <FF label="Remitente Comercial Productor — CUIT"><input placeholder="CUIT del productor"/></FF>
+                  <FF label="Remitente Comercial Productor — Nombre"><input placeholder="Nombre del productor"/></FF>
+                  <FF label="Rte. Venta Primaria — CUIT"><input defaultValue={selected?.rte_primaria_cuit||""} placeholder="30-53204169-0"/></FF>
+                  <FF label="Rte. Venta Primaria — Nombre"><input defaultValue={selected?.rte_primaria_nombre||""} placeholder="Nombre"/></FF>
+                  <FF label="Rte. Venta Secundaria — CUIT"><input placeholder="CUIT (opcional)"/></FF>
+                  <FF label="Rte. Venta Secundaria — Nombre"><input placeholder="Nombre (opcional)"/></FF>
+                  <FF label="Rte. Venta Secundaria 2 — CUIT"><input placeholder="CUIT (opcional)"/></FF>
+                  <FF label="Rte. Venta Secundaria 2 — Nombre"><input placeholder="Nombre (opcional)"/></FF>
+                  <FF label="Corredor Venta Primaria — CUIT"><input placeholder="CUIT corredor"/></FF>
+                  <FF label="Corredor Venta Primaria — Nombre"><input placeholder="Nombre corredor"/></FF>
+                  <FF label="Corredor Venta Secundaria — CUIT"><input placeholder="CUIT (opcional)"/></FF>
+                  <FF label="Corredor Venta Secundaria — Nombre"><input placeholder="Nombre (opcional)"/></FF>
+                  <FF label="Mercado a Término — CUIT"><input placeholder="CUIT (opcional)"/></FF>
+                  <FF label="Representante Entregador — CUIT"><input placeholder="CUIT (opcional)"/></FF>
+                  <FF label="Representante Recibidor — CUIT"><input placeholder="CUIT (opcional)"/></FF>
+                  <FF label="Intermediario de Flete — CUIT"><input placeholder="CUIT (opcional)"/></FF>
+                  <FF label="Destinatario — CUIT"><input defaultValue={selected?.destinatario_cuit||""} placeholder="30-70086991-8"/></FF>
+                  <FF label="Destinatario — Nombre"><input defaultValue={selected?.destinatario_nombre||""} placeholder="Bunge Argentina S.A."/></FF>
+                  <FF label="Destino — CUIT"><input defaultValue={selected?.destino_cuit||""} placeholder="30-70959089-4"/></FF>
+                  <FF label="Destino — Nombre"><input defaultValue={selected?.destino_nombre||""} placeholder="Renova S.A."/></FF>
+                  <FF label="Flete Pagador — CUIT"><input defaultValue={selected?.flete_pagador_cuit||""} placeholder="30-71018399-2"/></FF>
+                  <FF label="Flete Pagador — Nombre"><input defaultValue={selected?.flete_pagador_nombre||""} placeholder="Nombre flete pagador"/></FF>
+                </div>
+              </>}
+              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>B — Grano / Especie</div>
+              <div className="form-grid-2" style={{marginBottom:18}}>
+                <FF label="Especie"><select>{ESPECIES.map(e=><option key={e}>{e}</option>)}</select></FF>
+                <FF label="Campaña"><select>{CAMPANAS.map(c=><option key={c}>{c}</option>)}</select></FF>
+                <FF label="Declaración de Calidad"><select><option>CONFORME</option><option>CONDICIONAL</option></select></FF>
+                <FF label="Observaciones CPE"><input placeholder="Ej: interviene C&S SRL 30-70982771-1"/></FF>
+              </div>
+              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>C — Procedencia</div>
+              <div className="form-grid-2" style={{marginBottom:18}}>
+                <FF label="Localidad Origen"><input defaultValue={selected?.origen?.split(",")[0]||""} placeholder="Gramilla"/></FF>
+                <FF label="Provincia Origen"><select><option value="">Seleccionar...</option>{PROVINCIAS.map(p=><option key={p}>{p}</option>)}</select></FF>
+                <FF label="RENSPA"><input placeholder="Código RENSPA del campo"/></FF>
+                <FF label="Descripción Campo"><input placeholder="Nombre del establecimiento"/></FF>
+                <FF label="Latitud"><input placeholder="27° 16 58"/></FF>
+                <FF label="Longitud"><input placeholder="64° 40 10"/></FF>
+              </div>
+              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>D — Destino de la Mercadería</div>
+              <div className="form-grid-2" style={{marginBottom:18}}>
+                <FF label="Localidad Destino"><input defaultValue={selected?.destino?.split(",")[0]||""} placeholder="Timbúes"/></FF>
+                <FF label="Provincia Destino"><select><option value="">Seleccionar...</option>{PROVINCIAS.map(p=><option key={p}>{p}</option>)}</select></FF>
+                <FF label="N° Planta"><input placeholder="518477"/></FF>
+                <FF label="Dirección Destino"><input placeholder="Brigadier López 10500"/></FF>
+              </div>
+              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>E — Datos del Transporte</div>
+              <div className="form-grid-2" style={{marginBottom:18}}>
+                <FF label="Empresa Transportista"><input defaultValue={selected?.transportista||""} placeholder="Empresa transportista"/></FF>
+                <FF label="Chofer — CUIT"><input placeholder="20-26504588-0"/></FF>
+                <FF label="Chofer — Nombre"><input defaultValue={selected?.chofer||""} placeholder="Zamora Pablo Leandro"/></FF>
+                <FF label="Patente Chasis"><input defaultValue={selected?.patente_chasis||""} placeholder="AA496YI"/></FF>
+                <FF label="Patente Acoplado"><input defaultValue={selected?.patente_acoplado||""} placeholder="AD846IU"/></FF>
+                <FF label="Fecha Partida"><input type="datetime-local"/></FF>
+                <FF label="Km a Recorrer"><input type="number" defaultValue={selected?.km||""}/></FF>
+                <FF label="Tipo Tarifa"><select><option>LLENA</option><option>MENOS_10</option><option>MENOS_20</option></select></FF>
+                <FF label="Tarifa CATAC (referencia)"><input type="number" defaultValue={selected?.tarifa_catac||""}/></FF>
+                <FF label="Tarifa Real Pactada"><input type="number" defaultValue={selected?.tarifa_real||""}/></FF>
+              </div>
+              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>F — Contingencias</div>
+              <div className="form-grid-2" style={{marginBottom:18}}>
+                <FF label="Contingencia"><input placeholder="Tipo (opcional)"/></FF>
+                <FF label="Contingencia — Otro"><input placeholder="Descripción (opcional)"/></FF>
+                <FF label="Desactivación"><input placeholder="Motivo (opcional)"/></FF>
+                <FF label="Desactivación — Otro"><input placeholder="Descripción (opcional)"/></FF>
+              </div>
+              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>Pesada de Salida</div>
+              <div className="form-grid-2">
+                <FF label="Kg Bruto Salida" required><input type="number" defaultValue={selected?.peso_bruto_salida||""}/></FF>
+                <FF label="Kg Tara Salida" required><input type="number"/></FF>
+                <FF label="Kg Neto Salida"><input readOnly placeholder="Calculado automático" style={{color:"#f5a623",fontWeight:600,background:"rgba(245,166,35,.05)"}}/></FF>
+                <FF label="Humedad Salida (%)"><input type="number" step="0.1" defaultValue={selected?.humedad_salida||""}/></FF>
+              </div>
+            </div>
+          )}
+
+          {tab==="llegada"&&(
+            <div>
+              <div className="form-grid-2">
+                <FF label="Fecha Arribo"><input type="datetime-local"/></FF>
+                <FF label="Fecha Descarga"><input type="datetime-local"/></FF>
+                <FF label="N° Turno"><input defaultValue={selected?"RTSOCOM260217001063":""}/></FF>
+                <FF label="Localidad Destino"><input defaultValue={selected?.destino||""}/></FF>
+                <FF label="Kg Bruto Llegada"><input type="number" defaultValue={selected?.peso_bruto_llegada||""}/></FF>
+                <FF label="Kg Tara Llegada"><input type="number"/></FF>
+                <FF label="Humedad Llegada (%)"><input type="number" step="0.1" defaultValue={selected?.humedad_llegada||""}/></FF>
+              </div>
+              {selected&&selected.peso_neto_llegada&&(
+                <div style={{marginTop:16,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e"}}>
+                  <div style={{fontSize:11,color:"#8890a8",marginBottom:12,fontWeight:600,textTransform:"uppercase"}}>Cálculo de Faltante (0,3‰ tolerancia)</div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
+                    {[["Kg Neto Salida",selected.peso_neto_salida?.toLocaleString(),"#e8eaf0"],["Kg Neto Llegada",selected.peso_neto_llegada?.toLocaleString(),"#e8eaf0"],["Diferencia",(selected.peso_neto_salida-selected.peso_neto_llegada)?.toLocaleString(),"#e74c3c"],["Faltante Cobrable",selected.faltante>0?selected.faltante:"OK",selected.faltante>0?"#e74c3c":"#27ae60"]].map(([l,v,c])=>(
+                      <div key={l} style={{textAlign:"center",padding:"10px 8px",background:"rgba(255,255,255,.03)",borderRadius:6}}>
+                        <div style={{fontSize:10,color:"#8890a8",marginBottom:4}}>{l}</div>
+                        <div className="mono" style={{fontSize:18,fontWeight:700,color:c}}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {selected.faltante>0&&<div className="alert-danger" style={{marginTop:12}}>⚠ Se debitarán {selected.faltante} kg en la cuenta corriente del transportista</div>}
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab==="calidad"&&(
+            <div>
+              <div style={{display:"flex",gap:8,marginBottom:16}}>
+                <Btn variant="primary" size="sm">Rubro por rubro</Btn>
+                <Btn variant="secondary" size="sm">Factor directo</Btn>
+              </div>
+              <table><thead><tr><th>Parámetro</th><th>Tolerancia</th><th>Valor Declarado</th><th>Exceso</th><th>Ajuste</th></tr></thead>
+              <tbody>
+                {[{p:"Humedad",t:"13.0%",v:"13.0",e:"0.0",a:"0.00%"},{p:"Materia Extraña",t:"0.5%",v:"0.3",e:"0.0",a:"0.00%"},{p:"Grano Dañado",t:"3.0%",v:"5.0",e:"2.0",a:"-1.00%"},{p:"Grano Verde",t:"1.0%",v:"0.8",e:"0.0",a:"0.00%"}].map(r=>(
+                  <tr key={r.p}>
+                    <td>{r.p}</td>
+                    <td><span className="mono" style={{color:"#8890a8"}}>{r.t}</span></td>
+                    <td><input type="number" step="0.1" defaultValue={r.v} style={{width:80}}/></td>
+                    <td><span className="mono" style={{color:parseFloat(r.e)>0?"#e74c3c":"#565d7a"}}>{r.e}</span></td>
+                    <td><span className="mono" style={{color:r.a.startsWith("-")?"#e74c3c":"#27ae60"}}>{r.a}</span></td>
+                  </tr>
+                ))}
+              </tbody></table>
+              {selected&&(
+                <div style={{marginTop:16,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",display:"flex",gap:24,alignItems:"center",flexWrap:"wrap"}}>
+                  <div><div style={{fontSize:11,color:"#8890a8"}}>Factor Aplicado</div><div className="mono" style={{fontSize:24,fontWeight:700,color:"#f5a623"}}>{selected.factor}</div></div>
+                  <div style={{fontSize:22,color:"#2a2d3e"}}>×</div>
+                  <div><div style={{fontSize:11,color:"#8890a8"}}>Kg Neto Llegada</div><div className="mono" style={{fontSize:20,fontWeight:600}}>{selected.peso_neto_llegada?.toLocaleString()}</div></div>
+                  <div style={{fontSize:22,color:"#2a2d3e"}}>=</div>
+                  <div><div style={{fontSize:11,color:"#8890a8"}}>Kg Liquidables</div><div className="mono" style={{fontSize:24,fontWeight:700,color:"#27ae60"}}>{selected.kg_liquidables?.toLocaleString()}</div></div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab==="liquidacion"&&(
+            <div>
+              {selected&&selected.kg_liquidables?(
+                <div>
+                  <div style={{padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",marginBottom:16}}>
+                    <div style={{fontSize:11,color:"#8890a8",marginBottom:12,fontWeight:600,textTransform:"uppercase"}}>Resumen de Liquidación</div>
+                    {[["Kg Liquidables",`${selected.kg_liquidables?.toLocaleString()} kg`,"#e8eaf0"],["Precio Contrato","$ 285.000 / tn","#e8eaf0"],["Monto Bruto",`$ ${(selected.kg_liquidables*285).toLocaleString()}`,"#e8eaf0"],["— Secada (2 pts × $800)","— $ 55.000","#e74c3c"],["— Zarandeo","— $ 18.000","#e74c3c"],["= Monto Neto",`$ ${((selected.kg_liquidables*285)-73000).toLocaleString()}`,"#27ae60"]].map(([l,v,c])=>(
+                      <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1e2133"}}>
+                        <span style={{color:"#8890a8",fontSize:13}}>{l}</span>
+                        <span className="mono" style={{fontWeight:600,color:c}}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <Btn variant="success" size="sm">Generar Liquidación</Btn>
+                    <Btn variant="secondary" size="sm">Agregar a Liquidación Existente</Btn>
+                  </div>
+                </div>
+              ):<div style={{textAlign:"center",padding:"30px 0",color:"#565d7a"}}>Completá salida, llegada y calidad primero</div>}
+            </div>
+          )}
+
+          {tab==="flete"&&(
+            <div>
+              <div className="form-grid-2" style={{marginBottom:14}}>
+                <FF label="Km Recorridos"><input type="number" defaultValue={selected?.km||""}/></FF>
+                <FF label="Tipo Tarifa"><select><option>LLENA</option><option>MENOS_10</option><option>MENOS_20</option></select></FF>
+                <FF label="Tarifa Pactada"><input type="number" defaultValue={selected?.tarifa_real||""}/></FF>
+                <FF label="Toneladas"><input type="number" defaultValue={selected?((selected.kg_liquidables||selected.peso_neto_salida)/1000).toFixed(3):""}/></FF>
+              </div>
+              {selected&&selected.tarifa_real&&selected.km&&(
+                <div style={{padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                  <span style={{color:"#8890a8"}}>Monto Preliquidado</span>
+                  <span className="mono" style={{fontSize:20,fontWeight:700,color:"#f5a623"}}>
+                    $ {Math.round(selected.km*selected.tarifa_real*(selected.kg_liquidables||selected.peso_neto_salida)/1000/100).toLocaleString()}
+                  </span>
+                </div>
+              )}
+              <Btn variant="success" size="sm">Generar Preliquidación</Btn>
+            </div>
+          )}
+
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20,paddingTop:16,borderTop:"1px solid #2a2d3e"}}>
+            <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cerrar</Btn>
+            <Btn onClick={()=>{alert("✓ Movimiento guardado");setShowForm(false);}}>Guardar Cambios</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+};
+
+// ── LIQUIDACIONES ──
+const Liquidaciones = ({modulo}) => {
+  const lista = mockLiquidaciones.filter(l=>l.modalidad===modulo);
+  return (
+    <div className="fade-in">
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+        <h2 style={{fontSize:18,fontWeight:700}}>Liquidaciones {modulo==="FORMAL"?"Formales":"Informales"}</h2>
+        <Btn>+ Nueva Liquidación</Btn>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:20}}>
+        <StatCard label="Total Emitido (mes)" value={`$ ${lista.reduce((a,l)=>a+l.monto_neto,0).toLocaleString()}`} sub={`${lista.length} liquidaciones`} color="#3498db"/>
+        <StatCard label="Pendiente de Cobro" value={`$ ${lista.filter(l=>l.estado==="EMITIDA").reduce((a,l)=>a+l.monto_neto,0).toLocaleString()}`} sub={`${lista.filter(l=>l.estado==="EMITIDA").length} emitidas`} color="#f5a623"/>
+        <StatCard label="Cobrado (mes)" value={`$ ${lista.filter(l=>l.estado==="PAGADA").reduce((a,l)=>a+l.monto_neto,0).toLocaleString()}`} sub="liquidaciones pagadas" color="#27ae60"/>
+      </div>
+      <div className="card">
+        <table><thead><tr>
+          <th>N° Liquidación</th><th>Tipo</th>{modulo==="FORMAL"&&<th>Inciso</th>}<th>Contraparte</th><th>Contrato</th><th>Fecha</th><th>Kg</th><th>Bruto</th><th>Descuentos</th><th>Neto</th><th>Estado</th><th></th>
+        </tr></thead>
+        <tbody>{lista.map(l=>(
+          <tr key={l.id}>
+            <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{l.numero}</span></td>
+            <td><Badge label={l.tipo} color={l.tipo==="COMPRA"?"orange":"blue"}/></td>
+            {modulo==="FORMAL"&&<td><Badge label={l.tipo_liq==="INCISO_A"?"Inc. A":"Inc. B"} color={l.tipo_liq==="INCISO_A"?"blue":"purple"}/></td>}
+            <td style={{fontWeight:500}}>{l.contraparte}</td>
+            <td><span className="mono" style={{fontSize:11}}>{l.contrato}</span></td>
+            <td style={{color:"#8890a8",fontSize:12}}>{l.fecha}</td>
+            <td><span className="mono">{l.kg?.toLocaleString()}</span></td>
+            <td><span className="mono" style={{fontSize:12}}>$ {l.monto_bruto?.toLocaleString()}</span></td>
+            <td><span className="mono" style={{fontSize:12,color:"#e74c3c"}}>— $ {(l.descuentos+l.retenciones)?.toLocaleString()}</span></td>
+            <td><span className="mono" style={{fontWeight:700,color:"#27ae60"}}>$ {l.monto_neto?.toLocaleString()}</span></td>
+            <td><Badge label={l.estado} color={l.estado==="PAGADA"?"green":l.estado==="EMITIDA"?"blue":"gray"}/></td>
+            <td><Btn variant="ghost" size="sm">Ver</Btn></td>
+          </tr>
+        ))}</tbody></table>
+        {lista.length===0&&<div style={{padding:40,textAlign:"center",color:"#565d7a"}}>No hay liquidaciones en modalidad {modulo.toLowerCase()}</div>}
+      </div>
+    </div>
+  );
+};
+
+// ── CUENTA CORRIENTE ──
+const CuentaCorriente = ({modulo}) => {
+  const [tab,setTab]=useState("productores");
+  const ccProd = [{id:1,nombre:"García Juan Carlos",tipo:"PRODUCTOR",saldo:-9200828,pendiente:1,ultimo:"28/03/2025"},{id:2,nombre:"López María Elena",tipo:"PRODUCTOR",saldo:0,pendiente:0,ultimo:"—"}];
+  const ccComp = [{id:1,nombre:"Bunge Argentina S.A.",tipo:"COMPRADOR",saldo:9200828,pendiente:1,ultimo:"28/03/2025"}];
+  const ccTrans = [{id:1,nombre:"Logística Centro S.R.L.",saldo:-148500,fletes:2,faltantes:60}];
+  const lista = tab==="productores"?ccProd:tab==="compradores"?ccComp:ccTrans;
+  return (
+    <div className="fade-in">
+      <h2 style={{fontSize:18,fontWeight:700,marginBottom:20}}>Cuenta Corriente</h2>
+      <div className="tab-bar" style={{marginBottom:20}}>
+        {["productores","compradores","transportistas"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>)}
+      </div>
+      <div className="card">
+        <table><thead><tr>
+          {tab!=="transportistas"?<><th>Nombre</th><th>Tipo</th><th>Saldo</th><th>Movs. Pendientes</th><th>Último Mov.</th><th></th></>
+          :<><th>Transportista</th><th>Saldo</th><th>Fletes Pend.</th><th>Faltantes (kg)</th><th></th></>}
+        </tr></thead>
+        <tbody>
+          {tab!=="transportistas"?lista.map(c=>(
+            <tr key={c.id}>
+              <td style={{fontWeight:500}}>{c.nombre}</td>
+              <td><Badge label={c.tipo} color={c.tipo==="PRODUCTOR"?"orange":"blue"}/></td>
+              <td><span className="mono" style={{fontWeight:700,color:c.saldo<0?"#e74c3c":c.saldo===0?"#8890a8":"#27ae60"}}>{c.saldo===0?"Sin saldo":c.saldo<0?`A PAGAR $ ${Math.abs(c.saldo).toLocaleString()}`:`A COBRAR $ ${c.saldo.toLocaleString()}`}</span></td>
+              <td style={{textAlign:"center"}}><Badge label={`${c.pendiente} pend.`} color={c.pendiente>0?"orange":"green"}/></td>
+              <td style={{color:"#8890a8"}}>{c.ultimo}</td>
+              <td><Btn variant="ghost" size="sm">Ver Detalle</Btn></td>
+            </tr>
+          )):ccTrans.map(t=>(
+            <tr key={t.id}>
+              <td style={{fontWeight:500}}>{t.nombre}</td>
+              <td><span className="mono" style={{fontWeight:700,color:"#e74c3c"}}>A PAGAR $ {Math.abs(t.saldo).toLocaleString()}</span></td>
+              <td style={{textAlign:"center"}}><Badge label={`${t.fletes} fletes`} color="orange"/></td>
+              <td><span className="mono" style={{color:t.faltantes>0?"#e74c3c":"#565d7a"}}>{t.faltantes>0?t.faltantes:"—"}</span></td>
+              <td><Btn variant="ghost" size="sm">Ver Detalle</Btn></td>
+            </tr>
+          ))}
+        </tbody></table>
+      </div>
+    </div>
+  );
+};
+
+// ── STOCK ──
+const Stock = () => (
+  <div className="fade-in">
+    <h2 style={{fontSize:18,fontWeight:700,marginBottom:20}}>Stock por Especie y Ubicación</h2>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:20}}>
+      <StatCard label="Soja — Total" value="420 tn" sub="280 con precio · 140 a fijar" color="#e67e22"/>
+      <StatCard label="Maíz — Total" value="150 tn" sub="0 con precio · 150 a fijar" color="#f1c40f"/>
+      <StatCard label="Trigo — Total" value="60 tn" sub="60 con precio · 0 a fijar" color="#e74c3c"/>
+    </div>
+    <div className="card">
+      <div className="card-header"><span style={{fontWeight:600,fontSize:14}}>Detalle por Ubicación</span></div>
+      <table><thead><tr><th>Especie</th><th>Campaña</th><th>Ubicación</th><th>Tn Totales</th><th>Con Precio</th><th>A Fijar</th><th>Comprometidas</th><th>Disponibles</th></tr></thead>
+      <tbody>
+        {[["Soja","2024/2025","Planta Propia",420,280,140,180,240],["Maíz","2024/2025","Planta Propia",150,0,150,0,150],["Trigo","2024/2025","Acopio Tercero",60,60,0,60,0]].map(([e,c,u,t,cp,af,co,d])=>(
+          <tr key={e+u}>
+            <td style={{fontWeight:500}}>{e}</td>
+            <td><span className="mono" style={{fontSize:11}}>{c}</span></td>
+            <td style={{color:"#8890a8"}}>{u}</td>
+            <td><span className="mono">{t}</span></td>
+            <td><span className="mono" style={{color:"#27ae60"}}>{cp}</span></td>
+            <td><span className="mono" style={{color:"#9b59b6"}}>{af}</span></td>
+            <td><span className="mono" style={{color:"#f5a623"}}>{co}</span></td>
+            <td><span className="mono" style={{fontWeight:700}}>{d}</span></td>
+          </tr>
+        ))}
+      </tbody></table>
+    </div>
+  </div>
+);
+
+// ── APP PRINCIPAL ──
+const MENU = [
+  {id:"dashboard",label:"Dashboard",icon:"⊞"},
+  {id:"contrapartes",label:"Contrapartes",icon:"👤"},
+  {id:"contratos",label:"Contratos",icon:"📋"},
+  {id:"movimientos",label:"Movimientos",icon:"🚛"},
+  {id:"liquidaciones",label:"Liquidaciones",icon:"📊"},
+  {id:"cc",label:"Cuenta Corriente",icon:"💰"},
+  {id:"stock",label:"Stock",icon:"🌾"},
+];
+
+function App() {
+  const [modulo,setModulo]=useState("FORMAL");
+  const [sec,setSec]=useState("dashboard");
+
+  const render = () => {
+    const p = {modulo};
+    switch(sec){
+      case "dashboard": return <Dashboard {...p}/>;
+      case "contrapartes": return <Contrapartes {...p}/>;
+      case "contratos": return <Contratos {...p}/>;
+      case "movimientos": return <Movimientos {...p}/>;
+      case "liquidaciones": return <Liquidaciones {...p}/>;
+      case "cc": return <CuentaCorriente {...p}/>;
+      case "stock": return <Stock/>;
+      default: return <Dashboard {...p}/>;
+    }
+  };
+
+  return (
+    <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
+      {/* SIDEBAR */}
+      <div style={{width:215,background:"#1a1d27",borderRight:"1px solid #2a2d3e",display:"flex",flexDirection:"column",flexShrink:0}}>
+        <div style={{padding:"18px 18px 14px",borderBottom:"1px solid #2a2d3e"}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700,fontSize:17,color:"#f5a623",letterSpacing:"-.02em"}}>GRANO<span style={{color:"#e8eaf0"}}>SYS</span></div>
+          <div style={{fontSize:10,color:"#565d7a",marginTop:2,letterSpacing:".05em",textTransform:"uppercase"}}>Comercialización</div>
+        </div>
+        <div style={{padding:"10px 12px",borderBottom:"1px solid #2a2d3e"}}>
+          <div style={{fontSize:10,color:"#565d7a",marginBottom:6,textTransform:"uppercase",letterSpacing:".06em"}}>Módulo</div>
+          <div style={{display:"flex",background:"#0f1117",borderRadius:6,padding:3}}>
+            {["FORMAL","INFORMAL"].map(m=>(
+              <button key={m} onClick={()=>setModulo(m)} style={{flex:1,padding:"5px 0",fontSize:11,fontWeight:600,borderRadius:4,border:"none",cursor:"pointer",background:modulo===m?"#f5a623":"transparent",color:modulo===m?"#000":"#8890a8",transition:"all .2s"}}>
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+        <nav style={{flex:1,padding:"8px 8px",overflowY:"auto"}}>
+          {MENU.map(item=>(
+            <button key={item.id} onClick={()=>setSec(item.id)} className={`nav-btn ${sec===item.id?"active":""}`}>
+              <span style={{fontSize:14}}>{item.icon}</span>{item.label}
+            </button>
+          ))}
+        </nav>
+        <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
+          <div style={{fontSize:10,color:"#565d7a"}}>v1.0.0 — GranoSYS</div>
+        </div>
+      </div>
+      {/* MAIN */}
+      <div style={{flex:1,overflow:"auto",padding:22,background:"#0f1117"}}>
+        {render()}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
