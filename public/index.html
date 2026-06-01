@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -677,49 +678,68 @@ const Movimientos = ({modulo}) => {
                   <FF label="Flete Pagador — Nombre"><input defaultValue={selected?.flete_pagador_nombre||""} placeholder="Nombre flete pagador"/></FF>
                 </div>
               </>}
-              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>B — Grano / Especie</div>
+              {modulo==="INFORMAL"&&(
+                <div style={{padding:"10px 14px",background:"rgba(245,166,35,.06)",border:"1px solid rgba(245,166,35,.15)",borderRadius:6,marginBottom:18,fontSize:12,color:"#8890a8"}}>
+                  📝 Operación <strong style={{color:"#f5a623"}}>Informal</strong> — sin CTG ni intervinientes de CPE
+                </div>
+              )}
+              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>{modulo==="FORMAL"?"B — Grano / Especie":"Grano / Especie"}</div>
               <div className="form-grid-2" style={{marginBottom:18}}>
                 <FF label="Especie"><select>{ESPECIES.map(e=><option key={e}>{e}</option>)}</select></FF>
                 <FF label="Campaña"><select>{CAMPANAS.map(c=><option key={c}>{c}</option>)}</select></FF>
-                <FF label="Declaración de Calidad"><select><option>CONFORME</option><option>CONDICIONAL</option></select></FF>
-                <FF label="Observaciones CPE"><input placeholder="Ej: interviene C&S SRL 30-70982771-1"/></FF>
+                {modulo==="FORMAL"&&<FF label="Declaración de Calidad"><select><option>CONFORME</option><option>CONDICIONAL</option></select></FF>}
+                {modulo==="FORMAL"&&<FF label="Observaciones CPE"><input placeholder="Ej: interviene C&S SRL 30-70982771-1"/></FF>}
+                {modulo==="INFORMAL"&&<FF label="N° Remito"><input placeholder="Nro de remito (opcional)"/></FF>}
+                {modulo==="INFORMAL"&&<FF label="Observaciones"><input placeholder="Observaciones del movimiento"/></FF>}
               </div>
-              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>C — Procedencia</div>
+              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>{modulo==="FORMAL"?"C — Procedencia":"Procedencia"}</div>
               <div className="form-grid-2" style={{marginBottom:18}}>
-                <FF label="Localidad Origen"><input defaultValue={selected?.origen?.split(",")[0]||""} placeholder="Gramilla"/></FF>
+                <FF label="Localidad Origen"><input defaultValue={selected?.origen?.split(",")[0]||""} placeholder="Localidad de origen"/></FF>
                 <FF label="Provincia Origen"><select><option value="">Seleccionar...</option>{PROVINCIAS.map(p=><option key={p}>{p}</option>)}</select></FF>
-                <FF label="RENSPA"><input placeholder="Código RENSPA del campo"/></FF>
-                <FF label="Descripción Campo"><input placeholder="Nombre del establecimiento"/></FF>
-                <FF label="Latitud"><input placeholder="27° 16 58"/></FF>
-                <FF label="Longitud"><input placeholder="64° 40 10"/></FF>
+                {modulo==="FORMAL"&&<FF label="RENSPA"><input placeholder="Código RENSPA del campo"/></FF>}
+                {modulo==="FORMAL"&&<FF label="Descripción Campo"><input placeholder="Nombre del establecimiento"/></FF>}
+                {modulo==="FORMAL"&&<FF label="Latitud"><input placeholder="27° 16 58"/></FF>}
+                {modulo==="FORMAL"&&<FF label="Longitud"><input placeholder="64° 40 10"/></FF>}
+                {modulo==="INFORMAL"&&<FF label="Establecimiento / Campo"><input placeholder="Nombre del campo (opcional)"/></FF>}
               </div>
-              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>D — Destino de la Mercadería</div>
+              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>{modulo==="FORMAL"?"D — Destino de la Mercadería":"Destino"}</div>
               <div className="form-grid-2" style={{marginBottom:18}}>
-                <FF label="Localidad Destino"><input defaultValue={selected?.destino?.split(",")[0]||""} placeholder="Timbúes"/></FF>
+                <FF label="Localidad Destino"><input defaultValue={selected?.destino?.split(",")[0]||""} placeholder="Localidad destino"/></FF>
                 <FF label="Provincia Destino"><select><option value="">Seleccionar...</option>{PROVINCIAS.map(p=><option key={p}>{p}</option>)}</select></FF>
-                <FF label="N° Planta"><input placeholder="518477"/></FF>
-                <FF label="Dirección Destino"><input placeholder="Brigadier López 10500"/></FF>
+                {modulo==="FORMAL"&&<FF label="N° Planta"><input placeholder="518477"/></FF>}
+                {modulo==="FORMAL"&&<FF label="Dirección Destino"><input placeholder="Brigadier López 10500"/></FF>}
               </div>
-              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>E — Datos del Transporte</div>
+              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>{modulo==="FORMAL"?"E — Datos del Transporte":"Transporte"}</div>
               <div className="form-grid-2" style={{marginBottom:18}}>
-                <FF label="Empresa Transportista"><input defaultValue={selected?.transportista||""} placeholder="Empresa transportista"/></FF>
-                <FF label="Chofer — CUIT"><input placeholder="20-26504588-0"/></FF>
-                <FF label="Chofer — Nombre"><input defaultValue={selected?.chofer||""} placeholder="Zamora Pablo Leandro"/></FF>
+                <FF label="Empresa Transportista">
+                  <select defaultValue={selected?.transportista||""}>
+                    <option value="">Seleccionar...</option>
+                    {mockTransportistas.map(t=><option key={t.id} value={t.razon_social}>{t.razon_social}{t.cuit?" — "+t.cuit:" (Informal)"}</option>)}
+                  </select>
+                </FF>
+                <FF label="Chofer">
+                  <select defaultValue={selected?.chofer||""}>
+                    <option value="">Seleccionar...</option>
+                    {mockChoferes.map(c=><option key={c.id} value={c.nombre}>{c.nombre} ({c.cuit_dni})</option>)}
+                  </select>
+                </FF>
                 <FF label="Patente Chasis"><input defaultValue={selected?.patente_chasis||""} placeholder="AA496YI"/></FF>
                 <FF label="Patente Acoplado"><input defaultValue={selected?.patente_acoplado||""} placeholder="AD846IU"/></FF>
-                <FF label="Fecha Partida"><input type="datetime-local"/></FF>
                 <FF label="Km a Recorrer"><input type="number" defaultValue={selected?.km||""}/></FF>
-                <FF label="Tipo Tarifa"><select><option>LLENA</option><option>MENOS_10</option><option>MENOS_20</option></select></FF>
-                <FF label="Tarifa CATAC (referencia)"><input type="number" defaultValue={selected?.tarifa_catac||""}/></FF>
+                {modulo==="FORMAL"&&<FF label="Tipo Tarifa"><select><option>LLENA</option><option>MENOS_10</option><option>MENOS_20</option></select></FF>}
+                {modulo==="FORMAL"&&<FF label="Tarifa CATAC (referencia)"><input type="number" defaultValue={selected?.tarifa_catac||""}/></FF>}
                 <FF label="Tarifa Real Pactada"><input type="number" defaultValue={selected?.tarifa_real||""}/></FF>
+                {modulo==="FORMAL"&&<FF label="Fecha Partida"><input type="datetime-local"/></FF>}
               </div>
-              <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>F — Contingencias</div>
-              <div className="form-grid-2" style={{marginBottom:18}}>
-                <FF label="Contingencia"><input placeholder="Tipo (opcional)"/></FF>
-                <FF label="Contingencia — Otro"><input placeholder="Descripción (opcional)"/></FF>
-                <FF label="Desactivación"><input placeholder="Motivo (opcional)"/></FF>
-                <FF label="Desactivación — Otro"><input placeholder="Descripción (opcional)"/></FF>
-              </div>
+              {modulo==="FORMAL"&&<>
+                <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>F — Contingencias</div>
+                <div className="form-grid-2" style={{marginBottom:18}}>
+                  <FF label="Contingencia"><input placeholder="Tipo (opcional)"/></FF>
+                  <FF label="Contingencia — Otro"><input placeholder="Descripción (opcional)"/></FF>
+                  <FF label="Desactivación"><input placeholder="Motivo (opcional)"/></FF>
+                  <FF label="Desactivación — Otro"><input placeholder="Descripción (opcional)"/></FF>
+                </div>
+              </>}
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>Pesada de Salida</div>
               <div className="form-grid-2">
                 <FF label="Kg Bruto Salida" required><input type="number" defaultValue={selected?.peso_bruto_salida||""}/></FF>
@@ -1724,64 +1744,142 @@ const ImportadorExcel = ({modulo}) => {
 
   const COLS_REQUERIDAS = COLUMNAS.filter(c=>c.requerido);
 
-  // Simular procesamiento de Excel con datos demo
-  const simularImport = () => {
+  const [nombreArchivo, setNombreArchivo] = useState("");
+
+  const MAPA_COLUMNAS = {
+    "FECHA":"fecha","CEREAL":"especie","CTG":"ctg","CPE/REMITOS":"cpe_remito",
+    "CHOFER":"chofer","TRANSPORTE":"transportista","PAT.CHAS":"patente_chasis",
+    "PAT.AC":"patente_acoplado","PRODUTOR":"productor","PRODUCTOR":"productor",
+    "ORIGEN":"origen","DESTINO":"destino","DESTINATARIO":"comprador",
+    "TN.CARGA":"kg_carga","TN.DESC":"kg_desc","H°":"humedad",
+    "MERMA X H°":"neto_humedad","NETO":"neto_humedad",
+    "KM":"km","TARIFA":"tarifa","TOTAL FLETE":"total_flete",
+    "OBSERVACIONES":"observaciones","CAMPAÑA":"campana",
+    "ESPECIE":"especie","PRODUCTOR *":"productor",
+    "COMPRADOR/DEST *":"comprador","TRANSPORTISTA *":"transportista",
+    "PAT. CHASIS *":"patente_chasis","PAT. ACOPLADO":"patente_acoplado",
+    "KG CARGA *":"kg_carga","KG DESC.":"kg_desc","HUMEDAD %":"humedad",
+    "NETO HUM.":"neto_humedad","TOTAL FLETE":"total_flete",
+  };
+
+  const MAPA_ESPECIES = {
+    "MAIZ":"Maíz","MAÍZ":"Maíz","EX.SOJA":"Soja","SOJA":"Soja",
+    "GIRASOL":"Girasol","TRIGO":"Trigo","CEBADA":"Cebada",
+    "S.AVENA":"Sorgo","AVENA":"Sorgo","SORGO":"Sorgo",
+  };
+
+  const procesarArchivo = (file) => {
+    if (!file) return;
+    setNombreArchivo(file.name);
     setProcesando(true);
-    setTimeout(()=>{
-      const datosMock = [
-        {
-          productor:"García Juan Carlos", comprador:"Bunge Argentina S.A.",
-          especie:"Soja", campana:"2024/2025", nro_ctg:"10129526900",
-          patente_chasis:"AB123CD", patente_acoplado:"AD999ZZ",
-          transportista:"Logística Centro S.R.L.", chofer:"López Mario",
-          localidad_origen:"Gramilla", provincia_origen:"Santiago del Estero",
-          localidad_destino:"Timbúes", km:760, tarifa_catac:411, tarifa_real:390,
-          kg_bruto_salida:52100, kg_tara_salida:17400, humedad_salida:13.2,
-          kg_bruto_llegada:52080, kg_tara_llegada:17400, humedad_llegada:13.0,
-          nro_turno:"RTSOCOM260220001001", factor:0.982,
-          contrato_compra:"OC-2025-0001", contrato_venta:"OV-2025-0001",
-          _estado:"OK", _errores:[], _tiene_descarga:true, _tiene_calidad:true,
-        },
-        {
-          productor:"García Juan Carlos", comprador:"Bunge Argentina S.A.",
-          especie:"Soja", campana:"2024/2025", nro_ctg:"10129526901",
-          patente_chasis:"AC456EF", patente_acoplado:"",
-          transportista:"Logística Centro S.R.L.", chofer:"Ramírez Pedro",
-          localidad_origen:"Gramilla", provincia_origen:"Santiago del Estero",
-          localidad_destino:"Timbúes", km:760, tarifa_catac:411, tarifa_real:390,
-          kg_bruto_salida:51800, kg_tara_salida:17200, humedad_salida:13.8,
-          kg_bruto_llegada:null, kg_tara_llegada:null, humedad_llegada:null,
-          nro_turno:"", factor:null,
-          contrato_compra:"OC-2025-0001", contrato_venta:"",
-          _estado:"OK", _errores:[], _tiene_descarga:false, _tiene_calidad:false,
-        },
-        {
-          productor:"", comprador:"Bunge Argentina S.A.",
-          especie:"Soja", campana:"2024/2025", nro_ctg:"",
-          patente_chasis:"", patente_acoplado:"",
-          transportista:"", chofer:"",
-          kg_bruto_salida:null, kg_tara_salida:null,
-          _estado:"ERROR", _errores:["Productor requerido","Patente Chasis requerida","Transportista requerido","Kg Bruto Salida requerido"],
-          _tiene_descarga:false, _tiene_calidad:false,
-        },
-      ];
-      // Calcular kg netos
-      datosMock.forEach(r=>{
-        if(r.kg_bruto_salida&&r.kg_tara_salida) r._kg_neto_salida=r.kg_bruto_salida-r.kg_tara_salida;
-        if(r.kg_bruto_llegada&&r.kg_tara_llegada) r._kg_neto_llegada=r.kg_bruto_llegada-r.kg_tara_llegada;
-        if(r._kg_neto_salida&&r._kg_neto_llegada){
-          const dif = r._kg_neto_salida-r._kg_neto_llegada;
-          const tol = r._kg_neto_salida*0.0003;
-          r._faltante = Math.max(0,dif-tol);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, {type:"array", cellDates:true});
+
+        // Buscar hoja de movimientos
+        const hojaNombre = wb.SheetNames.find(n=>
+          n.toUpperCase().includes("MOVIMIENTO") || n.toUpperCase().includes("MOV")
+        ) || wb.SheetNames[0];
+
+        const ws = wb.Sheets[hojaNombre];
+        const filas = XLSX.utils.sheet_to_json(ws, {header:1, defval:null, raw:false});
+
+        // Encontrar fila de headers (busca la que tenga FECHA o CEREAL o PRODUCTOR)
+        let headerIdx = -1;
+        let headers = [];
+        for (let i=0; i<Math.min(filas.length,10); i++) {
+          const fila = filas[i];
+          const tieneHeaders = fila && fila.some(c=>
+            c && ["FECHA","CEREAL","PRODUCTOR","PRODUTOR","CHOFER","TRANSPORTE"].includes(String(c).trim().toUpperCase())
+          );
+          if (tieneHeaders) { headerIdx = i; headers = fila; break; }
         }
-      });
-      const errs = datosMock.filter(r=>r._estado==="ERROR");
-      setDatos(datosMock);
-      setErrores(errs);
-      setSeleccionados(datosMock.filter(r=>r._estado==="OK").map((_,i)=>i));
-      setProcesando(false);
-      setPaso(2);
-    },1800);
+
+        if (headerIdx === -1) {
+          alert("No se encontró la fila de encabezados. Verificá que el Excel tenga columnas como FECHA, CEREAL, PRODUCTOR, etc.");
+          setProcesando(false);
+          return;
+        }
+
+        // Mapear headers
+        const colMap = {};
+        headers.forEach((h,i)=>{
+          if (!h) return;
+          const key = MAPA_COLUMNAS[String(h).trim().toUpperCase()] || MAPA_COLUMNAS[String(h).trim()];
+          if (key) colMap[i] = key;
+        });
+
+        // Procesar filas de datos
+        const registros = [];
+        for (let i=headerIdx+1; i<filas.length; i++) {
+          const fila = filas[i];
+          if (!fila || fila.every(c=>!c)) continue;
+
+          const r = {_fila: i+1};
+          Object.entries(colMap).forEach(([col, key])=>{
+            r[key] = fila[col] !== null && fila[col] !== undefined ? fila[col] : null;
+          });
+
+          // Normalizar especie
+          if (r.especie) {
+            const esp = String(r.especie).trim().toUpperCase();
+            r.especie = MAPA_ESPECIES[esp] || r.especie;
+          }
+
+          // Campaña por defecto
+          if (!r.campana) r.campana = "2024/2025";
+
+          // Calcular kg netos y faltante
+          const kgCarga = parseFloat(r.kg_carga) || null;
+          const kgDesc = parseFloat(r.kg_desc) || null;
+          r._kg_neto_salida = kgCarga;
+          r._kg_neto_llegada = kgDesc;
+          if (kgCarga && kgDesc) {
+            const dif = kgCarga - kgDesc;
+            const tol = kgCarga * 0.0003;
+            r._faltante = Math.max(0, dif - tol);
+          } else {
+            r._faltante = null;
+          }
+
+          r._tiene_descarga = !!kgDesc;
+          r._tiene_calidad = !!(r.factor || r.humedad);
+
+          // Validar campos requeridos
+          const errores = [];
+          if (!r.productor) errores.push("Productor requerido");
+          if (!r.transportista) errores.push("Transportista requerido");
+          if (!r.patente_chasis) errores.push("Patente chasis requerida");
+          if (!kgCarga) errores.push("Kg Carga requerido");
+          if (!r.especie) errores.push("Especie requerida");
+
+          r._errores = errores;
+          r._estado = errores.length > 0 ? "ERROR" : "OK";
+
+          registros.push(r);
+        }
+
+        setDatos(registros);
+        setSeleccionados(registros.filter(r=>r._estado==="OK").map((_,i)=>i));
+        setProcesando(false);
+        setPaso(2);
+      } catch(err) {
+        console.error(err);
+        alert("Error al leer el archivo: " + err.message);
+        setProcesando(false);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const simularImport = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".xlsx,.xls,.csv";
+    input.onchange = (e) => procesarArchivo(e.target.files[0]);
+    input.click();
   };
 
   const confirmarImport = () => {
@@ -1864,11 +1962,33 @@ const ImportadorExcel = ({modulo}) => {
           </div>
 
           {/* DROP ZONE */}
-          <div className="drop-zone" style={{marginBottom:16}}>
+          <div
+            className="drop-zone"
+            style={{marginBottom:16}}
+            onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor="#f5a623";}}
+            onDragLeave={e=>{e.currentTarget.style.borderColor="#2a2d3e";}}
+            onDrop={e=>{
+              e.preventDefault();
+              e.currentTarget.style.borderColor="#2a2d3e";
+              const file = e.dataTransfer.files[0];
+              if(file) procesarArchivo(file);
+            }}
+            onClick={()=>{
+              const input = document.createElement("input");
+              input.type="file";
+              input.accept=".xlsx,.xls,.csv";
+              input.onchange=(e)=>procesarArchivo(e.target.files[0]);
+              input.click();
+            }}
+          >
             <div style={{fontSize:40,marginBottom:12}}>📊</div>
-            <div style={{fontWeight:600,fontSize:15,marginBottom:6}}>Arrastrá el archivo Excel acá</div>
-            <div style={{color:"#8890a8",fontSize:13,marginBottom:16}}>Formatos soportados: .xlsx / .xls / .csv</div>
-            <Btn variant="secondary">Seleccionar archivo</Btn>
+            <div style={{fontWeight:600,fontSize:15,marginBottom:6}}>
+              {nombreArchivo ? `✓ ${nombreArchivo}` : "Arrastrá el archivo Excel acá"}
+            </div>
+            <div style={{color:"#8890a8",fontSize:13,marginBottom:16}}>
+              {nombreArchivo ? "Click para cambiar el archivo" : "Formatos soportados: .xlsx / .xls / .csv"}
+            </div>
+            <Btn variant="secondary" onClick={e=>e.stopPropagation()}>Seleccionar archivo</Btn>
           </div>
 
           <div className="alert-info" style={{marginBottom:16}}>
@@ -1878,11 +1998,20 @@ const ImportadorExcel = ({modulo}) => {
           {procesando?(
             <div style={{textAlign:"center",padding:"16px 0"}}>
               <div className="pulse" style={{color:"#f5a623",fontWeight:600,marginBottom:6}}>Procesando archivo...</div>
-              <div style={{color:"#8890a8",fontSize:13}}>Validando filas y calculando kg netos</div>
+              <div style={{color:"#8890a8",fontSize:13}}>Leyendo Excel y validando filas...</div>
             </div>
           ):(
-            <Btn onClick={simularImport} style={{width:"100%",justifyContent:"center",padding:12,fontSize:14}}>
-              Procesar archivo (demo con datos de ejemplo)
+            <Btn
+              onClick={()=>{
+                const input = document.createElement("input");
+                input.type="file";
+                input.accept=".xlsx,.xls,.csv";
+                input.onchange=(e)=>procesarArchivo(e.target.files[0]);
+                input.click();
+              }}
+              style={{width:"100%",justifyContent:"center",padding:12,fontSize:14}}
+            >
+              📂 Seleccionar y procesar Excel
             </Btn>
           )}
         </div>
@@ -1966,12 +2095,12 @@ const ImportadorExcel = ({modulo}) => {
                       }
                     </td>
                     <td style={{fontWeight:500}}>{r.productor||<span style={{color:"#e74c3c"}}>—</span>}</td>
-                    <td style={{color:"#8890a8"}}>{r.comprador||"—"}</td>
+                    <td style={{color:"#8890a8",fontSize:11}}>{r.comprador||"—"}</td>
                     <td>{r.especie}</td>
                     <td><span className="mono" style={{fontSize:11}}>{r.campana}</span></td>
-                    <td><span className="mono" style={{fontSize:11,color:"#8890a8"}}>{r.nro_ctg||"—"}</span></td>
+                    <td><span className="mono" style={{fontSize:11,color:"#8890a8"}}>{r.ctg||r.cpe_remito||"—"}</span></td>
                     <td><span className="mono" style={{fontSize:11}}>{r.patente_chasis||<span style={{color:"#e74c3c"}}>—</span>}</span></td>
-                    <td style={{fontSize:11}}>{r.transportista||<span style={{color:"#e74c3c"}}>—</span>}</td>
+                    <td style={{fontSize:11,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.transportista||<span style={{color:"#e74c3c"}}>—</span>}</td>
                     <td><span className="mono">{r._kg_neto_salida?.toLocaleString()||"—"}</span></td>
                     <td><span className="mono" style={{color:r._tiene_descarga?"#27ae60":"#565d7a"}}>{r._kg_neto_llegada?.toLocaleString()||"—"}</span></td>
                     <td>
@@ -2042,8 +2171,218 @@ const ImportadorExcel = ({modulo}) => {
   );
 };
 
+// ── DASHBOARD CONSOLIDADO ──
+const DashboardConsolidado = () => {
+  const totalMovs = mockMovimientos.length;
+  const enTransito = mockMovimientos.filter(m=>m.estado==="EN_TRANSITO").length;
+  const formales = mockMovimientos.filter(m=>m.modalidad==="FORMAL").length;
+  const informales = mockMovimientos.filter(m=>m.modalidad==="INFORMAL").length;
+
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:22}}>
+        <h2 style={{fontSize:20,fontWeight:700,marginBottom:4}}>
+          <span style={{color:"#27ae60"}}>⊞</span> Dashboard Consolidado
+        </h2>
+        <p style={{color:"#8890a8",fontSize:13}}>Vista unificada Formal + Informal</p>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:22}}>
+        <StatCard label="Total Movimientos" value={totalMovs} sub={`${formales} formales · ${informales} informales`} color="#27ae60"/>
+        <StatCard label="En Tránsito" value={enTransito} sub="todos los canales" color="#3498db"/>
+        <StatCard label="Contratos Activos" value={mockContratos.length} sub={`${mockContratos.filter(c=>c.modalidad==="FORMAL").length} F · ${mockContratos.filter(c=>c.modalidad==="INFORMAL").length} I`} color="#f5a623"/>
+        <StatCard label="A Fijar Global" value={mockContratos.filter(c=>c.tipo_precio==="A_FIJAR").length} sub="contratos sin precio" color="#9b59b6"/>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+        <div className="card">
+          <div className="card-header">
+            <span style={{fontWeight:600}}>Comparativa Formal vs Informal</span>
+          </div>
+          <div style={{padding:"16px 20px"}}>
+            {[
+              {label:"Movimientos",f:formales,i:informales},
+              {label:"Contratos",f:mockContratos.filter(c=>c.modalidad==="FORMAL").length,i:mockContratos.filter(c=>c.modalidad==="INFORMAL").length},
+            ].map(row=>(
+              <div key={row.label} style={{marginBottom:16}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                  <span style={{fontSize:13,color:"#8890a8"}}>{row.label}</span>
+                  <span style={{fontSize:12,color:"#565d7a"}}>{row.f+row.i} total</span>
+                </div>
+                <div style={{display:"flex",gap:2,height:8,borderRadius:4,overflow:"hidden"}}>
+                  <div style={{flex:row.f,background:"#3498db",borderRadius:"4px 0 0 4px"}}/>
+                  <div style={{flex:row.i,background:"#f5a623",borderRadius:"0 4px 4px 0"}}/>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+                  <span style={{fontSize:11,color:"#3498db"}}>📋 Formal: {row.f}</span>
+                  <span style={{fontSize:11,color:"#f5a623"}}>📝 Informal: {row.i}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-header"><span style={{fontWeight:600}}>Stock Global por Especie</span></div>
+          <table><thead><tr><th>Especie</th><th>Formal</th><th>Informal</th><th>Total</th></tr></thead>
+          <tbody>
+            {[
+              {e:"Soja",f:420,i:0},
+              {e:"Maíz",f:150,i:314},
+              {e:"Trigo",f:60,i:0},
+            ].map(r=>(
+              <tr key={r.e}>
+                <td style={{fontWeight:500}}>{r.e}</td>
+                <td><span className="mono" style={{color:"#3498db"}}>{r.f} tn</span></td>
+                <td><span className="mono" style={{color:"#f5a623"}}>{r.i} tn</span></td>
+                <td><span className="mono" style={{fontWeight:700,color:"#27ae60"}}>{r.f+r.i} tn</span></td>
+              </tr>
+            ))}
+          </tbody></table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── STOCK CONSOLIDADO ──
+const StockConsolidado = () => {
+  const [filtroModalidad, setFiltroModalidad] = useState("TODOS");
+  return (
+    <div className="fade-in">
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+        <div>
+          <h2 style={{fontSize:18,fontWeight:700}}>Stock Consolidado</h2>
+          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Formal + Informal unificado por productor</p>
+        </div>
+        <div style={{display:"flex",background:"#0f1117",borderRadius:6,padding:3,gap:2}}>
+          {["TODOS","FORMAL","INFORMAL"].map(m=>(
+            <button key={m} onClick={()=>setFiltroModalidad(m)} style={{
+              padding:"5px 12px",fontSize:11,fontWeight:600,borderRadius:4,border:"none",cursor:"pointer",
+              background:filtroModalidad===m?"#27ae60":"transparent",
+              color:filtroModalidad===m?"#000":"#8890a8",transition:"all .2s"
+            }}>{m}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:20}}>
+        <StatCard label="Soja Total" value="420 tn" sub="420F · 0I" color="#e67e22"/>
+        <StatCard label="Maíz Total" value="464 tn" sub="150F · 314I" color="#f1c40f"/>
+        <StatCard label="Trigo Total" value="60 tn" sub="60F · 0I" color="#e74c3c"/>
+        <StatCard label="Sin Contrato" value="314 tn" sub="posición abierta global" color="#9b59b6"/>
+      </div>
+
+      <div className="card">
+        <table><thead><tr>
+          <th>Productor</th><th>Especie</th><th>Campaña</th>
+          <th>Tn Formal</th><th>Tn Informal</th><th>Total</th>
+          <th>Con Contrato</th><th>Sin Contrato</th>
+        </tr></thead>
+        <tbody>
+          {[
+            {prod:"García Juan Carlos",esp:"Soja",camp:"2024/2025",f:180,i:0,cc:180,sc:0},
+            {prod:"García Juan Carlos",esp:"Trigo",camp:"2024/2025",f:60,i:0,cc:60,sc:0},
+            {prod:"Rodríguez Pedro",esp:"Maíz",camp:"2024/2025",f:0,i:31,cc:0,sc:31},
+          ].filter(r=>filtroModalidad==="TODOS"||(filtroModalidad==="FORMAL"&&r.f>0)||(filtroModalidad==="INFORMAL"&&r.i>0))
+          .map((r,i)=>(
+            <tr key={i}>
+              <td style={{fontWeight:500}}>{r.prod}</td>
+              <td>{r.esp}</td>
+              <td><span className="mono" style={{fontSize:11}}>{r.camp}</span></td>
+              <td><span className="mono" style={{color:"#3498db"}}>{r.f>0?r.f+" tn":"—"}</span></td>
+              <td><span className="mono" style={{color:"#f5a623"}}>{r.i>0?r.i+" tn":"—"}</span></td>
+              <td><span className="mono" style={{fontWeight:700,color:"#27ae60"}}>{r.f+r.i} tn</span></td>
+              <td><span className="mono" style={{color:"#27ae60"}}>{r.cc>0?r.cc+" tn":"—"}</span></td>
+              <td><span className="mono" style={{color:r.sc>0?"#9b59b6":"#565d7a"}}>{r.sc>0?r.sc+" tn":"—"}</span></td>
+            </tr>
+          ))}
+        </tbody></table>
+      </div>
+    </div>
+  );
+};
+
+// ── CC CONSOLIDADA ──
+const CCConsolidada = () => {
+  const [filtroModalidad, setFiltroModalidad] = useState("TODOS");
+  return (
+    <div className="fade-in">
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+        <div>
+          <h2 style={{fontSize:18,fontWeight:700}}>Cuenta Corriente Consolidada</h2>
+          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Saldos unificados Formal + Informal por contraparte</p>
+        </div>
+        <div style={{display:"flex",background:"#0f1117",borderRadius:6,padding:3,gap:2}}>
+          {["TODOS","FORMAL","INFORMAL"].map(m=>(
+            <button key={m} onClick={()=>setFiltroModalidad(m)} style={{
+              padding:"5px 12px",fontSize:11,fontWeight:600,borderRadius:4,border:"none",cursor:"pointer",
+              background:filtroModalidad===m?"#27ae60":"transparent",
+              color:filtroModalidad===m?"#000":"#8890a8",transition:"all .2s"
+            }}>{m}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:20}}>
+        <StatCard label="Total a Pagar" value="$ 18.4M" sub="productores y transportistas" color="#e74c3c"/>
+        <StatCard label="Total a Cobrar" value="$ 18.4M" sub="compradores" color="#27ae60"/>
+        <StatCard label="Balance Neto" value="$ 0" sub="equilibrado" color="#f5a623"/>
+      </div>
+
+      <div className="card">
+        <table><thead><tr>
+          <th>Contraparte</th><th>Tipo</th>
+          <th>Saldo Formal</th><th>Saldo Informal</th><th>Saldo Total</th>
+          <th>Estado</th>
+        </tr></thead>
+        <tbody>
+          {[
+            {nombre:"García Juan Carlos",tipo:"PRODUCTOR",f:-9200828,i:0},
+            {nombre:"Bunge Argentina S.A.",tipo:"COMPRADOR",f:9200828,i:0},
+            {nombre:"Rodríguez Pedro",tipo:"PRODUCTOR",f:0,i:-450000},
+            {nombre:"Logística Centro S.R.L.",tipo:"TRANSPORTISTA",f:-148500,i:-89200},
+          ].filter(r=>filtroModalidad==="TODOS"||(filtroModalidad==="FORMAL"&&r.f!==0)||(filtroModalidad==="INFORMAL"&&r.i!==0))
+          .map((r,i)=>{
+            const total = r.f + r.i;
+            return (
+              <tr key={i}>
+                <td style={{fontWeight:500}}>{r.nombre}</td>
+                <td><Badge label={r.tipo} color={r.tipo==="PRODUCTOR"?"orange":r.tipo==="COMPRADOR"?"blue":"green"}/></td>
+                <td><span className="mono" style={{fontSize:12,color:r.f<0?"#e74c3c":r.f>0?"#27ae60":"#565d7a"}}>
+                  {r.f!==0?`${r.f<0?"▼":"▲"} $ ${Math.abs(r.f).toLocaleString()}`:"—"}
+                </span></td>
+                <td><span className="mono" style={{fontSize:12,color:r.i<0?"#e74c3c":r.i>0?"#27ae60":"#565d7a"}}>
+                  {r.i!==0?`${r.i<0?"▼":"▲"} $ ${Math.abs(r.i).toLocaleString()}`:"—"}
+                </span></td>
+                <td><span className="mono" style={{fontWeight:700,color:total<0?"#e74c3c":total>0?"#27ae60":"#565d7a"}}>
+                  {total<0?"A PAGAR":"A COBRAR"} $ {Math.abs(total).toLocaleString()}
+                </span></td>
+                <td><Badge label={total===0?"EQUILIBRADO":total<0?"PENDIENTE PAGO":"PENDIENTE COBRO"} color={total===0?"green":total<0?"red":"blue"}/></td>
+              </tr>
+            );
+          })}
+        </tbody></table>
+      </div>
+    </div>
+  );
+};
+
 // ── APP PRINCIPAL ──
-const MENU = [
+const MENU_FORMAL = [
+  {id:"dashboard",label:"Dashboard",icon:"⊞"},
+  {id:"contrapartes",label:"Contrapartes",icon:"👤"},
+  {id:"contratos",label:"Contratos",icon:"📋"},
+  {id:"movimientos",label:"Movimientos",icon:"🚛"},
+  {id:"liquidaciones",label:"Liquidaciones",icon:"📊"},
+  {id:"cc",label:"Cuenta Corriente",icon:"💰"},
+  {id:"stock",label:"Stock",icon:"🌾"},
+  {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚"},
+  {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
+  {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
+];
+
+const MENU_INFORMAL = [
   {id:"dashboard",label:"Dashboard",icon:"⊞"},
   {id:"contrapartes",label:"Contrapartes",icon:"👤"},
   {id:"contratos",label:"Contratos",icon:"📋"},
@@ -2057,12 +2396,32 @@ const MENU = [
   {id:"importador_excel",label:"Importar Excel",icon:"📥"},
 ];
 
+const MENU_CONSOLIDADO = [
+  {id:"dashboard",label:"Dashboard",icon:"⊞"},
+  {id:"stock",label:"Stock Consolidado",icon:"🌾"},
+  {id:"cc",label:"CC Consolidada",icon:"💰"},
+  {id:"posicion_abierta",label:"Posición Global",icon:"📌"},
+];
+
+const MENU = MENU_FORMAL;
+
 function App() {
   const [modulo,setModulo]=useState("FORMAL");
   const [sec,setSec]=useState("dashboard");
 
+  const menuActual = modulo==="FORMAL"?MENU_FORMAL:modulo==="INFORMAL"?MENU_INFORMAL:MENU_CONSOLIDADO;
+
   const render = () => {
     const p = {modulo};
+    if (modulo === "CONSOLIDADO") {
+      switch(sec){
+        case "dashboard": return <DashboardConsolidado/>;
+        case "stock": return <StockConsolidado/>;
+        case "cc": return <CCConsolidada/>;
+        case "posicion_abierta": return <PosicionAbierta modulo="CONSOLIDADO"/>;
+        default: return <DashboardConsolidado/>;
+      }
+    }
     switch(sec){
       case "dashboard": return <Dashboard {...p}/>;
       case "contrapartes": return <Contrapartes {...p}/>;
@@ -2089,16 +2448,27 @@ function App() {
         </div>
         <div style={{padding:"10px 12px",borderBottom:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",marginBottom:6,textTransform:"uppercase",letterSpacing:".06em"}}>Módulo</div>
-          <div style={{display:"flex",background:"#0f1117",borderRadius:6,padding:3}}>
-            {["FORMAL","INFORMAL"].map(m=>(
-              <button key={m} onClick={()=>setModulo(m)} style={{flex:1,padding:"5px 0",fontSize:11,fontWeight:600,borderRadius:4,border:"none",cursor:"pointer",background:modulo===m?"#f5a623":"transparent",color:modulo===m?"#000":"#8890a8",transition:"all .2s"}}>
-                {m}
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            {[
+              {id:"FORMAL",label:"📋 Formal",color:"#3498db"},
+              {id:"INFORMAL",label:"📝 Informal",color:"#f5a623"},
+              {id:"CONSOLIDADO",label:"⊞ Consolidado",color:"#27ae60"},
+            ].map(m=>(
+              <button key={m.id} onClick={()=>setModulo(m.id)} style={{
+                padding:"7px 10px",fontSize:12,fontWeight:600,borderRadius:6,
+                border:`1px solid ${modulo===m.id?m.color+"44":"#2a2d3e"}`,
+                cursor:"pointer",textAlign:"left",
+                background:modulo===m.id?m.color+"18":"transparent",
+                color:modulo===m.id?m.color:"#8890a8",
+                transition:"all .2s"
+              }}>
+                {m.label}
               </button>
             ))}
           </div>
         </div>
         <nav style={{flex:1,padding:"8px 8px",overflowY:"auto"}}>
-          {MENU.map(item=>(
+          {menuActual.map(item=>(
             <button key={item.id} onClick={()=>setSec(item.id)} className={`nav-btn ${sec===item.id?"active":""}`}>
               <span style={{fontSize:14}}>{item.icon}</span>{item.label}
             </button>
