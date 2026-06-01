@@ -69,6 +69,81 @@ const ESPECIES = ["Soja","Trigo","Maíz","Girasol","Sorgo","Cebada"];
 const CAMPANAS = ["2023/2024","2024/2025","2025/2026"];
 const PROVINCIAS = ["Buenos Aires","Córdoba","Santa Fe","Entre Ríos","Santiago del Estero","Chaco","La Pampa","Salta","Tucumán"];
 
+// ── API CONFIG ──
+const API_URL = window.location.hostname === "localhost" 
+  ? "http://localhost:3000/api"
+  : "/api";
+
+const api = {
+  get: async (path) => {
+    try {
+      const r = await fetch(`${API_URL}${path}`);
+      if (!r.ok) throw new Error(await r.text());
+      return await r.json();
+    } catch(e) {
+      console.error("API GET error:", path, e);
+      return null;
+    }
+  },
+  post: async (path, data) => {
+    try {
+      const r = await fetch(`${API_URL}${path}`, {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify(data)
+      });
+      if (!r.ok) throw new Error(await r.text());
+      return await r.json();
+    } catch(e) {
+      console.error("API POST error:", path, e);
+      return null;
+    }
+  },
+  put: async (path, data) => {
+    try {
+      const r = await fetch(`${API_URL}${path}`, {
+        method: "PUT",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify(data)
+      });
+      if (!r.ok) throw new Error(await r.text());
+      return await r.json();
+    } catch(e) {
+      console.error("API PUT error:", path, e);
+      return null;
+    }
+  }
+};
+
+const API_URL = "https://accurate-abundance-production-f94e.up.railway.app";
+
+// Helper para llamadas al API
+const api = {
+  get: async (path) => {
+    const r = await fetch(API_URL + path);
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  },
+  post: async (path, data) => {
+    const r = await fetch(API_URL + path, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(data)
+    });
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  },
+  put: async (path, data) => {
+    const r = await fetch(API_URL + path, {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(data)
+    });
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  },
+};
+
 const mockTransportistas = [
   {id:1, cuit:"30-71020619-4", razon_social:"Logística Centro S.R.L.", modalidad:"FORMAL"},
   {id:2, cuit:"20-18234567-8", razon_social:"Transportes del Norte", modalidad:"FORMAL"},
@@ -222,11 +297,22 @@ const Dashboard = ({modulo}) => {
 const Contrapartes = ({modulo}) => {
   const [showForm,setShowForm]=useState(false);
   const [search,setSearch]=useState("");
+  const [lista,setLista]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [guardando,setGuardando]=useState(false);
   const [form,setForm]=useState({cuit:"",razon_social:"",es_productor:false,es_comprador:false,es_transportista:false,es_corredor:false,condicion_iva:"RI",provincia:"",localidad:"",telefono:"",email:""});
-  const lista = mockContrapartes.filter(c=>{
-    if(modulo==="FORMAL"&&!c.cuit) return false;
-    return c.razon_social.toLowerCase().includes(search.toLowerCase())||(c.cuit&&c.cuit.includes(search));
-  });
+
+  const cargarContrapartes = async () => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (modulo==="FORMAL") params.append("modalidad","FORMAL");
+    if (search) params.append("search",search);
+    const data = await api.get(`/contrapartes?${params}`);
+    if (data) setLista(data);
+    setLoading(false);
+  };
+
+  useEffect(()=>{ cargarContrapartes(); }, [modulo, search]);
   return (
     <div className="fade-in">
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
@@ -243,27 +329,37 @@ const Contrapartes = ({modulo}) => {
       </div>
       <div className="card">
         <table><thead><tr>
-          <th>Código</th>{modulo==="FORMAL"&&<th>CUIT</th>}<th>Razón Social</th><th>Tipo</th><th>Provincia</th><th>Estado</th><th></th>
+          <th>Código</th>{modulo==="FORMAL"&&<th>CUIT</th>}<th>Razón Social</th><th>Rubros</th><th>Localidad</th><th>Provincia</th><th>Estado</th><th></th>
         </tr></thead>
-        <tbody>{lista.map(c=>(
-          <tr key={c.id}>
-            <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{c.codigo}</span></td>
-            {modulo==="FORMAL"&&<td><span className="mono" style={{fontSize:12}}>{c.cuit||"—"}</span></td>}
-            <td style={{fontWeight:500}}>{c.razon_social}</td>
-            <td>
-                  <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                    {(c.tipo==="PRODUCTOR"||c.tipo==="AMBOS")&&<Badge label="Productor" color="orange"/>}
-                    {(c.tipo==="COMPRADOR"||c.tipo==="AMBOS")&&<Badge label="Comprador" color="blue"/>}
-                    {c.tipo==="TRANSPORTISTA"&&<Badge label="Transportista" color="green"/>}
-                    {c.tipo==="CORREDOR"&&<Badge label="Corredor" color="purple"/>}
-                  </div>
-                </td>
-            <td style={{color:"#8890a8"}}>{c.provincia}</td>
-            <td><Badge label={c.activo?"Activo":"Inactivo"} color={c.activo?"green":"gray"}/></td>
-            <td><Btn variant="ghost" size="sm">Editar</Btn></td>
-          </tr>
-        ))}</tbody></table>
-        {lista.length===0&&<div style={{padding:40,textAlign:"center",color:"#565d7a"}}>No se encontraron contrapartes</div>}
+        <tbody>
+          {loading?(
+            <tr><td colSpan={8} style={{textAlign:"center",padding:30,color:"#8890a8"}}>
+              <span className="pulse">Cargando...</span>
+            </td></tr>
+          ):lista.length===0?(
+            <tr><td colSpan={8} style={{textAlign:"center",padding:30,color:"#565d7a"}}>
+              No hay contrapartes registradas. Usá "+ Nueva Contraparte" para agregar.
+            </td></tr>
+          ):lista.map(c=>(
+            <tr key={c.id}>
+              <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{c.codigo_interno}</span></td>
+              {modulo==="FORMAL"&&<td><span className="mono" style={{fontSize:12}}>{c.cuit||"—"}</span></td>}
+              <td style={{fontWeight:500}}>{c.razon_social}</td>
+              <td>
+                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                  {(c.tipo_contraparte==="PRODUCTOR"||c.tipo_contraparte==="AMBOS")&&<Badge label="Productor" color="orange"/>}
+                  {(c.tipo_contraparte==="COMPRADOR"||c.tipo_contraparte==="AMBOS")&&<Badge label="Comprador" color="blue"/>}
+                  {c.tipo_contraparte==="TRANSPORTISTA"&&<Badge label="Transportista" color="green"/>}
+                  {c.tipo_contraparte==="CORREDOR"&&<Badge label="Corredor" color="purple"/>}
+                </div>
+              </td>
+              <td style={{color:"#8890a8",fontSize:12}}>{c.localidad||"—"}</td>
+              <td style={{color:"#8890a8",fontSize:12}}>{c.provincia||"—"}</td>
+              <td><Badge label={c.activo?"Activo":"Inactivo"} color={c.activo?"green":"gray"}/></td>
+              <td><Btn variant="ghost" size="sm">Editar</Btn></td>
+            </tr>
+          ))
+        }</tbody></table>
       </div>
       {showForm&&(
         <Modal title={`Nueva Contraparte ${modulo==="FORMAL"?"Formal":"Informal"}`} onClose={()=>setShowForm(false)} width={860}>
@@ -302,7 +398,43 @@ const Contrapartes = ({modulo}) => {
           </div>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:8}}>
             <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn>
-            <Btn onClick={()=>{alert("✓ Contraparte guardada");setShowForm(false);}}>Guardar</Btn>
+            <Btn disabled={guardando} onClick={async()=>{
+              if(!form.razon_social){alert("El nombre es obligatorio");return;}
+              if(!form.es_productor&&!form.es_comprador&&!form.es_transportista&&!form.es_corredor){
+                alert("Seleccioná al menos un rubro");return;
+              }
+              setGuardando(true);
+              try {
+                // Determinar tipo_contraparte según rubros seleccionados
+                const rubros = [];
+                if(form.es_productor) rubros.push("PRODUCTOR");
+                if(form.es_comprador) rubros.push("COMPRADOR");
+                if(form.es_transportista) rubros.push("TRANSPORTISTA");
+                if(form.es_corredor) rubros.push("CORREDOR");
+                const tipo = rubros.length>1?"AMBOS":rubros[0];
+
+                await api.post("/api/contrapartes",{
+                  cuit: form.cuit||null,
+                  razon_social: form.razon_social,
+                  tipo_contraparte: tipo,
+                  canal_operacion: modulo,
+                  condicion_iva: form.condicion_iva||null,
+                  domicilio: null,
+                  localidad: form.localidad||null,
+                  provincia: form.provincia||null,
+                  telefono: form.telefono||null,
+                  email: form.email||null,
+                });
+                alert("✓ Contraparte guardada correctamente");
+                setShowForm(false);
+                setForm({cuit:"",razon_social:"",es_productor:false,es_comprador:false,es_transportista:false,es_corredor:false,condicion_iva:"RI",provincia:"",localidad:"",telefono:"",email:""});
+                cargarContrapartes();
+              } catch(e) {
+                alert("Error al guardar: "+e.message);
+              } finally {
+                setGuardando(false);
+              }
+            }}>{guardando?"Guardando...":"Guardar"}</Btn>
           </div>
         </Modal>
       )}
