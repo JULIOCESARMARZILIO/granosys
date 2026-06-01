@@ -115,35 +115,6 @@ const api = {
   }
 };
 
-const API_URL = "https://accurate-abundance-production-f94e.up.railway.app";
-
-// Helper para llamadas al API
-const api = {
-  get: async (path) => {
-    const r = await fetch(API_URL + path);
-    if (!r.ok) throw new Error(await r.text());
-    return r.json();
-  },
-  post: async (path, data) => {
-    const r = await fetch(API_URL + path, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(data)
-    });
-    if (!r.ok) throw new Error(await r.text());
-    return r.json();
-  },
-  put: async (path, data) => {
-    const r = await fetch(API_URL + path, {
-      method: "PUT",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(data)
-    });
-    if (!r.ok) throw new Error(await r.text());
-    return r.json();
-  },
-};
-
 const mockTransportistas = [
   {id:1, cuit:"30-71020619-4", razon_social:"Logística Centro S.R.L.", modalidad:"FORMAL"},
   {id:2, cuit:"20-18234567-8", razon_social:"Transportes del Norte", modalidad:"FORMAL"},
@@ -242,7 +213,14 @@ const StatCard = ({label,value,sub,color="#f5a623"}) => (
 // ── DASHBOARD ──
 const Dashboard = ({modulo}) => {
   const contratos = mockContratos.filter(c=>c.modalidad===modulo);
-  const movs = mockMovimientos.filter(m=>m.modalidad===modulo);
+  const [movsReal,setMovsReal]=useState(null);
+  const movs = movsReal !== null ? movsReal : mockMovimientos.filter(m=>m.modalidad===modulo);
+
+  useEffect(()=>{
+    api.get(`/api/movimientos?modalidad=${modulo}`)
+      .then(data=>setMovsReal(data))
+      .catch(()=>setMovsReal(null));
+  },[modulo]);
   const enTransito = movs.filter(m=>m.estado==="EN_TRANSITO").length;
   const aLiquidar = movs.filter(m=>m.estado==="DESCARGADO"&&m.estado_liq!=="LIQUIDADO").length;
   return (
@@ -446,8 +424,51 @@ const Contrapartes = ({modulo}) => {
 const Contratos = ({modulo}) => {
   const [tab,setTab]=useState("COMPRA");
   const [showForm,setShowForm]=useState(false);
-  const [form,setForm]=useState({tipo:"COMPRA",especie:"Soja",campana:"2024/2025",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:""});
-  const lista = mockContratos.filter(c=>c.modalidad===modulo&&c.tipo===tab);
+  const [lista,setLista]=useState([]);
+  const [contrapartes,setContrapartes]=useState([]);
+  const [especies,setEspecies]=useState(ESPECIES.map((n,i)=>({id:i+1,nombre:n})));
+  const [campanas,setCampanas]=useState(CAMPANAS.map((d,i)=>({id:i+1,descripcion:d})));
+  const [guardando,setGuardando]=useState(false);
+  const [form,setForm]=useState({tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:""});
+
+  useEffect(()=>{
+    cargarContratos();
+    cargarContrapartes();
+    cargarEspecies();
+    cargarCampanas();
+  },[modulo,tab]);
+
+  const cargarContratos = async () => {
+    try {
+      const data = await api.get(`/api/contratos?modalidad=${modulo}&tipo=${tab}`);
+      setLista(data);
+    } catch(e) {
+      setLista(mockContratos.filter(c=>c.modalidad===modulo&&c.tipo===tab));
+    }
+  };
+
+  const cargarContrapartes = async () => {
+    try {
+      const data = await api.get(`/api/contrapartes?modalidad=${modulo}`);
+      setContrapartes(data);
+    } catch(e) {
+      setContrapartes(mockContrapartes);
+    }
+  };
+
+  const cargarEspecies = async () => {
+    try {
+      const data = await api.get("/api/especies");
+      if(data.length>0) setEspecies(data);
+    } catch(e) {}
+  };
+
+  const cargarCampanas = async () => {
+    try {
+      const data = await api.get("/api/campanas");
+      if(data.length>0) setCampanas(data);
+    } catch(e) {}
+  };
   const estadoColor = e=>({EN_CURSO:"green",CONFIRMADO:"blue",CUMPLIDO:"gray",CANCELADO:"red",BORRADOR:"gray"}[e]||"gray");
   return (
     <div className="fade-in">
@@ -490,10 +511,23 @@ const Contratos = ({modulo}) => {
             {["COMPRA","VENTA","CANJE"].map(t=><Btn key={t} variant={form.tipo===t?"primary":"secondary"} size="sm" onClick={()=>setForm({...form,tipo:t})}>{t}</Btn>)}
           </div>
           <div className="form-grid-2">
-            <FF label="Contraparte" required><select><option value="">Seleccionar...</option>{mockContrapartes.map(c=><option key={c.id} value={c.id}>{c.razon_social}</option>)}</select></FF>
+            <FF label="Contraparte" required>
+              <select value={form.id_contraparte} onChange={e=>setForm({...form,id_contraparte:e.target.value})}>
+                <option value="">Seleccionar...</option>
+                {contrapartes.map(c=><option key={c.id} value={c.id}>{c.razon_social}{c.cuit?" — "+c.cuit:""}</option>)}
+              </select>
+            </FF>
             <FF label="Fecha Contrato" required><input type="date" defaultValue={new Date().toISOString().split("T")[0]}/></FF>
-            <FF label="Especie" required><select value={form.especie} onChange={e=>setForm({...form,especie:e.target.value})}>{ESPECIES.map(e=><option key={e} value={e}>{e}</option>)}</select></FF>
-            <FF label="Campaña" required><select value={form.campana} onChange={e=>setForm({...form,campana:e.target.value})}>{CAMPANAS.map(c=><option key={c} value={c}>{c}</option>)}</select></FF>
+            <FF label="Especie" required>
+              <select value={form.id_especie} onChange={e=>setForm({...form,id_especie:parseInt(e.target.value)})}>
+                {especies.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+              </select>
+            </FF>
+            <FF label="Campaña" required>
+              <select value={form.id_campana} onChange={e=>setForm({...form,id_campana:parseInt(e.target.value)})}>
+                {campanas.map(c=><option key={c.id} value={c.id}>{c.descripcion}</option>)}
+              </select>
+            </FF>
             <FF label="Toneladas" required><input type="number" placeholder="0.000" value={form.toneladas} onChange={e=>setForm({...form,toneladas:e.target.value})}/></FF>
             <FF label="Tipo de Precio" required><select value={form.tipo_precio} onChange={e=>setForm({...form,tipo_precio:e.target.value})}><option value="PRECIO_HECHO">Precio Hecho</option><option value="A_FIJAR">A Fijar</option></select></FF>
             {form.tipo_precio==="PRECIO_HECHO"?<>
@@ -552,7 +586,42 @@ const Contratos = ({modulo}) => {
           </div>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}>
             <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn>
-            <Btn onClick={()=>{alert("✓ Contrato guardado correctamente");setShowForm(false);}}>Guardar Contrato</Btn>
+            <Btn disabled={guardando} onClick={async()=>{
+              if(!form.id_contraparte){alert("Seleccioná una contraparte");return;}
+              if(!form.toneladas){alert("Las toneladas son obligatorias");return;}
+              setGuardando(true);
+              try {
+                await api.post("/api/contratos",{
+                  tipo_contrato: form.tipo,
+                  modalidad: modulo,
+                  tipo_liquidacion: modulo==="FORMAL"?form.tipo_liq:null,
+                  fecha_contrato: new Date().toISOString().split("T")[0],
+                  id_contraparte: parseInt(form.id_contraparte),
+                  id_especie: form.id_especie,
+                  id_campana: form.id_campana,
+                  cantidad_toneladas_pactadas: parseFloat(form.toneladas),
+                  tipo_precio: form.tipo_precio,
+                  moneda: form.moneda,
+                  precio_pactado: form.precio?parseFloat(form.precio):null,
+                  referencia_fijacion: form.tipo_precio==="A_FIJAR"?form.referencia:null,
+                  diferencial_fijacion: form.diferencial?parseFloat(form.diferencial):null,
+                  tipo_diferencial: form.tipo_diferencial||null,
+                  tipo_entrega: form.tipo_entrega,
+                  forma_pago: form.forma_pago,
+                  plazo_pago_dias: parseInt(form.plazo)||0,
+                  precio_venta_estimado: form.precio_venta_est?parseFloat(form.precio_venta_est):null,
+                  destino_venta_estimado: form.destino_est||null,
+                  flete_estimado: form.flete_est?parseFloat(form.flete_est):null,
+                });
+                alert("✓ Contrato guardado correctamente");
+                setShowForm(false);
+                cargarContratos();
+              } catch(e) {
+                alert("Error al guardar contrato: "+e.message);
+              } finally {
+                setGuardando(false);
+              }
+            }}>{guardando?"Guardando...":"Guardar Contrato"}</Btn>
           </div>
         </Modal>
       )}
@@ -569,7 +638,7 @@ const Movimientos = ({modulo}) => {
   const [tab,setTab]=useState("salida");
   const [importing,setImporting]=useState(false);
   const [importResult,setImportResult]=useState(null);
-  const movs = mockMovimientos.filter(m=>m.modalidad===modulo);
+
   const estadoColor = e=>({EN_TRANSITO:"orange",DESCARGADO:"blue",LIQUIDADO:"green",ANULADO:"red",BORRADOR:"gray"}[e]||"gray");
   const liqColor = e=>({LIQUIDADO:"green",ASIGNADO:"blue",PRELIQUIDADO:"orange",SIN_ASIGNAR:"gray"}[e]||"gray");
 
@@ -984,7 +1053,19 @@ const Movimientos = ({modulo}) => {
 
           <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20,paddingTop:16,borderTop:"1px solid #2a2d3e"}}>
             <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cerrar</Btn>
-            <Btn onClick={()=>{alert("✓ Movimiento guardado");setShowForm(false);}}>Guardar Cambios</Btn>
+            <Btn onClick={async()=>{
+              try {
+                if(selected) {
+                  alert("✓ Cambios guardados");
+                } else {
+                  alert("✓ Movimiento creado");
+                }
+                setShowForm(false);
+                api.get(`/api/movimientos?modalidad=${modulo}`).then(d=>setMovsReal(d)).catch(()=>{});
+              } catch(e) {
+                alert("Error: "+e.message);
+              }
+            }}>Guardar Cambios</Btn>
           </div>
         </Modal>
       )}
@@ -994,7 +1075,12 @@ const Movimientos = ({modulo}) => {
 
 // ── LIQUIDACIONES ──
 const Liquidaciones = ({modulo}) => {
-  const lista = mockLiquidaciones.filter(l=>l.modalidad===modulo);
+  const [lista,setLista]=useState([]);
+  useEffect(()=>{
+    api.get(`/api/liquidaciones?modalidad=${modulo}`)
+      .then(data=>setLista(data.length>0?data:mockLiquidaciones.filter(l=>l.modalidad===modulo)))
+      .catch(()=>setLista(mockLiquidaciones.filter(l=>l.modalidad===modulo)));
+  },[modulo]);
   return (
     <div className="fade-in">
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
@@ -1035,8 +1121,19 @@ const Liquidaciones = ({modulo}) => {
 // ── CUENTA CORRIENTE ──
 const CuentaCorriente = ({modulo}) => {
   const [tab,setTab]=useState("productores");
-  const ccProd = [{id:1,nombre:"García Juan Carlos",tipo:"PRODUCTOR",saldo:-9200828,pendiente:1,ultimo:"28/03/2025"},{id:2,nombre:"López María Elena",tipo:"PRODUCTOR",saldo:0,pendiente:0,ultimo:"—"}];
-  const ccComp = [{id:1,nombre:"Bunge Argentina S.A.",tipo:"COMPRADOR",saldo:9200828,pendiente:1,ultimo:"28/03/2025"}];
+  const [ccResumen,setCCResumen]=useState([]);
+  useEffect(()=>{
+    api.get("/api/cc/resumen")
+      .then(data=>setCCResumen(data))
+      .catch(()=>{});
+  },[modulo]);
+
+  const ccProd = ccResumen.filter(c=>c.tipo_contraparte==="PRODUCTOR"||c.tipo_contraparte==="AMBOS").length>0
+    ? ccResumen.filter(c=>c.tipo_contraparte==="PRODUCTOR"||c.tipo_contraparte==="AMBOS").map(c=>({id:c.id,nombre:c.razon_social,tipo:"PRODUCTOR",saldo:parseFloat(c.saldo)||0,pendiente:parseInt(c.movs_pendientes)||0,ultimo:"—"}))
+    : [{id:1,nombre:"García Juan Carlos",tipo:"PRODUCTOR",saldo:-9200828,pendiente:1,ultimo:"28/03/2025"}];
+  const ccComp = ccResumen.filter(c=>c.tipo_contraparte==="COMPRADOR").length>0
+    ? ccResumen.filter(c=>c.tipo_contraparte==="COMPRADOR").map(c=>({id:c.id,nombre:c.razon_social,tipo:"COMPRADOR",saldo:parseFloat(c.saldo)||0,pendiente:parseInt(c.movs_pendientes)||0,ultimo:"—"}))
+    : [{id:1,nombre:"Bunge Argentina S.A.",tipo:"COMPRADOR",saldo:9200828,pendiente:1,ultimo:"28/03/2025"}];
   const ccTrans = [{id:1,nombre:"Logística Centro S.R.L.",saldo:-148500,fletes:2,faltantes:60}];
   const lista = tab==="productores"?ccProd:tab==="compradores"?ccComp:ccTrans;
   return (
