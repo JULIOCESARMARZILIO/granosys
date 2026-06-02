@@ -7,7 +7,7 @@ const { initDB } = require('./db');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CORS abierto para permitir llamadas desde cualquier dominio
+// CORS abierto
 app.use(cors({
   origin: '*',
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
@@ -15,9 +15,11 @@ app.use(cors({
 }));
 app.options('*', cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../public')));
 
-// Rutas API
+// Health check PRIMERO
+app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
+
+// Rutas API ANTES del static
 app.use('/api/contrapartes', require('./routes/contrapartes'));
 app.use('/api/especies', require('./routes/especies'));
 app.use('/api/campanas', require('./routes/campanas'));
@@ -28,10 +30,8 @@ app.use('/api/cc', require('./routes/cuentacorriente'));
 app.use('/api/stock', require('./routes/stock'));
 app.use('/api/reportes', require('./routes/reportes'));
 
-// Health check
-app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
-
-// Servir el frontend para cualquier ruta no-API
+// Static y frontend AL FINAL
+app.use(express.static(path.join(__dirname, '../public')));
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
