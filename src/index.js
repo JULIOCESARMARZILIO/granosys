@@ -7,7 +7,13 @@ const { initDB } = require('./db');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// CORS abierto para permitir llamadas desde cualquier dominio
+app.use(cors({
+  origin: '*',
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization']
+}));
+app.options('*', cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
@@ -22,13 +28,13 @@ app.use('/api/cc', require('./routes/cuentacorriente'));
 app.use('/api/stock', require('./routes/stock'));
 app.use('/api/reportes', require('./routes/reportes'));
 
+// Health check
+app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
+
 // Servir el frontend para cualquier ruta no-API
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
-
-// Health check
-app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
 
 async function start() {
   try {
