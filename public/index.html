@@ -71,8 +71,8 @@ const PROVINCIAS = ["Buenos Aires","Córdoba","Santa Fe","Entre Ríos","Santiago
 
 // ── API CONFIG ──
 const API_URL = window.location.hostname === "localhost" 
-  ? "http://localhost:3000/api"
-  : "https://granosys-production.up.railway.app/api";
+  ? "http://localhost:3000"
+  : "https://granosys-production.up.railway.app";
 
 const api = {
   get: async (path) => {
@@ -2704,7 +2704,7 @@ function App() {
           ))}
         </nav>
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
-          <div style={{fontSize:10,color:"#565d7a"}}>v1.0.4 — GranoSYS</div>
+          <div style={{fontSize:10,color:"#565d7a"}}>v1.0.5 — GranoSYS</div>
         </div>
       </div>
       {/* MAIN */}
