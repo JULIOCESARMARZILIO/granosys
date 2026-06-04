@@ -89,11 +89,14 @@ router.post('/', async (req, res) => {
         diferencial_fijacion, tipo_diferencial, tipo_entrega,
         localidad_entrega, provincia_entrega, flete_estimado,
         forma_pago, plazo_pago_dias, condicion_pago,
-        precio_venta_estimado, destino_venta_estimado, observaciones,
-        estado
+        precio_venta_estimado, destino_venta_estimado,
+        localidad_entrega_pactada, comprador_estimado_id,
+        aplica_cpe, costo_cpe_pct, costo_financiero_pct,
+        observaciones, estado
       ) VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
-        $16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,'CONFIRMADO'
+        $16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,
+        $28,$29,$30,$31,$32,'CONFIRMADO'
       ) RETURNING *
     `, [numero_contrato, tipo_contrato, modalidad, tipo_liquidacion,
         fecha_contrato, fecha_entrega_desde||null, fecha_entrega_hasta||null,
@@ -102,7 +105,13 @@ router.post('/', async (req, res) => {
         diferencial_fijacion||null, tipo_diferencial||null, tipo_entrega,
         localidad_entrega, provincia_entrega, flete_estimado||null,
         forma_pago, plazo_pago_dias||0, condicion_pago||'CONTADO',
-        precio_venta_estimado||null, destino_venta_estimado, observaciones]);
+        precio_venta_estimado||null, destino_venta_estimado,
+        req.body.localidad_entrega_pactada||null,
+        req.body.comprador_estimado_id||null,
+        req.body.aplica_cpe||false,
+        req.body.costo_cpe_pct||null,
+        req.body.costo_financiero_pct||null,
+        observaciones]);
 
     res.status(201).json(rows[0]);
   } catch (err) {
