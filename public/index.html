@@ -282,12 +282,19 @@ const Contrapartes = ({modulo}) => {
 
   const cargarContrapartes = async () => {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (modulo==="FORMAL") params.append("modalidad","FORMAL");
-    if (search) params.append("search",search);
-    const data = await api.get(`/contrapartes?${params}`);
-    if (data) setLista(data);
-    setLoading(false);
+    try {
+      const params = new URLSearchParams();
+      if (modulo==="FORMAL") params.append("modalidad","FORMAL");
+      if (search) params.append("search",search);
+      const url = `/api/contrapartes?${params.toString()}`;
+      const data = await api.get(url);
+      setLista(Array.isArray(data) ? data : []);
+    } catch(e) {
+      console.error("Error:", e);
+      setLista([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(()=>{ cargarContrapartes(); }, [modulo, search]);
@@ -2597,6 +2604,132 @@ const CCConsolidada = () => {
   );
 };
 
+// ── CONFIGURACION ──
+const Configuracion = () => {
+  const [tab,setTab]=useState("especies");
+  const [especies,setEspecies]=useState([]);
+  const [campanas,setCampanas]=useState([]);
+  const [nuevaEspecie,setNuevaEspecie]=useState({nombre:"",codigo:""});
+  const [nuevaCampana,setNuevaCampana]=useState({descripcion:"",anio_inicio:"",anio_fin:""});
+  const [guardando,setGuardando]=useState(false);
+
+  useEffect(()=>{
+    api.get("/api/especies").then(d=>setEspecies(d)).catch(()=>{});
+    api.get("/api/campanas").then(d=>setCampanas(d)).catch(()=>{});
+  },[]);
+
+  const guardarEspecie = async() => {
+    if(!nuevaEspecie.nombre||!nuevaEspecie.codigo){alert("Nombre y código son obligatorios");return;}
+    setGuardando(true);
+    try {
+      const r = await api.post("/api/especies",nuevaEspecie);
+      setEspecies([...especies,r]);
+      setNuevaEspecie({nombre:"",codigo:""});
+      alert("✓ Especie guardada");
+    } catch(e){alert("Error: "+e.message);}
+    finally{setGuardando(false);}
+  };
+
+  const guardarCampana = async() => {
+    if(!nuevaCampana.descripcion||!nuevaCampana.anio_inicio||!nuevaCampana.anio_fin){alert("Todos los campos son obligatorios");return;}
+    setGuardando(true);
+    try {
+      const r = await api.post("/api/campanas",nuevaCampana);
+      setCampanas([...campanas,r]);
+      setNuevaCampana({descripcion:"",anio_inicio:"",anio_fin:""});
+      alert("✓ Campaña guardada");
+    } catch(e){alert("Error: "+e.message);}
+    finally{setGuardando(false);}
+  };
+
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:20}}>
+        <h2 style={{fontSize:18,fontWeight:700}}>⚙ Configuración</h2>
+        <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Tablas maestras del sistema</p>
+      </div>
+      <div className="tab-bar" style={{marginBottom:20}}>
+        {[{id:"especies",label:"Especies / Productos"},{id:"campanas",label:"Campañas"}].map(t=>(
+          <button key={t.id} className={`tab ${tab===t.id?"active":""}`} onClick={()=>setTab(t.id)}>{t.label}</button>
+        ))}
+      </div>
+
+      {tab==="especies"&&(
+        <div>
+          <div className="card" style={{marginBottom:16}}>
+            <div className="card-header"><span style={{fontWeight:600}}>Especies / Productos registrados</span></div>
+            <table><thead><tr><th>ID</th><th>Nombre</th><th>Código</th><th>Estado</th></tr></thead>
+            <tbody>
+              {especies.map(e=>(
+                <tr key={e.id}>
+                  <td><span className="mono" style={{color:"#565d7a"}}>{e.id}</span></td>
+                  <td style={{fontWeight:500}}>{e.nombre}</td>
+                  <td><span className="mono" style={{color:"#f5a623"}}>{e.codigo}</span></td>
+                  <td><Badge label={e.activa?"Activa":"Inactiva"} color={e.activa?"green":"gray"}/></td>
+                </tr>
+              ))}
+              {especies.length===0&&<tr><td colSpan={4} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay especies cargadas</td></tr>}
+            </tbody></table>
+          </div>
+          <div className="card" style={{padding:"18px 20px"}}>
+            <div style={{fontWeight:600,marginBottom:14,fontSize:14}}>+ Agregar Nueva Especie</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:12,alignItems:"end"}}>
+              <div>
+                <label className="form-label">Nombre *</label>
+                <input placeholder="Ej: Soja" value={nuevaEspecie.nombre} onChange={e=>setNuevaEspecie({...nuevaEspecie,nombre:e.target.value})}/>
+              </div>
+              <div>
+                <label className="form-label">Código *</label>
+                <input placeholder="Ej: SOJ" value={nuevaEspecie.codigo} onChange={e=>setNuevaEspecie({...nuevaEspecie,codigo:e.target.value.toUpperCase()})} maxLength={5}/>
+              </div>
+              <Btn disabled={guardando} onClick={guardarEspecie}>{guardando?"Guardando...":"Agregar"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab==="campanas"&&(
+        <div>
+          <div className="card" style={{marginBottom:16}}>
+            <div className="card-header"><span style={{fontWeight:600}}>Campañas registradas</span></div>
+            <table><thead><tr><th>ID</th><th>Descripción</th><th>Año Inicio</th><th>Año Fin</th><th>Estado</th></tr></thead>
+            <tbody>
+              {campanas.map(c=>(
+                <tr key={c.id}>
+                  <td><span className="mono" style={{color:"#565d7a"}}>{c.id}</span></td>
+                  <td style={{fontWeight:500}}><span className="mono">{c.descripcion}</span></td>
+                  <td><span className="mono">{c.anio_inicio}</span></td>
+                  <td><span className="mono">{c.anio_fin}</span></td>
+                  <td><Badge label={c.activa?"Activa":"Inactiva"} color={c.activa?"green":"gray"}/></td>
+                </tr>
+              ))}
+              {campanas.length===0&&<tr><td colSpan={5} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay campañas cargadas</td></tr>}
+            </tbody></table>
+          </div>
+          <div className="card" style={{padding:"18px 20px"}}>
+            <div style={{fontWeight:600,marginBottom:14,fontSize:14}}>+ Agregar Nueva Campaña</div>
+            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr auto",gap:12,alignItems:"end"}}>
+              <div>
+                <label className="form-label">Descripción *</label>
+                <input placeholder="Ej: 2025/2026" value={nuevaCampana.descripcion} onChange={e=>setNuevaCampana({...nuevaCampana,descripcion:e.target.value})}/>
+              </div>
+              <div>
+                <label className="form-label">Año Inicio *</label>
+                <input type="number" placeholder="2025" value={nuevaCampana.anio_inicio} onChange={e=>setNuevaCampana({...nuevaCampana,anio_inicio:e.target.value})}/>
+              </div>
+              <div>
+                <label className="form-label">Año Fin *</label>
+                <input type="number" placeholder="2026" value={nuevaCampana.anio_fin} onChange={e=>setNuevaCampana({...nuevaCampana,anio_fin:e.target.value})}/>
+              </div>
+              <Btn disabled={guardando} onClick={guardarCampana}>{guardando?"Guardando...":"Agregar"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── APP PRINCIPAL ──
 const MENU_FORMAL = [
   {id:"dashboard",label:"Dashboard",icon:"⊞"},
@@ -2609,6 +2742,7 @@ const MENU_FORMAL = [
   {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚"},
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
+  {id:"configuracion",label:"Configuración",icon:"⚙"},
 ];
 
 const MENU_INFORMAL = [
@@ -2623,6 +2757,7 @@ const MENU_INFORMAL = [
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
   {id:"importador_excel",label:"Importar Excel",icon:"📥"},
+  {id:"configuracion",label:"Configuración",icon:"⚙"},
 ];
 
 const MENU_CONSOLIDADO = [
@@ -2634,9 +2769,88 @@ const MENU_CONSOLIDADO = [
 
 const MENU = MENU_FORMAL;
 
+function Login({onLogin}) {
+  const [user,setUser]=useState("");
+  const [pass,setPass]=useState("");
+  const [err,setErr]=useState("");
+
+  const handleLogin = () => {
+    if(!user||!pass){setErr("Ingresá usuario y contraseña");return;}
+    // Por ahora usuario/clave fijos - después se conecta al backend
+    if((user==="admin"&&pass==="admin123")||(user==="granosys"&&pass==="granos2025")){
+      onLogin(user);
+    } else {
+      setErr("Usuario o contraseña incorrectos");
+    }
+  };
+
+  return (
+    <div style={{
+      height:"100vh",background:"#0f1117",display:"flex",
+      alignItems:"center",justifyContent:"center",flexDirection:"column"
+    }}>
+      <div style={{
+        background:"#1a1d27",border:"1px solid #2a2d3e",borderRadius:12,
+        padding:"40px 48px",width:"100%",maxWidth:400,
+      }}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700,fontSize:28,color:"#f5a623",letterSpacing:"-.02em",marginBottom:6}}>
+            GRANO<span style={{color:"#e8eaf0"}}>SYS</span>
+          </div>
+          <div style={{fontSize:13,color:"#565d7a",letterSpacing:".05em",textTransform:"uppercase"}}>Sistema de Comercialización</div>
+        </div>
+        <div style={{marginBottom:16}}>
+          <label style={{display:"block",fontSize:11,fontWeight:600,color:"#8890a8",textTransform:"uppercase",letterSpacing:".06em",marginBottom:5}}>Usuario</label>
+          <input
+            value={user} onChange={e=>setUser(e.target.value)}
+            placeholder="Ingresá tu usuario"
+            onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+            style={{width:"100%",padding:"10px 14px",fontSize:14}}
+          />
+        </div>
+        <div style={{marginBottom:24}}>
+          <label style={{display:"block",fontSize:11,fontWeight:600,color:"#8890a8",textTransform:"uppercase",letterSpacing:".06em",marginBottom:5}}>Contraseña</label>
+          <input
+            type="password" value={pass} onChange={e=>setPass(e.target.value)}
+            placeholder="••••••••"
+            onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+            style={{width:"100%",padding:"10px 14px",fontSize:14}}
+          />
+        </div>
+        {err&&<div style={{padding:"8px 12px",background:"rgba(231,76,60,.1)",border:"1px solid rgba(231,76,60,.3)",borderRadius:6,color:"#e74c3c",fontSize:13,marginBottom:16}}>{err}</div>}
+        <button onClick={handleLogin} style={{
+          width:"100%",padding:"11px",background:"#f5a623",color:"#000",
+          fontWeight:700,fontSize:15,border:"none",borderRadius:8,cursor:"pointer"
+        }}>
+          Ingresar
+        </button>
+        <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
+          v2.1.0 — GranoSYS</div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
+  const [logueado,setLogueado]=useState(false);
+  const [usuario,setUsuario]=useState("");
   const [modulo,setModulo]=useState("FORMAL");
   const [sec,setSec]=useState("dashboard");
+  const [showAccesoOculto,setShowAccesoOculto]=useState(false);
+  const [codigoOculto,setCodigoOculto]=useState("");
+
+  if(!logueado) return <Login onLogin={(u)=>{setLogueado(true);setUsuario(u);}}/>;
+
+  const handleAccesoOculto = () => {
+    if(codigoOculto==="1"){
+      setModulo("INFORMAL");
+      setSec("dashboard");
+      setShowAccesoOculto(false);
+      setCodigoOculto("");
+    } else {
+      setCodigoOculto("");
+    }
+  };
 
   const menuActual = modulo==="FORMAL"?MENU_FORMAL:modulo==="INFORMAL"?MENU_INFORMAL:MENU_CONSOLIDADO;
 
@@ -2663,6 +2877,7 @@ function App() {
       case "rep_calidades": return <ReporteCalidades modulo={modulo}/>;
       case "posicion_abierta": return <PosicionAbierta modulo={modulo}/>;
       case "importador_excel": return <ImportadorExcel modulo={modulo}/>;
+      case "configuracion": return <Configuracion/>;
       default: return <Dashboard {...p}/>;
     }
   };
@@ -2671,9 +2886,33 @@ function App() {
     <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
       {/* SIDEBAR */}
       <div style={{width:215,background:"#1a1d27",borderRight:"1px solid #2a2d3e",display:"flex",flexDirection:"column",flexShrink:0}}>
-        <div style={{padding:"18px 18px 14px",borderBottom:"1px solid #2a2d3e"}}>
+        <div style={{padding:"18px 18px 14px",borderBottom:"1px solid #2a2d3e",position:"relative"}}>
           <div style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700,fontSize:17,color:"#f5a623",letterSpacing:"-.02em"}}>GRANO<span style={{color:"#e8eaf0"}}>SYS</span></div>
           <div style={{fontSize:10,color:"#565d7a",marginTop:2,letterSpacing:".05em",textTransform:"uppercase"}}>Comercialización</div>
+          {/* Botón oculto para acceso informal */}
+          <button
+            onClick={()=>setShowAccesoOculto(true)}
+            style={{position:"absolute",top:14,right:12,background:"transparent",border:"none",color:"#2a2d3e",fontSize:14,cursor:"pointer",padding:4,borderRadius:4,transition:"color .2s"}}
+            onMouseEnter={e=>e.target.style.color="#565d7a"}
+            onMouseLeave={e=>e.target.style.color="#2a2d3e"}
+            title=""
+          >↻</button>
+          {showAccesoOculto&&(
+            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}}
+              onClick={e=>{if(e.target===e.currentTarget){setShowAccesoOculto(false);setCodigoOculto("");}}}>
+              <div style={{background:"#1a1d27",border:"1px solid #2a2d3e",borderRadius:10,padding:"24px 28px",width:260}}>
+                <input
+                  type="password"
+                  value={codigoOculto}
+                  onChange={e=>setCodigoOculto(e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Enter")handleAccesoOculto();if(e.key==="Escape"){setShowAccesoOculto(false);setCodigoOculto("");}}}
+                  placeholder="•"
+                  autoFocus
+                  style={{width:"100%",padding:"10px 14px",fontSize:18,textAlign:"center",letterSpacing:"0.3em"}}
+                />
+              </div>
+            </div>
+          )}
         </div>
         <div style={{padding:"10px 12px",borderBottom:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",marginBottom:6,textTransform:"uppercase",letterSpacing:".06em"}}>Módulo</div>
@@ -2704,7 +2943,7 @@ function App() {
           ))}
         </nav>
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
-          <div style={{fontSize:10,color:"#565d7a"}}>v2.0.0 — GranoSYS</div>
+          <div style={{fontSize:10,color:"#565d7a"}}>v2.1.0 — GranoSYS</div>
         </div>
       </div>
       {/* MAIN */}
