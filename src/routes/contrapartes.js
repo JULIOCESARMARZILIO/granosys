@@ -89,3 +89,61 @@ router.put('/:id', async (req, res) => {
 });
 
 module.exports = router;
+
+// DELETE contraparte - solo si no tiene datos asociados
+router.delete('/:id', async (req, res) => {
+  try {
+    // Verificar si tiene contratos
+    const { rows: contratos } = await pool.query(
+      'SELECT COUNT(*) as total FROM contratos WHERE id_contraparte = $1',
+      [req.params.id]
+    );
+    if (parseInt(contratos[0].total) > 0) {
+      return res.status(400).json({ 
+        error: `No se puede eliminar — tiene ${contratos[0].total} contrato(s) asociado(s)` 
+      });
+    }
+    // Verificar si tiene movimientos (como transportista)
+    const { rows: movs } = await pool.query(
+      'SELECT COUNT(*) as total FROM movimientos WHERE id_transportista = $1',
+      [req.params.id]
+    );
+    if (parseInt(movs[0].total) > 0) {
+      return res.status(400).json({ 
+        error: `No se puede eliminar — tiene ${movs[0].total} movimiento(s) asociado(s)` 
+      });
+    }
+    // Verificar cuenta corriente
+    const { rows: cc } = await pool.query(
+      'SELECT COUNT(*) as total FROM cc_contrapartes WHERE id_contraparte = $1',
+      [req.params.id]
+    );
+    if (parseInt(cc[0].total) > 0) {
+      return res.status(400).json({ 
+        error: `No se puede eliminar — tiene movimientos en cuenta corriente` 
+      });
+    }
+    await pool.query('DELETE FROM contrapartes WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT actualizar contraparte
+router.put('/:id', async (req, res) => {
+  try {
+    const { cuit, razon_social, tipo_contraparte, condicion_iva,
+            localidad, provincia, telefono, email } = req.body;
+    const { rows } = await pool.query(`
+      UPDATE contrapartes SET
+        cuit=$1, razon_social=$2, tipo_contraparte=$3, condicion_iva=$4,
+        localidad=$5, provincia=$6, telefono=$7, email=$8, updated_at=NOW()
+      WHERE id=$9 RETURNING *
+    `, [cuit||null, razon_social, tipo_contraparte, condicion_iva,
+        localidad, provincia, telefono, email, req.params.id]);
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
