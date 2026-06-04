@@ -341,13 +341,41 @@ const Contrapartes = ({modulo}) => {
               <td style={{color:"#8890a8",fontSize:12}}>{c.localidad||"—"}</td>
               <td style={{color:"#8890a8",fontSize:12}}>{c.provincia||"—"}</td>
               <td><Badge label={c.activo?"Activo":"Inactivo"} color={c.activo?"green":"gray"}/></td>
-              <td><Btn variant="ghost" size="sm">Editar</Btn></td>
+              <td style={{display:"flex",gap:6}}>
+                <Btn variant="ghost" size="sm" onClick={()=>{
+                  setForm({
+                    cuit:c.cuit||"",
+                    razon_social:c.razon_social||"",
+                    es_productor:c.tipo_contraparte==="PRODUCTOR"||c.tipo_contraparte==="AMBOS",
+                    es_comprador:c.tipo_contraparte==="COMPRADOR"||c.tipo_contraparte==="AMBOS",
+                    es_transportista:c.tipo_contraparte==="TRANSPORTISTA",
+                    es_corredor:c.tipo_contraparte==="CORREDOR",
+                    condicion_iva:c.condicion_iva||"RI",
+                    provincia:c.provincia||"",
+                    localidad:c.localidad||"",
+                    telefono:c.telefono||"",
+                    email:c.email||"",
+                    _id:c.id,
+                    _editando:true,
+                  });
+                  setShowForm(true);
+                }}>Editar</Btn>
+                <Btn variant="danger" size="sm" onClick={async()=>{
+                  if(!confirm(`¿Eliminar ${c.razon_social}?`)) return;
+                  try {
+                    await fetch(`/api/contrapartes/${c.id}`, {method:"DELETE"});
+                    cargarContrapartes();
+                  } catch(e) {
+                    alert("Error al eliminar: "+e.message);
+                  }
+                }}>✕</Btn>
+              </td>
             </tr>
           ))
         }</tbody></table>
       </div>
       {showForm&&(
-        <Modal title={`Nueva Contraparte ${modulo==="FORMAL"?"Formal":"Informal"}`} onClose={()=>setShowForm(false)} width={860}>
+        <Modal title={form._editando?`Editar Contraparte`:`Nueva Contraparte ${modulo==="FORMAL"?"Formal":"Informal"}`} onClose={()=>setShowForm(false)} width={860}>
           <div className="form-grid-2">
             {modulo==="FORMAL"&&<FF label="CUIT" required><input placeholder="20-12345678-9" value={form.cuit} onChange={e=>setForm({...form,cuit:e.target.value})}/></FF>}
             <FF label="Razón Social / Nombre" required span={modulo==="INFORMAL"?2:1}><input placeholder="Nombre completo o razón social" value={form.razon_social} onChange={e=>setForm({...form,razon_social:e.target.value})}/></FF>
@@ -390,36 +418,39 @@ const Contrapartes = ({modulo}) => {
               }
               setGuardando(true);
               try {
-                // Determinar tipo_contraparte según rubros seleccionados
                 const rubros = [];
                 if(form.es_productor) rubros.push("PRODUCTOR");
                 if(form.es_comprador) rubros.push("COMPRADOR");
                 if(form.es_transportista) rubros.push("TRANSPORTISTA");
                 if(form.es_corredor) rubros.push("CORREDOR");
                 const tipo = rubros.length>1?"AMBOS":rubros[0];
-
-                await api.post("/api/contrapartes",{
+                const datos = {
                   cuit: form.cuit||null,
                   razon_social: form.razon_social,
                   tipo_contraparte: tipo,
                   canal_operacion: modulo,
                   condicion_iva: form.condicion_iva||null,
-                  domicilio: null,
                   localidad: form.localidad||null,
                   provincia: form.provincia||null,
                   telefono: form.telefono||null,
                   email: form.email||null,
-                });
-                alert("✓ Contraparte guardada correctamente");
+                };
+                if(form._editando && form._id) {
+                  await api.put(`/api/contrapartes/${form._id}`, datos);
+                  alert("✓ Contraparte actualizada");
+                } else {
+                  await api.post("/api/contrapartes", datos);
+                  alert("✓ Contraparte guardada");
+                }
                 setShowForm(false);
-                setForm({cuit:"",razon_social:"",es_productor:false,es_comprador:false,es_transportista:false,es_corredor:false,condicion_iva:"RI",provincia:"",localidad:"",telefono:"",email:""});
+                setForm({cuit:"",razon_social:"",es_productor:false,es_comprador:false,es_transportista:false,es_corredor:false,condicion_iva:"RI",provincia:"",localidad:"",telefono:"",email:"",_id:null,_editando:false});
                 cargarContrapartes();
               } catch(e) {
-                alert("Error al guardar: "+e.message);
+                alert("Error: "+e.message);
               } finally {
                 setGuardando(false);
               }
-            }}>{guardando?"Guardando...":"Guardar"}</Btn>
+            }}>{guardando?"Guardando...":(form._editando?"Actualizar":"Guardar")}</Btn>
           </div>
         </Modal>
       )}
