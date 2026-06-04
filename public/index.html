@@ -458,6 +458,31 @@ const Contrapartes = ({modulo}) => {
   );
 };
 
+// ── SELECTOR CON FLECHAS ──
+const SelectorFlechas = ({opciones, value, onChange, label}) => {
+  const idx = opciones.findIndex(o => (o.value||o) === value);
+  const actual = opciones[idx] || opciones[0];
+  const prev = () => onChange((opciones[Math.max(0, idx-1)].value || opciones[Math.max(0, idx-1)]));
+  const next = () => onChange((opciones[Math.min(opciones.length-1, idx+1)].value || opciones[Math.min(opciones.length-1, idx+1)]));
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:0,background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,overflow:"hidden"}}>
+      <button onClick={prev} disabled={idx===0} style={{
+        padding:"8px 12px",background:"transparent",border:"none",
+        color:idx===0?"#2a2d3e":"#8890a8",cursor:idx===0?"default":"pointer",
+        fontSize:14,borderRight:"1px solid #2a2d3e"
+      }}>‹</button>
+      <span style={{flex:1,textAlign:"center",padding:"8px 12px",fontSize:13,color:"#e8eaf0",fontWeight:500}}>
+        {actual.label || actual}
+      </span>
+      <button onClick={next} disabled={idx===opciones.length-1} style={{
+        padding:"8px 12px",background:"transparent",border:"none",
+        color:idx===opciones.length-1?"#2a2d3e":"#8890a8",cursor:idx===opciones.length-1?"default":"pointer",
+        fontSize:14,borderLeft:"1px solid #2a2d3e"
+      }}>›</button>
+    </div>
+  );
+};
+
 // ── CONTRATOS ──
 const Contratos = ({modulo}) => {
   const [tab,setTab]=useState("COMPRA");
@@ -567,9 +592,21 @@ const Contratos = ({modulo}) => {
               </select>
             </FF>
             <FF label="Toneladas" required><input type="number" placeholder="0.000" value={form.toneladas} onChange={e=>setForm({...form,toneladas:e.target.value})}/></FF>
-            <FF label="Tipo de Precio" required><select value={form.tipo_precio} onChange={e=>setForm({...form,tipo_precio:e.target.value})}><option value="PRECIO_HECHO">Precio Hecho</option><option value="A_FIJAR">A Fijar</option></select></FF>
+            <FF label="Tipo de Precio" required>
+              <SelectorFlechas
+                opciones={[{value:"PRECIO_HECHO",label:"Precio Hecho"},{value:"A_FIJAR",label:"A Fijar"}]}
+                value={form.tipo_precio}
+                onChange={v=>setForm({...form,tipo_precio:v})}
+              />
+            </FF>
             {form.tipo_precio==="PRECIO_HECHO"?<>
-              <FF label="Moneda"><select value={form.moneda} onChange={e=>setForm({...form,moneda:e.target.value})}><option value="PESOS">Pesos $</option><option value="DOLARES">Dólares USD</option><option value="DOLARES_BILLETE">Dólares Billete</option></select></FF>
+              <FF label="Moneda">
+                <SelectorFlechas
+                  opciones={[{value:"PESOS",label:"Pesos $"},{value:"DOLARES",label:"Dólares USD"},{value:"DOLARES_BILLETE",label:"Dólares Billete"}]}
+                  value={form.moneda}
+                  onChange={v=>setForm({...form,moneda:v})}
+                />
+              </FF>
               <FF label="Precio" required><input type="number" placeholder="0.00" value={form.precio} onChange={e=>setForm({...form,precio:e.target.value})}/></FF>
             </>:<>
               <FF label="Referencia"><select value={form.referencia} onChange={e=>setForm({...form,referencia:e.target.value})}><option value="MATBA_ROFEX">MATBA-ROFEX</option><option value="CAMARA">Cámara Arbitral</option></select></FF>
@@ -580,24 +617,115 @@ const Contratos = ({modulo}) => {
                 </div>
               </FF>
             </>}
-            <FF label="Tipo de Entrega"><select value={form.tipo_entrega} onChange={e=>setForm({...form,tipo_entrega:e.target.value})}><option value="A_RETIRAR">A Retirar</option><option value="PUESTO_DESTINO">Puesto en Destino</option></select></FF>
-            {modulo==="FORMAL"&&<FF label="Tipo Liquidación"><select value={form.tipo_liq} onChange={e=>setForm({...form,tipo_liq:e.target.value})}><option value="INCISO_A">Inciso A — Compraventa</option><option value="INCISO_B">Inciso B — Consignación</option></select></FF>}
+            <FF label="Tipo de Entrega">
+              <SelectorFlechas
+                opciones={[{value:"A_RETIRAR",label:"A Retirar"},{value:"PUESTO_DESTINO",label:"Puesto en Destino"}]}
+                value={form.tipo_entrega}
+                onChange={v=>setForm({...form,tipo_entrega:v})}
+              />
+            </FF>
+            {form.tipo_entrega==="PUESTO_DESTINO"&&(
+              <FF label="Destino Pactado">
+                <input placeholder="Localidad / Planta de entrega" value={form.localidad_entrega||""} onChange={e=>setForm({...form,localidad_entrega:e.target.value})}/>
+              </FF>
+            )}
+            {modulo==="FORMAL"&&<FF label="Tipo Liquidación">
+              <SelectorFlechas
+                opciones={[{value:"INCISO_A",label:"Inciso A — Compraventa"},{value:"INCISO_B",label:"Inciso B — Consignación"}]}
+                value={form.tipo_liq}
+                onChange={v=>setForm({...form,tipo_liq:v})}
+              />
+            </FF>}
             <FF label="Entrega Desde"><input type="date"/></FF>
             <FF label="Entrega Hasta"><input type="date"/></FF>
-            <FF label="Forma de Pago"><select value={form.forma_pago} onChange={e=>setForm({...form,forma_pago:e.target.value})}><option value="TRANSFERENCIA">Transferencia</option><option value="CHEQUE_PROPIO">Cheque Propio</option><option value="CHEQUE_TERCEROS">Cheque de Terceros</option><option value="EFECTIVO">Efectivo</option></select></FF>
+            <FF label="Forma de Pago">
+              <SelectorFlechas
+                opciones={[
+                  {value:"TRANSFERENCIA",label:"Transferencia"},
+                  {value:"CHEQUE_PROPIO",label:"Cheque Propio"},
+                  {value:"CHEQUE_TERCEROS",label:"Cheque Terceros"},
+                  {value:"EFECTIVO",label:"Efectivo"},
+                ]}
+                value={form.forma_pago}
+                onChange={v=>setForm({...form,forma_pago:v})}
+              />
+            </FF>
             <FF label="Plazo de Pago (días)"><input type="number" value={form.plazo} onChange={e=>setForm({...form,plazo:e.target.value})}/></FF>
           </div>
           <div style={{marginTop:8,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e"}}>
             <div style={{fontSize:11,color:"#8890a8",marginBottom:10,fontWeight:600,textTransform:"uppercase",letterSpacing:".06em"}}>📊 Presupuesto del Negocio</div>
             <div className="form-grid-3">
               <FF label="Precio Venta Estimado"><input type="number" placeholder="0.00" value={form.precio_venta_est} onChange={e=>setForm({...form,precio_venta_est:e.target.value})}/></FF>
-              <FF label="Flete Estimado"><input type="number" placeholder="0.00" value={form.flete_est} onChange={e=>setForm({...form,flete_est:e.target.value})}/></FF>
+              <FF label="Comprador Estimado">
+                <select value={form.comprador_estimado||""} onChange={e=>setForm({...form,comprador_estimado:e.target.value})}>
+                  <option value="">Seleccionar...</option>
+                  {contrapartes.filter(c=>c.tipo_contraparte==="COMPRADOR"||c.tipo_contraparte==="AMBOS").map(c=>(
+                    <option key={c.id} value={c.id}>{c.razon_social}</option>
+                  ))}
+                </select>
+              </FF>
               <FF label="Destino Estimado"><input placeholder="Puerto / Planta..." value={form.destino_est} onChange={e=>setForm({...form,destino_est:e.target.value})}/></FF>
+              <FF label="Flete Estimado ($/tn)"><input type="number" placeholder="0.00" value={form.flete_est} onChange={e=>setForm({...form,flete_est:e.target.value})}/></FF>
+              <div className="form-field">
+                <label className="form-label">Carta de Porte</label>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+                    <input type="checkbox" checked={!!form.aplica_cpe} onChange={e=>setForm({...form,aplica_cpe:e.target.checked,costo_cpe:e.target.checked?form.costo_cpe:""})}
+                      style={{accentColor:"#f5a623",width:16,height:16}}/>
+                    <span style={{fontSize:13,color:"#e8eaf0"}}>Corresponde</span>
+                  </label>
+                  {form.aplica_cpe&&(
+                    <div style={{display:"flex",alignItems:"center",gap:4,flex:1}}>
+                      <input type="number" step="0.01" placeholder="0.00" value={form.costo_cpe||""}
+                        onChange={e=>setForm({...form,costo_cpe:e.target.value})}
+                        style={{flex:1}}/>
+                      <span style={{color:"#8890a8",fontSize:13}}>%</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <FF label="Costo Financiero (%)">
+                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                  <input type="number" step="0.01" placeholder="0.00" value={form.costo_financiero||""}
+                    onChange={e=>setForm({...form,costo_financiero:e.target.value})}/>
+                  <span style={{color:"#8890a8",fontSize:13,flexShrink:0}}>%</span>
+                </div>
+              </FF>
             </div>
-            {form.precio&&form.precio_venta_est&&<div style={{padding:"10px 12px",background:"rgba(39,174,96,.08)",border:"1px solid rgba(39,174,96,.2)",borderRadius:6,marginTop:4}}>
-              <span style={{color:"#8890a8",fontSize:13}}>Margen estimado: </span>
-              <span className="mono" style={{fontWeight:700,color:"#27ae60",fontSize:15}}>$ {((parseFloat(form.precio_venta_est)-parseFloat(form.precio)-parseFloat(form.flete_est||0))).toLocaleString()} / tn</span>
-            </div>}
+            {form.precio&&form.precio_venta_est&&(()=>{
+              const compra = parseFloat(form.precio)||0;
+              const venta = parseFloat(form.precio_venta_est)||0;
+              const flete = parseFloat(form.flete_est)||0;
+              const pctCpe = (form.aplica_cpe && form.costo_cpe) ? parseFloat(form.costo_cpe)||0 : 0;
+              const pctFin = parseFloat(form.costo_financiero)||0;
+              const costoCpe = venta * pctCpe / 100;
+              const costoFin = venta * pctFin / 100;
+              const margen = venta - compra - flete - costoCpe - costoFin;
+              return (
+                <div style={{padding:"12px 14px",background:"#0a0c12",border:"1px solid #2a2d3e",borderRadius:6,marginTop:8}}>
+                  <div style={{fontSize:11,color:"#8890a8",marginBottom:8,fontWeight:600,textTransform:"uppercase",letterSpacing:".06em"}}>Cálculo del Margen</div>
+                  {[
+                    ["Precio Venta", venta, "#27ae60", "+"],
+                    ["Precio Compra", compra, "#e74c3c", "-"],
+                    flete>0 && ["Flete", flete, "#e74c3c", "-"],
+                    pctCpe>0 && [`Carta de Porte (${pctCpe}%)`, costoCpe, "#e74c3c", "-"],
+                    pctFin>0 && [`Costo Financiero (${pctFin}%)`, costoFin, "#e74c3c", "-"],
+                  ].filter(Boolean).map(([label, valor, color, signo])=>(
+                    <div key={label} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",borderBottom:"1px solid #1e2133"}}>
+                      <span style={{fontSize:13,color:"#8890a8"}}>{signo} {label}</span>
+                      <span className="mono" style={{fontSize:13,color}}>${valor.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                    </div>
+                  ))}
+                  <div style={{display:"flex",justifyContent:"space-between",paddingTop:8,marginTop:4}}>
+                    <span style={{fontWeight:700,fontSize:14,color:margen>=0?"#27ae60":"#e74c3c"}}>= MARGEN / tn</span>
+                    <span className="mono" style={{fontWeight:700,fontSize:16,color:margen>=0?"#27ae60":"#e74c3c"}}>
+                      ${margen.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
           </div>
           {/* COSTOS DE SERVICIOS */}
           <div style={{marginTop:8,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e"}}>
