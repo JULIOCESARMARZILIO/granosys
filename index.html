@@ -282,12 +282,19 @@ const Contrapartes = ({modulo}) => {
 
   const cargarContrapartes = async () => {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (modulo==="FORMAL") params.append("modalidad","FORMAL");
-    if (search) params.append("search",search);
-    const data = await api.get(`/api/contrapartes?${params}`);
-    if (data) setLista(data);
-    setLoading(false);
+    try {
+      const params = new URLSearchParams();
+      if (modulo==="FORMAL") params.append("modalidad","FORMAL");
+      if (search) params.append("search",search);
+      const url = `/api/contrapartes?${params.toString()}`;
+      const data = await api.get(url);
+      setLista(Array.isArray(data) ? data : []);
+    } catch(e) {
+      console.error("Error:", e);
+      setLista([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(()=>{ cargarContrapartes(); }, [modulo, search]);
