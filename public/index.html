@@ -309,7 +309,6 @@ const Contrapartes = ({modulo}) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (modulo==="FORMAL") params.append("modalidad","FORMAL");
       if (search) params.append("search",search);
       const url = `/api/contrapartes?${params.toString()}`;
       const data = await api.get(url);
@@ -339,7 +338,7 @@ const Contrapartes = ({modulo}) => {
       </div>
       <div className="card">
         <table><thead><tr>
-          <th>Código</th>{modulo==="FORMAL"&&<th>CUIT</th>}<th>Razón Social</th><th>Rubros</th><th>Localidad</th><th>Provincia</th><th>Estado</th><th></th>
+          <th>Código</th><th>CUIT</th><th>Razón Social</th><th>Rubros</th><th>Localidad</th><th>Provincia</th><th>Estado</th><th></th>
         </tr></thead>
         <tbody>
           {loading?(
@@ -353,7 +352,7 @@ const Contrapartes = ({modulo}) => {
           ):lista.map(c=>(
             <tr key={c.id}>
               <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{c.codigo_interno}</span></td>
-              {modulo==="FORMAL"&&<td><span className="mono" style={{fontSize:12}}>{c.cuit||"—"}</span></td>}
+              <td><span className="mono" style={{fontSize:12}}>{c.cuit||"—"}</span></td>
               <td style={{fontWeight:500}}>{c.razon_social}</td>
               <td>
                 <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
@@ -400,10 +399,10 @@ const Contrapartes = ({modulo}) => {
         }</tbody></table>
       </div>
       {showForm&&(
-        <Modal title={form._editando?`Editar Contraparte`:`Nueva Contraparte ${modulo==="FORMAL"?"Formal":"Informal"}`} onClose={()=>setShowForm(false)} width={860}>
+        <Modal title={form._editando?`Editar Contraparte`:`Nueva Contraparte`} onClose={()=>setShowForm(false)} width={860}>
           <div className="form-grid-2">
-            {modulo==="FORMAL"&&<FF label="CUIT" required><input placeholder="20-12345678-9" value={form.cuit} onChange={e=>setForm({...form,cuit:e.target.value})}/></FF>}
-            <FF label="Razón Social / Nombre" required span={modulo==="INFORMAL"?2:1}><input placeholder="Nombre completo o razón social" value={form.razon_social} onChange={e=>setForm({...form,razon_social:e.target.value})}/></FF>
+            <FF label="CUIT" required><input placeholder="20-12345678-9" value={form.cuit} onChange={e=>setForm({...form,cuit:e.target.value})}/></FF>
+            <FF label="Razón Social / Nombre" required><input placeholder="Nombre completo o razón social" value={form.razon_social} onChange={e=>setForm({...form,razon_social:e.target.value})}/></FF>
             <div className="form-field" style={{gridColumn:"span 2"}}>
               <label className="form-label">Rubros <span style={{color:"#f5a623",marginLeft:3}}>*</span></label>
               <div style={{display:"flex",gap:16,padding:"10px 14px",background:"#0f1117",borderRadius:6,border:"1px solid #2a2d3e",flexWrap:"wrap"}}>
@@ -428,7 +427,7 @@ const Contrapartes = ({modulo}) => {
                 ))}
               </div>
             </div>
-            {modulo==="FORMAL"&&<FF label="Condición IVA"><select value={form.condicion_iva} onChange={e=>setForm({...form,condicion_iva:e.target.value})}><option value="RI">Responsable Inscripto</option><option value="MONO">Monotributo</option><option value="EXENTO">Exento</option></select></FF>}
+            <FF label="Condición IVA"><select value={form.condicion_iva} onChange={e=>setForm({...form,condicion_iva:e.target.value})}><option value="RI">Responsable Inscripto</option><option value="MONO">Monotributo</option><option value="EXENTO">Exento</option></select></FF>
             <FF label="Provincia"><select value={form.provincia} onChange={e=>setForm({...form,provincia:e.target.value})}><option value="">Seleccionar...</option>{PROVINCIAS.map(p=><option key={p} value={p}>{p}</option>)}</select></FF>
             <FF label="Localidad"><input placeholder="Ciudad / Localidad" value={form.localidad} onChange={e=>setForm({...form,localidad:e.target.value})}/></FF>
             <FF label="Teléfono"><input placeholder="Teléfono" value={form.telefono} onChange={e=>setForm({...form,telefono:e.target.value})}/></FF>
@@ -437,7 +436,8 @@ const Contrapartes = ({modulo}) => {
           <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:8}}>
             <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn>
             <Btn disabled={guardando} onClick={async()=>{
-              if(!form.razon_social){alert("El nombre es obligatorio");return;}
+              if(!form.cuit){alert("El CUIT es obligatorio");return;}
+              if(!form.razon_social){alert("La razón social es obligatoria");return;}
               if(!form.es_productor&&!form.es_comprador&&!form.es_transportista&&!form.es_corredor){
                 alert("Seleccioná al menos un rubro");return;
               }
@@ -450,10 +450,10 @@ const Contrapartes = ({modulo}) => {
                 if(form.es_corredor) rubros.push("CORREDOR");
                 const tipo = rubros.length>1?"AMBOS":rubros[0];
                 const datos = {
-                  cuit: form.cuit||null,
+                  cuit: form.cuit,
                   razon_social: form.razon_social,
                   tipo_contraparte: tipo,
-                  canal_operacion: modulo,
+                  canal_operacion: "AMBOS",
                   condicion_iva: form.condicion_iva||null,
                   localidad: form.localidad||null,
                   provincia: form.provincia||null,

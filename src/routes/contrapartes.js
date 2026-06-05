@@ -4,13 +4,10 @@ const { pool } = require('../db');
 // GET todas las contrapartes
 router.get('/', async (req, res) => {
   try {
-    const { modalidad, tipo, search } = req.query;
+    const { tipo, search } = req.query;
     let query = 'SELECT * FROM contrapartes WHERE 1=1';
     const params = [];
 
-    if (modalidad === 'FORMAL') {
-      query += ' AND cuit IS NOT NULL';
-    }
     if (tipo) {
       params.push(tipo);
       query += ` AND (tipo_contraparte = $${params.length} OR tipo_contraparte = 'AMBOS')`;
@@ -45,6 +42,19 @@ router.post('/', async (req, res) => {
     const { cuit, razon_social, tipo_contraparte, canal_operacion, condicion_iva,
             domicilio, localidad, provincia, telefono, email, observaciones } = req.body;
 
+    if (!cuit) {
+      return res.status(400).json({ error: 'El CUIT es obligatorio' });
+    }
+    if (!razon_social) {
+      return res.status(400).json({ error: 'La Razón Social es obligatoria' });
+    }
+
+    // Verificar unicidad de CUIT
+    const { rows: existing } = await pool.query('SELECT id FROM contrapartes WHERE cuit = $1', [cuit]);
+    if (existing.length > 0) {
+      return res.status(400).json({ error: 'Ya existe una contraparte registrada con ese CUIT' });
+    }
+
     // Generar código interno
     const { rows: last } = await pool.query(
       "SELECT codigo_interno FROM contrapartes WHERE codigo_interno LIKE $1 ORDER BY id DESC LIMIT 1",
@@ -59,7 +69,7 @@ router.post('/', async (req, res) => {
         canal_operacion, condicion_iva, domicilio, localidad, provincia, telefono, email, observaciones)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       RETURNING *
-    `, [codigo_interno, cuit||null, razon_social, tipo_contraparte,
+    `, [codigo_interno, cuit, razon_social, tipo_contraparte,
         canal_operacion||'AMBOS', condicion_iva, domicilio, localidad,
         provincia, telefono, email, observaciones]);
 
@@ -74,6 +84,20 @@ router.put('/:id', async (req, res) => {
   try {
     const { cuit, razon_social, tipo_contraparte, condicion_iva,
             domicilio, localidad, provincia, telefono, email, activo } = req.body;
+
+    if (!cuit) {
+      return res.status(400).json({ error: 'El CUIT es obligatorio' });
+    }
+    if (!razon_social) {
+      return res.status(400).json({ error: 'La Razón Social es obligatoria' });
+    }
+
+    // Verificar unicidad de CUIT en otras contrapartes
+    const { rows: existing } = await pool.query('SELECT id FROM contrapartes WHERE cuit = $1 AND id <> $2', [cuit, req.params.id]);
+    if (existing.length > 0) {
+      return res.status(400).json({ error: 'Ya existe otra contraparte registrada con ese CUIT' });
+    }
+
     const { rows } = await pool.query(`
       UPDATE contrapartes SET
         cuit=$1, razon_social=$2, tipo_contraparte=$3, condicion_iva=$4,
@@ -81,7 +105,7 @@ router.put('/:id', async (req, res) => {
         activo=$10, updated_at=NOW()
       WHERE id=$11 RETURNING *
     `, [cuit, razon_social, tipo_contraparte, condicion_iva,
-        domicilio, localidad, provincia, telefono, email, activo, req.params.id]);
+        domicilio, localidad, provincia, telefono, email, activo !== undefined ? activo : true, req.params.id]);
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -125,24 +149,6 @@ router.delete('/:id', async (req, res) => {
     }
     await pool.query('DELETE FROM contrapartes WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// PUT actualizar contraparte
-router.put('/:id', async (req, res) => {
-  try {
-    const { cuit, razon_social, tipo_contraparte, condicion_iva,
-            localidad, provincia, telefono, email } = req.body;
-    const { rows } = await pool.query(`
-      UPDATE contrapartes SET
-        cuit=$1, razon_social=$2, tipo_contraparte=$3, condicion_iva=$4,
-        localidad=$5, provincia=$6, telefono=$7, email=$8, updated_at=NOW()
-      WHERE id=$9 RETURNING *
-    `, [cuit||null, razon_social, tipo_contraparte, condicion_iva,
-        localidad, provincia, telefono, email, req.params.id]);
-    res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
