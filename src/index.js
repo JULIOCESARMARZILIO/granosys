@@ -25,6 +25,7 @@ app.use('/api/liquidaciones',require('./routes/liquidaciones'));
 app.use('/api/cc',           require('./routes/cuentacorriente'));
 app.use('/api/stock',        require('./routes/stock'));
 app.use('/api/reportes',     require('./routes/reportes'));
+app.use('/api/arca',         require('./routes/arca'));
 
 // Frontend - VA AL FINAL
 app.use(express.static(path.join(__dirname, '../public')));

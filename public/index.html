@@ -2821,6 +2821,7 @@ const Configuracion = () => {
   const [nuevaEspecie,setNuevaEspecie]=useState({nombre:"",codigo:""});
   const [nuevaCampana,setNuevaCampana]=useState({descripcion:"",anio_inicio:"",anio_fin:""});
   const [guardando,setGuardando]=useState(false);
+  const [consolaLog,setConsolaLog]=useState("");
 
   useEffect(()=>{
     api.get("/api/especies").then(d=>setEspecies(d)).catch(()=>{});
@@ -2858,7 +2859,7 @@ const Configuracion = () => {
         <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Tablas maestras del sistema</p>
       </div>
       <div className="tab-bar" style={{marginBottom:20}}>
-        {[{id:"especies",label:"Especies / Productos"},{id:"campanas",label:"Campañas"}].map(t=>(
+        {[{id:"especies",label:"Especies / Productos"},{id:"campanas",label:"Campañas"},{id:"arca",label:"Conexión ARCA"}].map(t=>(
           <button key={t.id} className={`tab ${tab===t.id?"active":""}`} onClick={()=>setTab(t.id)}>{t.label}</button>
         ))}
       </div>
@@ -2931,6 +2932,128 @@ const Configuracion = () => {
                 <input type="number" placeholder="2026" value={nuevaCampana.anio_fin} onChange={e=>setNuevaCampana({...nuevaCampana,anio_fin:e.target.value})}/>
               </div>
               <Btn disabled={guardando} onClick={guardarCampana}>{guardando?"Guardando...":"Agregar"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab==="arca"&&(
+        <div style={{display:"grid",gridTemplateColumns:"340px 1fr",gap:16,alignItems:"start"}}>
+          {/* Listado de Servicios */}
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div className="card" style={{padding:16}}>
+              <div style={{fontWeight:700,fontSize:14,marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span>Estructura de Conexión</span>
+                <Badge label="Modo Simulador" color="orange"/>
+              </div>
+              <p style={{fontSize:11,color:"#8890a8",lineHeight:1.4,marginBottom:14}}>
+                Para producción, debés habilitar estos códigos de servicios web en tu Clave Fiscal (Nivel 3) dentro de ARCA/AFIP:
+              </p>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {[
+                  {code:"wscpe", label:"1. CPE (Logística)", desc:"Monitoreo de Cartas de Porte Electrónicas"},
+                  {code:"ws_sr_padron_a13", label:"2. Padrón A13", desc:"Padrón general de contribuyentes"},
+                  {code:"sisa", label:"3. SISA", desc:"Scoring de productores e IVA"},
+                  {code:"wslpg", label:"4. WSLPG (Liquidación)", desc:"Emisión de Liquidación de Granos"},
+                  {code:"ws_certificacion_granos", label:"5. Certif. 1116", desc:"COE Balanza / F1116 A/B/C"},
+                  {code:"wsfe", label:"6. WSFE (Facturación)", desc:"Factura Electrónica e Invoices"},
+                ].map(s=>(
+                  <div key={s.code} style={{background:"#0c0e14",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 12px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontWeight:600,fontSize:12,color:"#e8eaf0"}}>{s.label}</span>
+                      <span className="mono" style={{fontSize:10,background:"#27ae6022",color:"#27ae60",padding:"1px 4px",borderRadius:4}}>{s.code}</span>
+                    </div>
+                    <div style={{fontSize:10,color:"#8890a8",marginTop:4}}>{s.desc}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Panel de Pruebas y Consola */}
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div className="card" style={{padding:"16px 20px"}}>
+              <div style={{fontWeight:600,fontSize:14,marginBottom:12}}>Pruebas de Servicios (Simulador Activo)</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <Btn onClick={async()=>{
+                  try {
+                    setConsolaLog("Consultando CPEs activas en ARCA...");
+                    const res = await api.get("/api/arca/cpe");
+                    setConsolaLog(JSON.stringify(res, null, 2));
+                  } catch(e) { setConsolaLog("Error: "+e.message); }
+                }}>Consultar CPEs en Tránsito</Btn>
+
+                <div style={{display:"flex",gap:6}}>
+                  <input placeholder="CUIT..." id="test_cuit_padron" style={{flex:1,fontSize:12}} defaultValue="30546687065"/>
+                  <Btn onClick={async()=>{
+                    const c = document.getElementById("test_cuit_padron").value;
+                    try {
+                      setConsolaLog(`Consultando Padrón A13 para CUIT: ${c}...`);
+                      const res = await api.get(`/api/arca/padron/${c}`);
+                      setConsolaLog(JSON.stringify(res, null, 2));
+                    } catch(e) { setConsolaLog("Error: "+e.message); }
+                  }} style={{background:"#3498db",color:"#fff"}}>Padrón A13</Btn>
+                </div>
+
+                <div style={{display:"flex",gap:6}}>
+                  <input placeholder="CUIT..." id="test_cuit_sisa" style={{flex:1,fontSize:12}} defaultValue="20182345678"/>
+                  <Btn onClick={async()=>{
+                    const c = document.getElementById("test_cuit_sisa").value;
+                    try {
+                      setConsolaLog(`Consultando Scoring SISA para CUIT: ${c}...`);
+                      const res = await api.get(`/api/arca/sisa/${c}`);
+                      setConsolaLog(JSON.stringify(res, null, 2));
+                    } catch(e) { setConsolaLog("Error: "+e.message); }
+                  }} style={{background:"#9b59b6",color:"#fff"}}>Scoring SISA</Btn>
+                </div>
+
+                <Btn onClick={async()=>{
+                  try {
+                    setConsolaLog("Simulando liquidación LPG comercial en ARCA...");
+                    const res = await api.post("/api/arca/lpg", { total_operacion: 12500000 });
+                    setConsolaLog(JSON.stringify(res, null, 2));
+                  } catch(e) { setConsolaLog("Error: "+e.message); }
+                }}>Simular Liquidación (LPG)</Btn>
+
+                <Btn onClick={async()=>{
+                  try {
+                    setConsolaLog("Simulando COE físico de stock (F1116/B)...");
+                    const res = await api.post("/api/arca/certificado-1116", { tipo: "B", datos: { kilos_netos: 45000 } });
+                    setConsolaLog(JSON.stringify(res, null, 2));
+                  } catch(e) { setConsolaLog("Error: "+e.message); }
+                }}>Simular COE (1116/B)</Btn>
+
+                <Btn onClick={async()=>{
+                  try {
+                    setConsolaLog("Simulando emisión de Factura Electrónica (WSFE)...");
+                    const res = await api.post("/api/arca/factura", { total: 150000, docNro: "30546687065" });
+                    setConsolaLog(JSON.stringify(res, null, 2));
+                  } catch(e) { setConsolaLog("Error: "+e.message); }
+                }}>Simular Factura (WSFE)</Btn>
+              </div>
+            </div>
+
+            {/* Consola de Logs */}
+            <div className="card" style={{padding:16,flexGrow:1,minHeight:260,display:"flex",flexDirection:"column"}}>
+              <div style={{fontWeight:600,fontSize:13,color:"#8890a8",marginBottom:8,display:"flex",justifyContent:"space-between"}}>
+                <span>Consola de Transacciones (JSON Auditoría)</span>
+                <span onClick={()=>setConsolaLog("")} style={{cursor:"pointer",color:"#f5a623",fontSize:11}}>Limpiar</span>
+              </div>
+              <pre className="mono" style={{
+                flexGrow:1,
+                background:"#08090d",
+                color:"#27ae60",
+                padding:12,
+                borderRadius:6,
+                border:"1px solid #1c1f2b",
+                margin:0,
+                fontSize:11,
+                overflow:"auto",
+                whiteSpace:"pre-wrap",
+                maxHeight:300
+              }}>
+                {consolaLog || "// Hacé clic en algún test de arriba para auditar el tráfico de datos de ARCA..."}
+              </pre>
             </div>
           </div>
         </div>
