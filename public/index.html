@@ -293,7 +293,6 @@ const Dashboard = ({modulo}) => {
         </div>
       </div>
     </div>
-  </div>
   );
 };
 
@@ -569,7 +568,6 @@ const Contratos = ({modulo}) => {
         ))}</tbody></table>
         {lista.length===0&&<div style={{padding:40,textAlign:"center",color:"#565d7a"}}>No hay contratos de {tab.toLowerCase()} en modalidad {modulo.toLowerCase()}</div>}
       </div>
-    </div>
       {showForm&&(
         <Modal title="Nuevo Contrato" onClose={()=>setShowForm(false)} width={900}>
           <div style={{display:"flex",gap:8,marginBottom:18}}>
@@ -2987,7 +2985,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.1.1 — GranoSYS</div>
+          v2.1.0 — GranoSYS</div>
       </div>
     </div>
   );
@@ -3110,7 +3108,7 @@ function App() {
           ))}
         </nav>
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
-          <div style={{fontSize:10,color:"#565d7a"}}>v2.1.1 — GranoSYS</div>
+          <div style={{fontSize:10,color:"#565d7a"}}>v2.1.0 — GranoSYS</div>
         </div>
       </div>
       {/* MAIN */}
