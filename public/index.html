@@ -2983,7 +2983,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.1.0 — GranoSYS</div>
+          v2.1.0 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -2996,17 +2996,20 @@ function App() {
   const [sec,setSec]=useState("dashboard");
   const [showAccesoOculto,setShowAccesoOculto]=useState(false);
   const [codigoOculto,setCodigoOculto]=useState("");
+  const [informalUnlocked,setInformalUnlocked]=useState(false);
 
   if(!logueado) return <Login onLogin={(u)=>{setLogueado(true);setUsuario(u);}}/>;
 
   const handleAccesoOculto = () => {
-    if(codigoOculto==="1"){
+    if(codigoOculto==="invdelsal"){
+      setInformalUnlocked(true);
       setModulo("INFORMAL");
       setSec("dashboard");
       setShowAccesoOculto(false);
       setCodigoOculto("");
     } else {
       setCodigoOculto("");
+      alert("Clave incorrecta");
     }
   };
 
@@ -3047,17 +3050,9 @@ function App() {
         <div style={{padding:"18px 18px 14px",borderBottom:"1px solid #2a2d3e",position:"relative"}}>
           <div style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700,fontSize:17,color:"#f5a623",letterSpacing:"-.02em"}}>GRANO<span style={{color:"#e8eaf0"}}>SYS</span></div>
           <div style={{fontSize:10,color:"#565d7a",marginTop:2,letterSpacing:".05em",textTransform:"uppercase"}}>Comercialización</div>
-          {/* Botón oculto para acceso informal */}
-          <button
-            onClick={()=>setShowAccesoOculto(true)}
-            style={{position:"absolute",top:14,right:12,background:"transparent",border:"none",color:"#2a2d3e",fontSize:14,cursor:"pointer",padding:4,borderRadius:4,transition:"color .2s"}}
-            onMouseEnter={e=>e.target.style.color="#565d7a"}
-            onMouseLeave={e=>e.target.style.color="#2a2d3e"}
-            title=""
-          >↻</button>
           {showAccesoOculto&&(
             <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}}
-              onClick={e=>{if(e.target===e.currentTarget){setShowAccesoOculto(false);setCodigoOculto("");}}}>
+               onClick={e=>{if(e.target===e.currentTarget){setShowAccesoOculto(false);setCodigoOculto("");}}}>
               <div style={{background:"#1a1d27",border:"1px solid #2a2d3e",borderRadius:10,padding:"24px 28px",width:260}}>
                 <input
                   type="password"
@@ -3075,27 +3070,27 @@ function App() {
         <div style={{padding:"10px 12px",borderBottom:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",marginBottom:6,textTransform:"uppercase",letterSpacing:".06em"}}>Módulo</div>
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
-            {[
-              {id:"FORMAL",label:"📋 Formal",color:"#3498db"},
-              {id:"CONSOLIDADO",label:"⊞ Consolidado",color:"#27ae60"},
-            ].map(m=>(
-              <button key={m.id} onClick={()=>{setModulo(m.id);setSec("dashboard");}} style={{
-                padding:"7px 10px",fontSize:12,fontWeight:600,borderRadius:6,
-                border:`1px solid ${modulo===m.id?m.color+"44":"#2a2d3e"}`,
-                cursor:"pointer",textAlign:"left",
-                background:modulo===m.id?m.color+"18":"transparent",
-                color:modulo===m.id?m.color:"#8890a8",
-                transition:"all .2s"
-              }}>
-                {m.label}
-              </button>
-            ))}
-            {modulo==="INFORMAL"&&(
-              <div style={{padding:"7px 10px",fontSize:12,fontWeight:600,borderRadius:6,
-                border:"1px solid #f5a62344",background:"#f5a62318",color:"#f5a623"}}>
-                📝 Informal
-              </div>
-            )}
+            {(() => {
+              const modulos = [
+                {id:"FORMAL",label:"📋 Formal",color:"#3498db"}
+              ];
+              if (informalUnlocked) {
+                modulos.push({id:"INFORMAL",label:"📝 Informal",color:"#f5a623"});
+                modulos.push({id:"CONSOLIDADO",label:"⊞ Consolidado",color:"#27ae60"});
+              }
+              return modulos.map(m=>(
+                <button key={m.id} onClick={()=>{setModulo(m.id);setSec("dashboard");}} style={{
+                  padding:"7px 10px",fontSize:12,fontWeight:600,borderRadius:6,
+                  border:`1px solid ${modulo===m.id?m.color+"44":"#2a2d3e"}`,
+                  cursor:"pointer",textAlign:"left",
+                  background:modulo===m.id?m.color+"18":"transparent",
+                  color:modulo===m.id?m.color:"#8890a8",
+                  transition:"all .2s"
+                }}>
+                  {m.label}
+                </button>
+              ));
+            })()}
           </div>
         </div>
         <nav style={{flex:1,padding:"8px 8px",overflowY:"auto"}}>
@@ -3106,7 +3101,12 @@ function App() {
           ))}
         </nav>
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
-          <div style={{fontSize:10,color:"#565d7a"}}>v2.1.0 — GranoSYS</div>
+          <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
+            v2.1.0 — GranoSYS - <span
+              onDoubleClick={()=>setShowAccesoOculto(true)}
+              style={{cursor:"default",color:"#565d7a"}}
+            >INVDELSAL</span>
+          </div>
         </div>
       </div>
       {/* MAIN */}
