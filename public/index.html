@@ -303,7 +303,37 @@ const Contrapartes = ({modulo}) => {
   const [lista,setLista]=useState([]);
   const [loading,setLoading]=useState(true);
   const [guardando,setGuardando]=useState(false);
-  const [form,setForm]=useState({cuit:"",razon_social:"",es_productor:false,es_comprador:false,es_transportista:false,es_corredor:false,condicion_iva:"RI",provincia:"",localidad:"",telefono:"",email:""});
+  const [consultandoArca,setConsultandoArca]=useState(false);
+  const [form,setForm]=useState({cuit:"",razon_social:"",es_productor:false,es_comprador:false,es_transportista:false,es_corredor:false,condicion_iva:"RI",provincia:"",localidad:"",telefono:"",email:"",domicilio:""});
+
+  const consultarCuitEnArca = async () => {
+    const cuitLimpio = form.cuit.replace(/[^0-9]/g, '');
+    if (cuitLimpio.length !== 11) {
+      alert("Por favor, ingresá un CUIT de 11 dígitos");
+      return;
+    }
+    setConsultandoArca(true);
+    try {
+      const data = await api.get(`/api/contrapartes/consulta-arca/${cuitLimpio}`);
+      if (data && data.razon_social) {
+        setForm(prev => ({
+          ...prev,
+          cuit: data.cuit || prev.cuit,
+          razon_social: data.razon_social || prev.razon_social,
+          condicion_iva: data.condicion_iva || prev.condicion_iva,
+          domicilio: data.domicilio || prev.domicilio,
+          localidad: data.localidad || prev.localidad,
+          provincia: data.provincia || prev.provincia
+        }));
+        alert("✓ Datos recuperados de ARCA exitosamente");
+      }
+    } catch (e) {
+      console.error(e);
+      alert(e.message || "Error al consultar en ARCA. Podés ingresar los datos manualmente.");
+    } finally {
+      setConsultandoArca(false);
+    }
+  };
 
   const cargarContrapartes = async () => {
     setLoading(true);
@@ -367,22 +397,23 @@ const Contrapartes = ({modulo}) => {
               <td><Badge label={c.activo?"Activo":"Inactivo"} color={c.activo?"green":"gray"}/></td>
               <td style={{display:"flex",gap:6}}>
                 <Btn variant="ghost" size="sm" onClick={()=>{
-                  setForm({
-                    cuit:c.cuit||"",
-                    razon_social:c.razon_social||"",
-                    es_productor:c.tipo_contraparte==="PRODUCTOR"||c.tipo_contraparte==="AMBOS",
-                    es_comprador:c.tipo_contraparte==="COMPRADOR"||c.tipo_contraparte==="AMBOS",
-                    es_transportista:c.tipo_contraparte==="TRANSPORTISTA",
-                    es_corredor:c.tipo_contraparte==="CORREDOR",
-                    condicion_iva:c.condicion_iva||"RI",
-                    provincia:c.provincia||"",
-                    localidad:c.localidad||"",
-                    telefono:c.telefono||"",
-                    email:c.email||"",
-                    _id:c.id,
-                    _editando:true,
-                  });
-                  setShowForm(true);
+                   setForm({
+                     cuit:c.cuit||"",
+                     razon_social:c.razon_social||"",
+                     es_productor:c.tipo_contraparte==="PRODUCTOR"||c.tipo_contraparte==="AMBOS",
+                     es_comprador:c.tipo_contraparte==="COMPRADOR"||c.tipo_contraparte==="AMBOS",
+                     es_transportista:c.tipo_contraparte==="TRANSPORTISTA",
+                     es_corredor:c.tipo_contraparte==="CORREDOR",
+                     condicion_iva:c.condicion_iva||"RI",
+                     provincia:c.provincia||"",
+                     localidad:c.localidad||"",
+                     telefono:c.telefono||"",
+                     email:c.email||"",
+                     domicilio:c.domicilio||"",
+                     _id:c.id,
+                     _editando:true,
+                   });
+                   setShowForm(true);
                 }}>Editar</Btn>
                 <Btn variant="danger" size="sm" onClick={async()=>{
                   if(!confirm(`¿Eliminar ${c.razon_social}?`)) return;
@@ -401,7 +432,25 @@ const Contrapartes = ({modulo}) => {
       {showForm&&(
         <Modal title={form._editando?`Editar Contraparte`:`Nueva Contraparte`} onClose={()=>setShowForm(false)} width={860}>
           <div className="form-grid-2">
-            <FF label="CUIT" required><input placeholder="20-12345678-9" value={form.cuit} onChange={e=>setForm({...form,cuit:e.target.value})}/></FF>
+            <FF label="CUIT" required>
+              <div style={{display:"flex",gap:8}}>
+                <input 
+                  placeholder="20-12345678-9" 
+                  value={form.cuit} 
+                  disabled={consultandoArca}
+                  onChange={e=>setForm({...form,cuit:e.target.value})}
+                  style={{flex:1}}
+                />
+                <Btn 
+                  type="button" 
+                  disabled={consultandoArca || !form.cuit} 
+                  onClick={consultarCuitEnArca}
+                  style={{flexShrink:0,background:"#27ae60",color:"#000",fontWeight:600}}
+                >
+                  {consultandoArca ? "Consultando..." : "Consultar ARCA"}
+                </Btn>
+              </div>
+            </FF>
             <FF label="Razón Social / Nombre" required><input placeholder="Nombre completo o razón social" value={form.razon_social} onChange={e=>setForm({...form,razon_social:e.target.value})}/></FF>
             <div className="form-field" style={{gridColumn:"span 2"}}>
               <label className="form-label">Rubros <span style={{color:"#f5a623",marginLeft:3}}>*</span></label>
@@ -427,6 +476,7 @@ const Contrapartes = ({modulo}) => {
                 ))}
               </div>
             </div>
+            <FF label="Domicilio / Dirección"><input placeholder="Calle, número, piso, depto" value={form.domicilio} onChange={e=>setForm({...form,domicilio:e.target.value})}/></FF>
             <FF label="Condición IVA"><select value={form.condicion_iva} onChange={e=>setForm({...form,condicion_iva:e.target.value})}><option value="RI">Responsable Inscripto</option><option value="MONO">Monotributo</option><option value="EXENTO">Exento</option></select></FF>
             <FF label="Provincia"><select value={form.provincia} onChange={e=>setForm({...form,provincia:e.target.value})}><option value="">Seleccionar...</option>{PROVINCIAS.map(p=><option key={p} value={p}>{p}</option>)}</select></FF>
             <FF label="Localidad"><input placeholder="Ciudad / Localidad" value={form.localidad} onChange={e=>setForm({...form,localidad:e.target.value})}/></FF>
@@ -455,6 +505,7 @@ const Contrapartes = ({modulo}) => {
                   tipo_contraparte: tipo,
                   canal_operacion: "AMBOS",
                   condicion_iva: form.condicion_iva||null,
+                  domicilio: form.domicilio||null,
                   localidad: form.localidad||null,
                   provincia: form.provincia||null,
                   telefono: form.telefono||null,
@@ -468,7 +519,7 @@ const Contrapartes = ({modulo}) => {
                   alert("✓ Contraparte guardada");
                 }
                 setShowForm(false);
-                setForm({cuit:"",razon_social:"",es_productor:false,es_comprador:false,es_transportista:false,es_corredor:false,condicion_iva:"RI",provincia:"",localidad:"",telefono:"",email:"",_id:null,_editando:false});
+                setForm({cuit:"",razon_social:"",es_productor:false,es_comprador:false,es_transportista:false,es_corredor:false,condicion_iva:"RI",provincia:"",localidad:"",telefono:"",email:"",domicilio:"",_id:null,_editando:false});
                 cargarContrapartes();
               } catch(e) {
                 alert("Error: "+e.message);
