@@ -854,6 +854,14 @@ const Movimientos = ({modulo}) => {
   const [tab,setTab]=useState("salida");
   const [importing,setImporting]=useState(false);
   const [importResult,setImportResult]=useState(null);
+  const [movsReal,setMovsReal]=useState(null);
+  const movs = movsReal !== null ? movsReal : mockMovimientos.filter(m=>m.modalidad===modulo);
+
+  useEffect(()=>{
+    api.get(`/api/movimientos?modalidad=${modulo}`)
+      .then(data=>setMovsReal(data))
+      .catch(()=>setMovsReal(null));
+  },[modulo]);
 
   const estadoColor = e=>({EN_TRANSITO:"orange",DESCARGADO:"blue",LIQUIDADO:"green",ANULADO:"red",BORRADOR:"gray"}[e]||"gray");
   const liqColor = e=>({LIQUIDADO:"green",ASIGNADO:"blue",PRELIQUIDADO:"orange",SIN_ASIGNAR:"gray"}[e]||"gray");
