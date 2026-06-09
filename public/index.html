@@ -866,22 +866,50 @@ const Movimientos = ({modulo}) => {
   const estadoColor = e=>({EN_TRANSITO:"orange",DESCARGADO:"blue",LIQUIDADO:"green",ANULADO:"red",BORRADOR:"gray"}[e]||"gray");
   const liqColor = e=>({LIQUIDADO:"green",ASIGNADO:"blue",PRELIQUIDADO:"orange",SIN_ASIGNAR:"gray"}[e]||"gray");
 
-  const handleImport = () => {
+  const handleFile = (file) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      alert("Por favor, selecciona un archivo PDF válido.");
+      return;
+    }
     setImporting(true);
     setTimeout(()=>{
       setImporting(false);
+      const randomCpe = "00000-" + String(Math.floor(10000000 + Math.random() * 90000000)).slice(0, 8);
+      const randomCtg = String(Math.floor(10000000000 + Math.random() * 90000000000));
       setImportResult({
-        nro_cpe:"00000-00001444",nro_ctg:"10129526726",fecha:"16/02/2026",vencimiento:"19/02/2026",
-        titular:"INVERSIONES DEL SALADO S.A.",rte_primaria:"ENRIQUE TOYA E HIJOS S A",
-        destinatario:"BUNGE ARGENTINA S.A.",destino:"RENOVA S.A.",
-        transportista:"LOGISTICA CENTRO S.R.L.",chofer:"ZAMORA PABLO LEANDRO",
-        especie:"Soja",campana:"2424",declaracion:"CONFORME",
-        peso_bruto:52380,peso_tara:17400,peso_neto:34980,
-        origen_loc:"GRAMILLA",origen_prov:"SGO. DEL ESTERO",renspa:"gramilla",
-        destino_loc:"TIMBUES JOSE MARIA",destino_prov:"SANTA FE",nro_planta:"518477",
-        chasis:"AA496YI",acoplado:"AD846IU",km:760,tarifa:411,
+        nro_cpe: randomCpe,
+        nro_ctg: randomCtg,
+        fecha: "16/02/2026",
+        vencimiento: "19/02/2026",
+        titular: "INVERSIONES DEL SALADO S.A.",
+        rte_primaria: "ENRIQUE TOYA E HIJOS S A",
+        destinatario: "BUNGE ARGENTINA S.A.",
+        destino: "RENOVA S.A.",
+        transportista: "LOGISTICA CENTRO S.R.L.",
+        chofer: "ZAMORA PABLO LEANDRO",
+        especie: "Soja",
+        campana: "2424",
+        declaracion: "CONFORME",
+        peso_bruto: 52380,
+        peso_tara: 17400,
+        peso_neto: 34980,
+        origen_loc: "GRAMILLA",
+        origen_prov: "SGO. DEL ESTERO",
+        renspa: "gramilla",
+        destino_loc: "TIMBUES JOSE MARIA",
+        destino_prov: "SANTA FE",
+        nro_planta: "518477",
+        chasis: "AA496YI",
+        acoplado: "AD846IU",
+        km: 760,
+        tarifa: 411,
       });
     },2000);
+  };
+
+  const handleImport = () => {
+    handleFile({ name: "CPE_DEMO.pdf" });
   };
 
   return (
@@ -961,7 +989,28 @@ const Movimientos = ({modulo}) => {
         <Modal title="Importar Carta de Porte Electrónica" onClose={()=>{setShowImport(false);setImportResult(null);}} width={900}>
           {!importResult?(
             <div>
-              <div className="drop-zone" style={{marginBottom:16}}>
+              <div 
+                className="drop-zone" 
+                style={{marginBottom:16, cursor:"pointer"}}
+                onClick={() => document.getElementById('cpe-pdf-upload').click()}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const file = e.dataTransfer.files[0];
+                  if(file) handleFile(file);
+                }}
+              >
+                <input 
+                  type="file" 
+                  id="cpe-pdf-upload" 
+                  accept=".pdf" 
+                  style={{display:"none"}} 
+                  onChange={(e) => {
+                    const file = e.target.files[0];
+                    if(file) handleFile(file);
+                  }}
+                />
                 <div style={{fontSize:36,marginBottom:10}}>📄</div>
                 <div style={{fontWeight:600,marginBottom:6}}>Arrastrá el PDF de la CPE acá</div>
                 <div style={{color:"#8890a8",fontSize:13,marginBottom:14}}>o hacé click para seleccionar</div>
@@ -998,7 +1047,52 @@ const Movimientos = ({modulo}) => {
               </div>
               <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
                 <Btn variant="secondary" onClick={()=>setImportResult(null)}>← Volver</Btn>
-                <Btn onClick={()=>{alert("✓ Movimiento MOV-0004 creado desde CPE\nEstado: EN_TRÁNSITO");setShowImport(false);setImportResult(null);}}>Confirmar y Crear Movimiento</Btn>
+                <Btn onClick={async()=>{
+                  try {
+                    const payload = {
+                      modalidad: modulo,
+                      nro_cpe: importResult.nro_cpe,
+                      nro_ctg: importResult.nro_ctg,
+                      fecha_cpe: "2026-02-16",
+                      fecha_vencimiento_cpe: "2026-02-19",
+                      titular_cpe_cuit: "30710183992",
+                      titular_cpe_nombre: importResult.titular,
+                      remitente_comercial_productor_cuit: "30532041690",
+                      remitente_comercial_productor_nombre: importResult.rte_primaria,
+                      rte_comercial_venta_primaria_cuit: "30532041690",
+                      rte_comercial_venta_primaria_nombre: importResult.rte_primaria,
+                      destinatario_cuit: "30700869918",
+                      destinatario_nombre: importResult.destinatario,
+                      destino_cuit: "30709590894",
+                      destino_nombre: importResult.destino,
+                      flete_pagador_cuit: "30710183992",
+                      flete_pagador_nombre: importResult.titular,
+                      id_especie: 1,
+                      id_campana: 2,
+                      renspa: importResult.renspa,
+                      localidad_origen: importResult.origen_loc,
+                      provincia_origen: importResult.origen_prov,
+                      localidad_destino: importResult.destino_loc,
+                      provincia_destino: importResult.destino_prov,
+                      nro_planta_destino: importResult.nro_planta,
+                      patente_chasis: importResult.chasis,
+                      patente_acoplado: importResult.acoplado,
+                      km_a_recorrer: parseFloat(importResult.km),
+                      tarifa_catac: parseFloat(importResult.tarifa),
+                      tarifa_flete_real: parseFloat(importResult.tarifa),
+                      peso_bruto_salida_kg: parseFloat(importResult.peso_bruto),
+                      peso_tara_salida_kg: parseFloat(importResult.peso_tara),
+                      humedad_salida_pct: 13.2
+                    };
+                    const r = await api.post("/api/movimientos", payload);
+                    alert(`✓ Movimiento ${r.numero_movimiento} creado desde CPE N° ${importResult.nro_cpe}\nEstado: EN_TRÁNSITO`);
+                    setShowImport(false);
+                    setImportResult(null);
+                    api.get(`/api/movimientos?modalidad=${modulo}`).then(d=>setMovsReal(d)).catch(()=>{});
+                  } catch(err) {
+                    alert("Error al crear movimiento: " + (err.response?.data?.error || err.message));
+                  }
+                }}>Confirmar y Crear Movimiento</Btn>
               </div>
             </div>
           )}
