@@ -555,7 +555,23 @@ const Contratos = ({modulo}) => {
   const cargarContratos = async () => {
     try {
       const data = await api.get(`/api/contratos?modalidad=${modulo}&tipo=${tab}`);
-      setLista(data);
+      const mapped = data.map(c => ({
+        id: c.id,
+        numero: c.numero_contrato,
+        fecha: c.fecha_contrato ? c.fecha_contrato.split('T')[0] : '',
+        contraparte: c.contraparte_nombre,
+        especie: c.especie_nombre,
+        campana: c.campana_desc,
+        toneladas: parseFloat(c.cantidad_toneladas_pactadas) || 0,
+        asignadas: parseFloat(c.cantidad_toneladas_asignadas) || 0,
+        tipo_precio: c.tipo_precio,
+        precio: c.precio_pactado ? parseFloat(c.precio_pactado) : null,
+        moneda: c.moneda,
+        tipo_entrega: c.tipo_entrega,
+        estado: c.estado,
+        tipo_liq: c.tipo_liquidacion
+      }));
+      setLista(mapped);
     } catch(e) {
       setLista(mockContratos.filter(c=>c.modalidad===modulo&&c.tipo===tab));
     }
@@ -856,11 +872,40 @@ const Movimientos = ({modulo}) => {
   const [importResult,setImportResult]=useState(null);
   const [movsReal,setMovsReal]=useState(null);
   const movs = movsReal !== null ? movsReal : mockMovimientos.filter(m=>m.modalidad===modulo);
+  const [contratosReal,setContratosReal]=useState(null);
+  const contratos = contratosReal !== null ? contratosReal : mockContratos.filter(c=>c.modalidad===modulo);
+
+  const cargarContratos = async () => {
+    try {
+      const data = await api.get(`/api/contratos?modalidad=${modulo}`);
+      const mapped = data.map(c => ({
+        id: c.id,
+        numero: c.numero_contrato,
+        fecha: c.fecha_contrato ? c.fecha_contrato.split('T')[0] : '',
+        contraparte: c.contraparte_nombre,
+        especie: c.especie_nombre,
+        campana: c.campana_desc,
+        toneladas: parseFloat(c.cantidad_toneladas_pactadas) || 0,
+        asignadas: parseFloat(c.cantidad_toneladas_asignadas) || 0,
+        tipo_precio: c.tipo_precio,
+        precio: c.precio_pactado ? parseFloat(c.precio_pactado) : null,
+        moneda: c.moneda,
+        tipo_entrega: c.tipo_entrega,
+        estado: c.estado,
+        tipo_liq: c.tipo_liquidacion,
+        tipo: c.tipo_contrato
+      }));
+      setContratosReal(mapped);
+    } catch(e) {
+      setContratosReal(null);
+    }
+  };
 
   useEffect(()=>{
     api.get(`/api/movimientos?modalidad=${modulo}`)
       .then(data=>setMovsReal(data))
       .catch(()=>setMovsReal(null));
+    cargarContratos();
   },[modulo]);
 
   const estadoColor = e=>({EN_TRANSITO:"orange",DESCARGADO:"blue",LIQUIDADO:"green",ANULADO:"red",BORRADOR:"gray"}[e]||"gray");
@@ -967,7 +1012,7 @@ const Movimientos = ({modulo}) => {
                 <select style={{width:110}}>{CAMPANAS.map(c=><option key={c}>{c}</option>)}</select>
               </div>
             </FF>
-            <FF label="Contrato de Compra"><select><option value="">Sin asignar</option>{mockContratos.filter(c=>c.tipo==="COMPRA").map(c=><option key={c.id}>{c.numero} — {c.especie}</option>)}</select></FF>
+            <FF label="Contrato de Compra"><select><option value="">Sin asignar</option>{contratos.filter(c=>c.tipo==="COMPRA").map(c=><option key={c.id}>{c.numero} — {c.especie}</option>)}</select></FF>
             <FF label="Patente Chasis"><input placeholder="AA496YI"/></FF>
             <FF label="Kg Bruto Salida" required><input type="number" placeholder="52.380"/></FF>
             <FF label="Kg Tara Salida" required><input type="number" placeholder="17.400"/></FF>
@@ -1040,10 +1085,10 @@ const Movimientos = ({modulo}) => {
                 ))}
               </div>
               <div className="form-grid-2" style={{marginBottom:14}}>
-                <FF label="Asignar a Contrato de Compra"><select><option value="">Sin asignar</option>{mockContratos.filter(c=>c.tipo==="COMPRA").map(c=><option key={c.id}>{c.numero} — {c.especie}</option>)}</select></FF>
+                <FF label="Asignar a Contrato de Compra"><select><option value="">Sin asignar</option>{contratos.filter(c=>c.tipo==="COMPRA").map(c=><option key={c.id}>{c.numero} — {c.especie}</option>)}</select></FF>
                 <FF label="Tarifa Flete Real Pactada"><input type="number" placeholder={importResult.tarifa}/></FF>
                 <FF label="Humedad de Salida (%)"><input type="number" placeholder="13.2" step="0.1"/></FF>
-                <FF label="Contrato de Venta"><select><option value="">Sin asignar</option>{mockContratos.filter(c=>c.tipo==="VENTA").map(c=><option key={c.id}>{c.numero} — {c.especie}</option>)}</select></FF>
+                <FF label="Contrato de Venta"><select><option value="">Sin asignar</option>{contratos.filter(c=>c.tipo==="VENTA").map(c=><option key={c.id}>{c.numero} — {c.especie}</option>)}</select></FF>
               </div>
               <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
                 <Btn variant="secondary" onClick={()=>setImportResult(null)}>← Volver</Btn>
@@ -1144,7 +1189,7 @@ const Movimientos = ({modulo}) => {
                 <FF label="Contrato de Compra">
                   <select defaultValue={selected?.contrato_compra||""}>
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
-                    {mockContratos.filter(c=>c.tipo==="COMPRA").map(c=>(
+                    {contratos.filter(c=>c.tipo==="COMPRA").map(c=>(
                       <option key={c.id} value={c.numero}>{c.numero} — {c.contraparte} — {c.especie} {c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString()}</option>
                     ))}
                   </select>
@@ -1152,7 +1197,7 @@ const Movimientos = ({modulo}) => {
                 <FF label="Contrato de Venta">
                   <select defaultValue={selected?.contrato_venta||""}>
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
-                    {mockContratos.filter(c=>c.tipo==="VENTA").map(c=>(
+                    {contratos.filter(c=>c.tipo==="VENTA").map(c=>(
                       <option key={c.id} value={c.numero}>{c.numero} — {c.contraparte} — {c.especie} {c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString()}</option>
                     ))}
                   </select>
