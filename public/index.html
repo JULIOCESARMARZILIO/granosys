@@ -243,7 +243,27 @@ const Dashboard = ({modulo}) => {
 
   useEffect(()=>{
     api.get(`/api/movimientos?modalidad=${modulo}`)
-      .then(data=>setMovsReal(data))
+      .then(data=>{
+        const mapped = data.map(m => ({
+          id: m.id,
+          numero: m.numero_movimiento,
+          nro_ctg: m.nro_ctg,
+          nro_cpe: m.nro_cpe,
+          especie: m.especie_nombre || 'Soja',
+          campana: m.campana_desc,
+          contrato_compra: m.nro_contrato_compra,
+          contrato_venta: m.nro_contrato_venta,
+          productor: m.remitente_comercial_productor_nombre || m.titular_cpe_nombre,
+          comprador: m.destinatario_nombre,
+          peso_neto_salida: parseFloat(m.peso_neto_salida_kg) || 0,
+          peso_neto_llegada: m.peso_neto_llegada_kg ? parseFloat(m.peso_neto_llegada_kg) : null,
+          estado: m.estado,
+          estado_liq: m.estado_liquidacion,
+          kg_liquidables: m.kg_liquidables ? parseFloat(m.kg_liquidables) : null,
+          modalidad: m.modalidad
+        }));
+        setMovsReal(mapped);
+      })
       .catch(()=>setMovsReal(null));
   },[modulo]);
   const enTransito = movs.filter(m=>m.estado==="EN_TRANSITO").length;
@@ -901,10 +921,51 @@ const Movimientos = ({modulo}) => {
     }
   };
 
+  const cargarMovimientos = async () => {
+    try {
+      const data = await api.get(`/api/movimientos?modalidad=${modulo}`);
+      const mapped = data.map(m => ({
+        id: m.id,
+        numero: m.numero_movimiento,
+        nro_ctg: m.nro_ctg,
+        nro_cpe: m.nro_cpe,
+        especie: m.especie_nombre || 'Soja',
+        campana: m.campana_desc,
+        contrato_compra: m.nro_contrato_compra,
+        contrato_venta: m.nro_contrato_venta,
+        productor: m.remitente_comercial_productor_nombre || m.titular_cpe_nombre,
+        comprador: m.destinatario_nombre,
+        origen: m.localidad_origen && m.provincia_origen ? `${m.localidad_origen}, ${m.provincia_origen}` : '',
+        destino: m.localidad_destino && m.provincia_destino ? `${m.localidad_destino}, ${m.provincia_destino}` : '',
+        transportista: m.flete_pagador_nombre,
+        patente_chasis: m.patente_chasis,
+        patente_acoplado: m.patente_acoplado,
+        km: parseFloat(m.km_a_recorrer) || 0,
+        tarifa_catac: parseFloat(m.tarifa_catac) || 0,
+        tarifa_real: parseFloat(m.tarifa_flete_real) || 0,
+        peso_bruto_salida: parseFloat(m.peso_bruto_salida_kg) || 0,
+        peso_tara_salida: parseFloat(m.peso_tara_salida_kg) || 0,
+        peso_neto_salida: parseFloat(m.peso_neto_salida_kg) || 0,
+        humedad_salida: parseFloat(m.humedad_salida_pct) || 0,
+        peso_bruto_llegada: m.peso_bruto_llegada_kg ? parseFloat(m.peso_bruto_llegada_kg) : null,
+        peso_tara_llegada: m.peso_tara_llegada_kg ? parseFloat(m.peso_tara_llegada_kg) : null,
+        peso_neto_llegada: m.peso_neto_llegada_kg ? parseFloat(m.peso_neto_llegada_kg) : null,
+        humedad_llegada: m.humedad_llegada_pct ? parseFloat(m.humedad_llegada_pct) : null,
+        faltante: m.faltante_kg ? parseFloat(m.faltante_kg) : null,
+        estado: m.estado,
+        estado_liq: m.estado_liquidacion,
+        factor: m.factor_aplicado ? parseFloat(m.factor_aplicado) : null,
+        kg_liquidables: m.kg_liquidables ? parseFloat(m.kg_liquidables) : null,
+        modalidad: m.modalidad
+      }));
+      setMovsReal(mapped);
+    } catch(e) {
+      setMovsReal(null);
+    }
+  };
+
   useEffect(()=>{
-    api.get(`/api/movimientos?modalidad=${modulo}`)
-      .then(data=>setMovsReal(data))
-      .catch(()=>setMovsReal(null));
+    cargarMovimientos();
     cargarContratos();
   },[modulo]);
 
@@ -1133,7 +1194,7 @@ const Movimientos = ({modulo}) => {
                     alert(`✓ Movimiento ${r.numero_movimiento} creado desde CPE N° ${importResult.nro_cpe}\nEstado: EN_TRÁNSITO`);
                     setShowImport(false);
                     setImportResult(null);
-                    api.get(`/api/movimientos?modalidad=${modulo}`).then(d=>setMovsReal(d)).catch(()=>{});
+                    cargarMovimientos();
                   } catch(err) {
                     alert("Error al crear movimiento: " + (err.response?.data?.error || err.message));
                   }
@@ -1424,7 +1485,7 @@ const Movimientos = ({modulo}) => {
                   alert("✓ Movimiento creado");
                 }
                 setShowForm(false);
-                api.get(`/api/movimientos?modalidad=${modulo}`).then(d=>setMovsReal(d)).catch(()=>{});
+                cargarMovimientos();
               } catch(e) {
                 alert("Error: "+e.message);
               }
