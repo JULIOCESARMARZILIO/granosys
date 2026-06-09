@@ -1,6 +1,45 @@
 const router = require('express').Router();
 const { pool } = require('../db');
 
+// Asegura que una contraparte exista por CUIT o Razón Social, y si no, la crea automáticamente.
+async function asegurarContraparte(cuit, nombre, tipoDefault) {
+  if (!cuit || !nombre) return null;
+  
+  let cuitFormateado = cuit.replace(/[^0-9]/g, '');
+  if (cuitFormateado.length === 11) {
+    cuitFormateado = `${cuitFormateado.slice(0, 2)}-${cuitFormateado.slice(2, 10)}-${cuitFormateado.slice(10)}`;
+  }
+
+  // Buscar si existe por CUIT o por nombre exacto
+  const { rows } = await pool.query(
+    'SELECT id FROM contrapartes WHERE cuit = $1 OR razon_social = $2',
+    [cuitFormateado, nombre]
+  );
+
+  if (rows.length > 0) {
+    return rows[0].id;
+  }
+
+  // Generar código interno secuencial para la contraparte
+  const prefix = tipoDefault === 'COMPRADOR' ? 'C' : 'P';
+  const { rows: last } = await pool.query(
+    "SELECT codigo_interno FROM contrapartes WHERE codigo_interno LIKE $1 ORDER BY id DESC LIMIT 1",
+    [`${prefix}-%`]
+  );
+  const num = last[0] ? parseInt(last[0].codigo_interno.split('-')[1]) + 1 : 1;
+  const codigo_interno = `${prefix}-${String(num).padStart(4, '0')}`;
+
+  const { rows: nueva } = await pool.query(`
+    INSERT INTO contrapartes (
+      codigo_interno, cuit, razon_social, tipo_contraparte,
+      canal_operacion, condicion_iva, activo
+    ) VALUES ($1, $2, $3, $4, 'AMBOS', 'RI', TRUE)
+    RETURNING id
+  `, [codigo_interno, cuitFormateado, nombre, tipoDefault]);
+
+  return nueva[0].id;
+}
+
 // GET todos los movimientos
 router.get('/', async (req, res) => {
   try {
@@ -80,6 +119,23 @@ router.post('/', async (req, res) => {
       peso_bruto_salida_kg, peso_tara_salida_kg, humedad_salida_pct,
       observaciones
     } = req.body;
+
+    // Dar de alta automáticamente los intervinientes de la CPE si no existen
+    if (titular_cpe_cuit && titular_cpe_nombre) {
+      await asegurarContraparte(titular_cpe_cuit, titular_cpe_nombre, 'PRODUCTOR');
+    }
+    if (remitente_comercial_productor_cuit && remitente_comercial_productor_nombre) {
+      await asegurarContraparte(remitente_comercial_productor_cuit, remitente_comercial_productor_nombre, 'PRODUCTOR');
+    }
+    if (destinatario_cuit && destinatario_nombre) {
+      await asegurarContraparte(destinatario_cuit, destinatario_nombre, 'COMPRADOR');
+    }
+    if (destino_cuit && destino_nombre) {
+      await asegurarContraparte(destino_cuit, destino_nombre, 'COMPRADOR');
+    }
+    if (flete_pagador_cuit && flete_pagador_nombre) {
+      await asegurarContraparte(flete_pagador_cuit, flete_pagador_nombre, 'COMPRADOR');
+    }
 
     // Generar número de movimiento
     const { rows: last } = await pool.query(

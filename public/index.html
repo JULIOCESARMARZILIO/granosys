@@ -1441,7 +1441,28 @@ const Liquidaciones = ({modulo}) => {
   const [lista,setLista]=useState([]);
   useEffect(()=>{
     api.get(`/api/liquidaciones?modalidad=${modulo}`)
-      .then(data=>setLista(data.length>0?data:mockLiquidaciones.filter(l=>l.modalidad===modulo)))
+      .then(data=>{
+        if (data.length > 0) {
+          const mapped = data.map(l => ({
+            id: l.id,
+            numero: l.nro_liquidacion,
+            tipo: l.tipo,
+            tipo_liq: l.tipo_liquidacion,
+            contraparte: l.contraparte_nombre,
+            contrato: l.numero_contrato,
+            fecha: l.fecha_liquidacion ? l.fecha_liquidacion.split('T')[0] : '',
+            kg: parseFloat(l.kg_total) || 0,
+            monto_bruto: parseFloat(l.monto_bruto_total) || 0,
+            descuentos: parseFloat(l.total_descuentos_servicios) || 0,
+            retenciones: parseFloat(l.total_retenciones) || 0,
+            monto_neto: parseFloat(l.monto_neto_a_pagar) || 0,
+            estado: l.estado
+          }));
+          setLista(mapped);
+        } else {
+          setLista(mockLiquidaciones.filter(l=>l.modalidad===modulo));
+        }
+      })
       .catch(()=>setLista(mockLiquidaciones.filter(l=>l.modalidad===modulo)));
   },[modulo]);
   return (
