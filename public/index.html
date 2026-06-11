@@ -894,6 +894,10 @@ const Movimientos = ({modulo}) => {
   const [ticketResult, setTicketResult] = useState(null);
   const [importingTicket, setImportingTicket] = useState(false);
   const [mappings, setMappings] = useState([]);
+  const [showImportExcel, setShowImportExcel] = useState(false);
+  const [excelRows, setExcelRows] = useState([]);
+  const [importingExcel, setImportingExcel] = useState(false);
+  const [excelFileName, setExcelFileName] = useState("");
   const [movsReal,setMovsReal]=useState(null);
   const movs = movsReal !== null ? movsReal : mockMovimientos.filter(m=>m.modalidad===modulo);
   const [contratosReal,setContratosReal]=useState(null);
@@ -1116,6 +1120,155 @@ const Movimientos = ({modulo}) => {
     }
   };
 
+  const downloadExcelTemplate = () => {
+    try {
+      const headers = ["Remitente", "Patente Chasis", "Chofer", "Kilos", "Lugar de Entrega", "Comprador"];
+      const sampleRow = ["FULL AGRO S.A.", "LUG-354", "MUNARETO OSCAR", 30080, "Básculas Santa Fe", "BIOGEN21"];
+      
+      const ws = XLSX.utils.aoa_to_sheet([headers, sampleRow]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Modelo Importacion");
+      
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "modelo_importacion_informal.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch(err) {
+      alert("Error al descargar plantilla Excel: " + err.message);
+    }
+  };
+
+  const handleExcelFile = (file) => {
+    if(!file) return;
+    setExcelFileName(file.name);
+    setImportingExcel(true);
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, {type:"array"});
+        const wsName = wb.SheetNames[0];
+        const ws = wb.Sheets[wsName];
+        const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:""});
+        
+        if (rows.length < 2) {
+          alert("El archivo Excel está vacío o no contiene el formato de columnas requerido.");
+          setImportingExcel(false);
+          return;
+        }
+        
+        // Find headers
+        const headers = rows[0].map(h => String(h).trim().toLowerCase());
+        const colMap = {
+          remitente: headers.findIndex(h => h.includes("remitente") || h.includes("productor") || h.includes("origen")),
+          patente: headers.findIndex(h => h.includes("patente") || h.includes("chasis") || h.includes("vehiculo")),
+          chofer: headers.findIndex(h => h.includes("chofer") || h.includes("conductor")),
+          kilos: headers.findIndex(h => h.includes("kilos") || h.includes("peso") || h.includes("neto") || h.includes("cant")),
+          lugar: headers.findIndex(h => h.includes("lugar") || h.includes("destino") || h.includes("entrega")),
+          comprador: headers.findIndex(h => h.includes("comprador") || h.includes("destinatario"))
+        };
+        
+        if (colMap.remitente === -1 || colMap.kilos === -1 || colMap.comprador === -1) {
+          alert("No se pudieron encontrar los encabezados obligatorios en la primera fila. Verifique que existan columnas similares a: Remitente, Kilos, Comprador.");
+          setImportingExcel(false);
+          return;
+        }
+        
+        const parsedRows = [];
+        for (let i = 1; i < rows.length; i++) {
+          const r = rows[i];
+          if (!r || r.every(c => c === "")) continue;
+          
+          const parsed = {
+            remitente: colMap.remitente !== -1 ? String(r[colMap.remitente] || "").trim() : "",
+            patente: colMap.patente !== -1 ? String(r[colMap.patente] || "").trim() : "",
+            chofer: colMap.chofer !== -1 ? String(r[colMap.chofer] || "").trim() : "",
+            kilos: colMap.kilos !== -1 ? parseFloat(String(r[colMap.kilos]).replace(/[^\d.-]/g, '')) || 0 : 0,
+            lugar: colMap.lugar !== -1 ? String(r[colMap.lugar] || "").trim() : "",
+            comprador: colMap.comprador !== -1 ? String(r[colMap.comprador] || "").trim() : "",
+            _index: i + 1
+          };
+          
+          parsedRows.push(parsed);
+        }
+        
+        setExcelRows(parsedRows);
+      } catch (err) {
+        alert("Error al procesar el archivo Excel: " + err.message);
+      } finally {
+        setImportingExcel(false);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const confirmExcelImport = async () => {
+    if (excelRows.length === 0) return;
+    setImportingExcel(true);
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (const row of excelRows) {
+      try {
+        const payload = {
+          modalidad: "INFORMAL",
+          nro_cpe: "EXCEL-" + String(Math.floor(100000 + Math.random() * 900000)),
+          nro_ctg: null,
+          fecha_cpe: new Date().toISOString().split("T")[0],
+          fecha_vencimiento_cpe: new Date().toISOString().split("T")[0],
+          titular_cpe_cuit: "30708925167", // Default cuit
+          titular_cpe_nombre: row.remitente || "Remitente Excel",
+          remitente_comercial_productor_cuit: "30708925167",
+          remitente_comercial_productor_nombre: row.remitente || "Remitente Excel",
+          rte_comercial_venta_primaria_cuit: "30708925167",
+          rte_comercial_venta_primaria_nombre: row.remitente || "Remitente Excel",
+          destinatario_cuit: "30111111118",
+          destinatario_nombre: row.comprador || "Comprador Excel",
+          destino_cuit: "30111111118",
+          destino_nombre: row.lugar || "Destino Excel",
+          flete_pagador_cuit: "30708925167",
+          flete_pagador_nombre: row.remitente || "Remitente Excel",
+          id_especie: 1, // Default Soja
+          id_campana: 2, // Default 2024/2025
+          renspa: "excel",
+          localidad_origen: "ORÍGEN EXCEL",
+          provincia_origen: "BUENOS AIRES",
+          localidad_destino: row.lugar || "DESTINO EXCEL",
+          provincia_destino: "SANTA FE",
+          nro_planta_destino: "0001",
+          patente_chasis: row.patente || "",
+          patente_acoplado: "",
+          km_a_recorrer: 0,
+          tarifa_catac: 0,
+          tarifa_flete_real: 0,
+          peso_bruto_salida_kg: row.kilos || 0,
+          peso_tara_salida_kg: 0,
+          humedad_salida_pct: 13.5
+        };
+        
+        await api.post("/api/movimientos", payload);
+        successCount++;
+      } catch (err) {
+        console.error("Error al importar fila:", row, err);
+        errorCount++;
+      }
+    }
+    
+    setImportingExcel(false);
+    alert(`✓ Proceso finalizado.\nImportados con éxito: ${successCount}\nErrores: ${errorCount}`);
+    setShowImportExcel(false);
+    setExcelRows([]);
+    setExcelFileName("");
+    cargarMovimientos();
+  };
+
   return (
     <div className="fade-in">
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
@@ -1123,7 +1276,11 @@ const Movimientos = ({modulo}) => {
         <div style={{display:"flex",gap:8}}>
           <Btn variant="secondary" size="sm" onClick={()=>setShowRapido(true)}>⚡ Carga Rápida</Btn>
           {modulo==="FORMAL"&&<Btn variant="secondary" size="sm" onClick={()=>setShowImport(true)}>↑ Importar CPE</Btn>}
-          {modulo==="INFORMAL"&&<Btn variant="secondary" size="sm" onClick={()=>setShowImportTicket(true)}>↑ Importar Ticket</Btn>}
+          {modulo==="INFORMAL"&&<>
+            <Btn variant="secondary" size="sm" onClick={()=>setShowImportTicket(true)}>↑ Importar Ticket</Btn>
+            <Btn variant="secondary" size="sm" onClick={()=>setShowImportExcel(true)}>↑ Importar Excel</Btn>
+            <Btn variant="secondary" size="sm" onClick={downloadExcelTemplate}>📥 Bajar Modelo Excel</Btn>
+          </>}
           <Btn onClick={()=>{setSelected(null);setTab("salida");setShowForm(true);}}>+ Nuevo</Btn>
         </div>
       </div>
@@ -1456,9 +1613,116 @@ const Movimientos = ({modulo}) => {
                 </div>
               </div>
             )}
-          </Modal>
-        );
       })()}
+
+      {/* IMPORTADOR EXCEL (INFORMAL) */}
+      {showImportExcel && (
+        <Modal 
+          title="Importar Movimientos desde Excel (Módulo Informal)" 
+          onClose={() => { setShowImportExcel(false); setExcelRows([]); setExcelFileName(""); }} 
+          width={900}
+        >
+          {excelRows.length === 0 ? (
+            <div>
+              <div 
+                className="drop-zone" 
+                style={{marginBottom:16, cursor:"pointer"}}
+                onClick={() => document.getElementById('excel-file-upload').click()}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const file = e.dataTransfer.files[0];
+                  if(file) handleExcelFile(file);
+                }}
+              >
+                <input 
+                  type="file" 
+                  id="excel-file-upload" 
+                  accept=".xlsx,.xls,.csv" 
+                  style={{display:"none"}} 
+                  onChange={(e) => {
+                    const file = e.target.files[0];
+                    if(file) handleExcelFile(file);
+                  }}
+                />
+                <div style={{fontSize:36,marginBottom:10}}>📊</div>
+                <div style={{fontWeight:600,marginBottom:6}}>Arrastrá el archivo Excel de importación acá</div>
+                <div style={{color:"#8890a8",fontSize:13,marginBottom:14}}>o hacé click para seleccionar (Formatos soportados: .xlsx, .xls, .csv)</div>
+                <Btn variant="secondary" size="sm">Seleccionar archivo Excel</Btn>
+              </div>
+              
+              <div className="alert-info" style={{marginBottom:16}}>
+                💡 Las columnas mínimas requeridas en el archivo son: <strong>Remitente</strong> (o Productor), <strong>Patente Chasis</strong>, <strong>Chofer</strong>, <strong>Kilos</strong>, <strong>Lugar de Entrega</strong> y <strong>Comprador</strong>. Si descargas la plantilla, el sistema ya las tendrá listas.
+              </div>
+
+              {importingExcel ? (
+                <div style={{textAlign:"center",padding:"24px 0"}}>
+                  <div className="pulse" style={{color:"#f5a623",fontWeight:600,marginBottom:8}}>Procesando archivo...</div>
+                  <div style={{color:"#8890a8",fontSize:13}}>Leyendo filas y mapeando columnas</div>
+                </div>
+              ) : (
+                <div style={{display:"flex", gap:10}}>
+                  <Btn onClick={downloadExcelTemplate} variant="secondary" style={{flex:1, justifyContent:"center"}}>
+                    📥 Bajar Plantilla de Ejemplo
+                  </Btn>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              <div className="alert-success" style={{marginBottom:16}}>
+                ✓ Se detectaron <strong>{excelRows.length}</strong> movimientos listos para importar desde {excelFileName}.
+              </div>
+              
+              <div style={{maxHeight:"360px", overflowY:"auto", border:"1px solid #2a2d3e", borderRadius:8, background:"#0f1117", marginBottom:16}}>
+                <table style={{width:"100%", fontSize:12}}>
+                  <thead>
+                    <tr>
+                      <th style={{padding:"6px 10px", fontSize:10}}>Fila</th>
+                      <th style={{padding:"6px 10px", fontSize:10}}>Remitente (Productor)</th>
+                      <th style={{padding:"6px 10px", fontSize:10}}>Comprador (Destinatario)</th>
+                      <th style={{padding:"6px 10px", fontSize:10}}>Chofer</th>
+                      <th style={{padding:"6px 10px", fontSize:10}}>Patente Chasis</th>
+                      <th style={{padding:"6px 10px", fontSize:10}}>Kilos</th>
+                      <th style={{padding:"6px 10px", fontSize:10}}>Destino</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {excelRows.map((row) => (
+                      <tr key={row._index} style={{borderBottom:"1px solid #1e2133"}}>
+                        <td style={{padding:"6px 10px", color:"#8890a8"}} className="mono">{row._index}</td>
+                        <td style={{padding:"6px 10px", fontWeight:500}}>{row.remitente}</td>
+                        <td style={{padding:"6px 10px", color:"#8890a8"}}>{row.comprador}</td>
+                        <td style={{padding:"6px 10px", color:"#8890a8"}}>{row.chofer || "—"}</td>
+                        <td style={{padding:"6px 10px"}} className="mono">{row.patente || "—"}</td>
+                        <td style={{padding:"6px 10px", color:"#f5a623"}} className="mono">{row.kilos?.toLocaleString()}</td>
+                        <td style={{padding:"6px 10px", color:"#8890a8"}}>{row.lugar || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {importingExcel ? (
+                <div style={{textAlign:"center",padding:"16px 0"}}>
+                  <div className="pulse" style={{color:"#f5a623",fontWeight:600,marginBottom:6}}>Importando viajes a la base de datos...</div>
+                  <div style={{color:"#8890a8",fontSize:13}}>Esto registrará automáticamente nuevos clientes en caso de ser necesario</div>
+                </div>
+              ) : (
+                <div style={{display:"flex", gap:10, justifyContent:"flex-end"}}>
+                  <Btn variant="secondary" onClick={() => { setExcelRows([]); setExcelFileName(""); }}>
+                    ← Volver a subir
+                  </Btn>
+                  <Btn onClick={confirmExcelImport}>
+                    Confirmar e Importar {excelRows.length} Viajes
+                  </Btn>
+                </div>
+              )}
+            </div>
+          )}
+        </Modal>
+      )}
 
       {/* DETALLE MOVIMIENTO */}
       {showForm&&(
