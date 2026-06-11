@@ -1122,10 +1122,23 @@ const Movimientos = ({modulo}) => {
 
   const downloadExcelTemplate = () => {
     try {
-      const headers = ["Remitente", "Patente Chasis", "Chofer", "Kilos", "Lugar de Entrega", "Comprador"];
-      const sampleRow = ["FULL AGRO S.A.", "LUG-354", "MUNARETO OSCAR", 30080, "Básculas Santa Fe", "BIOGEN21"];
+      const headers = [
+        "Remitente", "Comprador", "Especie", "Campaña", "Patente Chasis", "Patente Acoplado", 
+        "Chofer", "Lugar de Entrega", "Kg Bruto Carga", "Kg Tara Carga", "Humedad Carga %",
+        "Kg Bruto Descarga", "Kg Tara Descarga", "Humedad Descarga %", "Factor Calidad"
+      ];
+      const sampleRow1 = [
+        "FULL AGRO S.A.", "BIOGEN21", "Soja", "2024/2025", "LUG-354", "AD846IU", 
+        "MUNARETO OSCAR", "Básculas Santa Fe", 44980, 14900, 13.5, 
+        44900, 14900, 13.0, 0.985
+      ];
+      const sampleRow2 = [
+        "Rodríguez Pedro", "BIOGEN21", "Maíz", "2024/2025", "AC234BB", "", 
+        "Sin registrar", "Sin asignar", 48200, 16800, 14.0, 
+        "", "", "", ""
+      ];
       
-      const ws = XLSX.utils.aoa_to_sheet([headers, sampleRow]);
+      const ws = XLSX.utils.aoa_to_sheet([headers, sampleRow1, sampleRow2]);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Modelo Importacion");
       
@@ -1168,15 +1181,31 @@ const Movimientos = ({modulo}) => {
         const headers = rows[0].map(h => String(h).trim().toLowerCase());
         const colMap = {
           remitente: headers.findIndex(h => h.includes("remitente") || h.includes("productor") || h.includes("origen")),
+          comprador: headers.findIndex(h => h.includes("comprador") || h.includes("destinatario")),
+          especie: headers.findIndex(h => h.includes("especie") || h.includes("producto") || h.includes("grano")),
+          campana: headers.findIndex(h => h.includes("campaña") || h.includes("campana") || h.includes("año")),
           patente: headers.findIndex(h => h.includes("patente") || h.includes("chasis") || h.includes("vehiculo")),
+          acoplado: headers.findIndex(h => h.includes("acoplado") || h.includes("patente acoplado")),
           chofer: headers.findIndex(h => h.includes("chofer") || h.includes("conductor")),
-          kilos: headers.findIndex(h => h.includes("kilos") || h.includes("peso") || h.includes("neto") || h.includes("cant")),
           lugar: headers.findIndex(h => h.includes("lugar") || h.includes("destino") || h.includes("entrega")),
-          comprador: headers.findIndex(h => h.includes("comprador") || h.includes("destinatario"))
+          
+          // Departure (Carga)
+          bruto_salida: headers.findIndex(h => h.includes("bruto carga") || h.includes("bruto salida")),
+          tara_salida: headers.findIndex(h => h.includes("tara carga") || h.includes("tara salida")),
+          neto_salida: headers.findIndex(h => h.includes("kilos") || h.includes("neto carga") || h.includes("neto salida")),
+          humedad_salida: headers.findIndex(h => h.includes("humedad carga") || h.includes("humedad salida") || h.includes("h° carga")),
+          
+          // Arrival (Descarga)
+          bruto_llegada: headers.findIndex(h => h.includes("bruto descarga") || h.includes("bruto llegada")),
+          tara_llegada: headers.findIndex(h => h.includes("tara descarga") || h.includes("tara llegada")),
+          humedad_llegada: headers.findIndex(h => h.includes("humedad descarga") || h.includes("humedad llegada") || h.includes("h° descarga")),
+          
+          // Quality (Calidad)
+          factor: headers.findIndex(h => h.includes("factor") || h.includes("coeficiente") || h.includes("calidad"))
         };
         
-        if (colMap.remitente === -1 || colMap.kilos === -1 || colMap.comprador === -1) {
-          alert("No se pudieron encontrar los encabezados obligatorios en la primera fila. Verifique que existan columnas similares a: Remitente, Kilos, Comprador.");
+        if (colMap.remitente === -1 || colMap.comprador === -1 || colMap.patente === -1) {
+          alert("No se pudieron encontrar los encabezados obligatorios (Remitente/Productor, Comprador/Destinatario, Patente Chasis). Verifique la primera fila.");
           setImportingExcel(false);
           return;
         }
@@ -1186,13 +1215,53 @@ const Movimientos = ({modulo}) => {
           const r = rows[i];
           if (!r || r.every(c => c === "")) continue;
           
+          // Parse cargo weights
+          let brutoSalida = colMap.bruto_salida !== -1 ? parseFloat(String(r[colMap.bruto_salida]).replace(/[^\d.-]/g, '')) || 0 : 0;
+          let taraSalida = colMap.tara_salida !== -1 ? parseFloat(String(r[colMap.tara_salida]).replace(/[^\d.-]/g, '')) || 0 : 0;
+          let netoSalida = brutoSalida - taraSalida;
+          
+          // Fallback to "Kilos" or single net weight column
+          if (brutoSalida === 0 && colMap.neto_salida !== -1) {
+            brutoSalida = parseFloat(String(r[colMap.neto_salida]).replace(/[^\d.-]/g, '')) || 0;
+            taraSalida = 0;
+            netoSalida = brutoSalida;
+          }
+          
+          // Parse discharge weights
+          const brutoLlegada = colMap.bruto_llegada !== -1 && String(r[colMap.bruto_llegada]).trim() !== "" ? parseFloat(String(r[colMap.bruto_llegada]).replace(/[^\d.-]/g, '')) || null : null;
+          const taraLlegada = colMap.tara_llegada !== -1 && String(r[colMap.tara_llegada]).trim() !== "" ? parseFloat(String(r[colMap.tara_llegada]).replace(/[^\d.-]/g, '')) || null : null;
+          let netoLlegada = null;
+          if (brutoLlegada !== null && taraLlegada !== null && !isNaN(brutoLlegada) && !isNaN(taraLlegada)) {
+            netoLlegada = brutoLlegada - taraLlegada;
+          }
+          
+          // Parse quality factor
+          const factor = colMap.factor !== -1 && String(r[colMap.factor]).trim() !== "" ? parseFloat(String(r[colMap.factor]).replace(/[^\d.-]/g, '')) || null : null;
+          
           const parsed = {
-            remitente: colMap.remitente !== -1 ? String(r[colMap.remitente] || "").trim() : "",
-            patente: colMap.patente !== -1 ? String(r[colMap.patente] || "").trim() : "",
+            remitente: String(r[colMap.remitente] || "").trim(),
+            comprador: String(r[colMap.comprador] || "").trim(),
+            especie: colMap.especie !== -1 && String(r[colMap.especie]).trim() !== "" ? String(r[colMap.especie] || "").trim() : "Soja",
+            campana: colMap.campana !== -1 && String(r[colMap.campana]).trim() !== "" ? String(r[colMap.campana] || "").trim() : "2024/2025",
+            patente: String(r[colMap.patente] || "").trim(),
+            acoplado: colMap.acoplado !== -1 ? String(r[colMap.acoplado] || "").trim() : "",
             chofer: colMap.chofer !== -1 ? String(r[colMap.chofer] || "").trim() : "",
-            kilos: colMap.kilos !== -1 ? parseFloat(String(r[colMap.kilos]).replace(/[^\d.-]/g, '')) || 0 : 0,
             lugar: colMap.lugar !== -1 ? String(r[colMap.lugar] || "").trim() : "",
-            comprador: colMap.comprador !== -1 ? String(r[colMap.comprador] || "").trim() : "",
+            
+            // Weights
+            bruto_salida: brutoSalida,
+            tara_salida: taraSalida,
+            neto_salida: netoSalida,
+            humedad_salida: colMap.humedad_salida !== -1 && String(r[colMap.humedad_salida]).trim() !== "" ? parseFloat(String(r[colMap.humedad_salida]).replace(/[^\d.-]/g, '')) || null : null,
+            
+            // Arrival / Discharge
+            bruto_llegada: brutoLlegada,
+            tara_llegada: taraLlegada,
+            neto_llegada: netoLlegada,
+            humedad_llegada: colMap.humedad_llegada !== -1 && String(r[colMap.humedad_llegada]).trim() !== "" ? parseFloat(String(r[colMap.humedad_llegada]).replace(/[^\d.-]/g, '')) || null : null,
+            
+            // Factor
+            factor: factor,
             _index: i + 1
           };
           
@@ -1213,48 +1282,80 @@ const Movimientos = ({modulo}) => {
     if (excelRows.length === 0) return;
     setImportingExcel(true);
     let successCount = 0;
+    let descargaCount = 0;
+    let calidadCount = 0;
     let errorCount = 0;
+    
+    const MAP_ESPECIES = { "soja": 1, "trigo": 2, "maíz": 3, "maiz": 3, "girasol": 4, "sorgo": 5, "cebada": 6 };
     
     for (const row of excelRows) {
       try {
+        const espName = row.especie.toLowerCase();
+        const id_especie = MAP_ESPECIES[espName] || 1;
+        
         const payload = {
           modalidad: "INFORMAL",
           nro_cpe: "EXCEL-" + String(Math.floor(100000 + Math.random() * 900000)),
           nro_ctg: null,
           fecha_cpe: new Date().toISOString().split("T")[0],
           fecha_vencimiento_cpe: new Date().toISOString().split("T")[0],
-          titular_cpe_cuit: "30708925167", // Default cuit
-          titular_cpe_nombre: row.remitente || "Remitente Excel",
+          titular_cpe_cuit: "30708925167",
+          titular_cpe_nombre: row.remitente,
           remitente_comercial_productor_cuit: "30708925167",
-          remitente_comercial_productor_nombre: row.remitente || "Remitente Excel",
+          remitente_comercial_productor_nombre: row.remitente,
           rte_comercial_venta_primaria_cuit: "30708925167",
-          rte_comercial_venta_primaria_nombre: row.remitente || "Remitente Excel",
+          rte_comercial_venta_primaria_nombre: row.remitente,
           destinatario_cuit: "30111111118",
-          destinatario_nombre: row.comprador || "Comprador Excel",
+          destinatario_nombre: row.comprador,
           destino_cuit: "30111111118",
           destino_nombre: row.lugar || "Destino Excel",
           flete_pagador_cuit: "30708925167",
-          flete_pagador_nombre: row.remitente || "Remitente Excel",
-          id_especie: 1, // Default Soja
-          id_campana: 2, // Default 2024/2025
+          flete_pagador_nombre: row.remitente,
+          id_especie: id_especie,
+          id_campana: row.campana.includes("23") ? 1 : row.campana.includes("25") ? 3 : 2,
           renspa: "excel",
           localidad_origen: "ORÍGEN EXCEL",
           provincia_origen: "BUENOS AIRES",
           localidad_destino: row.lugar || "DESTINO EXCEL",
           provincia_destino: "SANTA FE",
           nro_planta_destino: "0001",
-          patente_chasis: row.patente || "",
-          patente_acoplado: "",
+          patente_chasis: row.patente,
+          patente_acoplado: row.acoplado || "",
           km_a_recorrer: 0,
           tarifa_catac: 0,
           tarifa_flete_real: 0,
-          peso_bruto_salida_kg: row.kilos || 0,
-          peso_tara_salida_kg: 0,
-          humedad_salida_pct: 13.5
+          peso_bruto_salida_kg: row.bruto_salida,
+          peso_tara_salida_kg: row.tara_salida,
+          humedad_salida_pct: row.humedad_salida || 13.5
         };
         
-        await api.post("/api/movimientos", payload);
+        // 1. Create movement
+        const created = await api.post("/api/movimientos", payload);
         successCount++;
+        
+        // 2. Register arrival if present
+        if (row.bruto_llegada !== null && row.tara_llegada !== null && !isNaN(row.bruto_llegada) && !isNaN(row.tara_llegada)) {
+          const llegadaPayload = {
+            fecha_arribo: new Date().toISOString(),
+            fecha_descarga: new Date().toISOString(),
+            nro_turno: "TURNO-EXCEL",
+            peso_bruto_llegada_kg: row.bruto_llegada,
+            peso_tara_llegada_kg: row.tara_llegada,
+            humedad_llegada_pct: row.humedad_llegada || 13.5
+          };
+          await api.put(`/api/movimientos/${created.id}/llegada`, llegadaPayload);
+          descargaCount++;
+        }
+        
+        // 3. Register quality factor if present
+        if (row.factor !== null && !isNaN(row.factor)) {
+          const calidadPayload = {
+            parametros: [],
+            factor_manual: row.factor
+          };
+          await api.put(`/api/movimientos/${created.id}/calidad`, calidadPayload);
+          calidadCount++;
+        }
       } catch (err) {
         console.error("Error al importar fila:", row, err);
         errorCount++;
@@ -1262,7 +1363,7 @@ const Movimientos = ({modulo}) => {
     }
     
     setImportingExcel(false);
-    alert(`✓ Proceso finalizado.\nImportados con éxito: ${successCount}\nErrores: ${errorCount}`);
+    alert(`✓ Importación Finalizada.\nViajes creados: ${successCount}\nDescargas registradas: ${descargaCount}\nCalidades registradas: ${calidadCount}\nErrores: ${errorCount}`);
     setShowImportExcel(false);
     setExcelRows([]);
     setExcelFileName("");
@@ -1285,7 +1386,87 @@ const Movimientos = ({modulo}) => {
         </div>
       </div>
 
-      {movs.some(m=>m.estado==="EN_TRANSITO")&&(
+      {modulo === "INFORMAL" && (() => {
+        const transito = movs.filter(m => m.estado === "EN_TRANSITO");
+        const sinCalidad = movs.filter(m => m.estado !== "EN_TRANSITO" && m.estado !== "BORRADOR" && m.estado !== "ANULADO" && (m.factor === null || m.factor === undefined));
+        const sinContrato = movs.filter(m => !m.contrato_compra || m.contrato_compra === "Sin asignar" || m.contrato_compra === "—");
+        
+        if (transito.length === 0 && sinCalidad.length === 0 && sinContrato.length === 0) return null;
+        
+        return (
+          <div className="card" style={{marginBottom: 20, border: "1px solid rgba(245, 166, 35, 0.25)"}}>
+            <div className="card-header" style={{background: "rgba(245, 166, 35, 0.04)", padding: "10px 16px"}}>
+              <span style={{fontWeight: 700, fontSize: 13, color: "#ffd280"}}>📋 CONTROL DE VIAJES PENDIENTES</span>
+              <span style={{fontSize: 11, color: "#8890a8", marginLeft: 8}}>Control de datos faltantes para facturación y liquidación</span>
+            </div>
+            <div style={{display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, padding: 16}}>
+              
+              {/* Columna 1: Descarga */}
+              <div style={{background: "rgba(255,255,255,0.01)", borderRadius: 8, padding: 12, border: "1px solid #2a2d3e"}}>
+                <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 8}}>
+                  <strong style={{fontSize: 12, color: "#e8eaf0"}}>🚚 Pendientes de Descarga</strong>
+                  <span className="badge" style={{background: "rgba(245, 166, 35, 0.15)", color: "#f5a623", border: "1px solid rgba(245,166,35,0.3)"}}>{transito.length}</span>
+                </div>
+                <div style={{maxHeight: 120, overflowY: "auto", fontSize: 11}}>
+                  {transito.length === 0 ? (
+                    <div style={{color: "#565d7a", padding: "8px 0"}}>✓ Todos los camiones descargados</div>
+                  ) : (
+                    transito.slice(0, 5).map(t => (
+                      <div key={t.id} style={{padding: "4px 0", borderBottom: "1px solid #1e2133", display:"flex", justifyContent:"space-between"}}>
+                        <span style={{color: "#ffd280", fontWeight: 600}} className="mono">{t.patente_chasis || t.numero}</span>
+                        <span style={{color: "#8890a8", maxWidth: 140, textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap"}}>{t.productor}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Columna 2: Calidad */}
+              <div style={{background: "rgba(255,255,255,0.01)", borderRadius: 8, padding: 12, border: "1px solid #2a2d3e"}}>
+                <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 8}}>
+                  <strong style={{fontSize: 12, color: "#e8eaf0"}}>🔬 Pendientes de Calidad</strong>
+                  <span className="badge" style={{background: "rgba(155, 89, 182, 0.15)", color: "#9b59b6", border: "1px solid rgba(155,89,182,0.3)"}}>{sinCalidad.length}</span>
+                </div>
+                <div style={{maxHeight: 120, overflowY: "auto", fontSize: 11}}>
+                  {sinCalidad.length === 0 ? (
+                    <div style={{color: "#565d7a", padding: "8px 0"}}>✓ Todos con factor de calidad</div>
+                  ) : (
+                    sinCalidad.slice(0, 5).map(t => (
+                      <div key={t.id} style={{padding: "4px 0", borderBottom: "1px solid #1e2133", display:"flex", justifyContent:"space-between"}}>
+                        <span style={{color: "#9b59b6", fontWeight: 600}} className="mono">{t.numero}</span>
+                        <span style={{color: "#8890a8", maxWidth: 140, textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap"}}>{t.productor}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Columna 3: Contrato */}
+              <div style={{background: "rgba(255,255,255,0.01)", borderRadius: 8, padding: 12, border: "1px solid #2a2d3e"}}>
+                <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 8}}>
+                  <strong style={{fontSize: 12, color: "#e8eaf0"}}>📜 Pendientes de Contrato</strong>
+                  <span className="badge" style={{background: "rgba(52, 152, 219, 0.15)", color: "#3498db", border: "1px solid rgba(52,152,219,0.3)"}}>{sinContrato.length}</span>
+                </div>
+                <div style={{maxHeight: 120, overflowY: "auto", fontSize: 11}}>
+                  {sinContrato.length === 0 ? (
+                    <div style={{color: "#565d7a", padding: "8px 0"}}>✓ Todos con contrato asignado</div>
+                  ) : (
+                    sinContrato.slice(0, 5).map(t => (
+                      <div key={t.id} style={{padding: "4px 0", borderBottom: "1px solid #1e2133", display:"flex", justifyContent:"space-between"}}>
+                        <span style={{color: "#3498db", fontWeight: 600}} className="mono">{t.numero}</span>
+                        <span style={{color: "#8890a8", maxWidth: 140, textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap"}}>{t.productor}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
+
+      {modulo === "FORMAL" && movs.some(m=>m.estado==="EN_TRANSITO") && (
         <div className="alert-info" style={{marginBottom:14}}>
           ⚠ Hay {movs.filter(m=>m.estado==="EN_TRANSITO").length} camión(es) en tránsito pendiente(s) de descarga
         </div>
@@ -1655,7 +1836,7 @@ const Movimientos = ({modulo}) => {
               </div>
               
               <div className="alert-info" style={{marginBottom:16}}>
-                💡 Las columnas mínimas requeridas en el archivo son: <strong>Remitente</strong> (o Productor), <strong>Patente Chasis</strong>, <strong>Chofer</strong>, <strong>Kilos</strong>, <strong>Lugar de Entrega</strong> y <strong>Comprador</strong>. Si descargas la plantilla, el sistema ya las tendrá listas.
+                💡 Las columnas mínimas requeridas son: <strong>Remitente</strong>, <strong>Comprador</strong>, <strong>Patente Chasis</strong> y <strong>Kg Bruto Carga</strong> (o una columna con <strong>Kilos</strong> netos). Si el archivo contiene datos de llegada (Kg Bruto/Tara Descarga) o factor de calidad, se registrarán automáticamente.
               </div>
 
               {importingExcel ? (
@@ -1684,10 +1865,10 @@ const Movimientos = ({modulo}) => {
                       <th style={{padding:"6px 10px", fontSize:10}}>Fila</th>
                       <th style={{padding:"6px 10px", fontSize:10}}>Remitente (Productor)</th>
                       <th style={{padding:"6px 10px", fontSize:10}}>Comprador (Destinatario)</th>
-                      <th style={{padding:"6px 10px", fontSize:10}}>Chofer</th>
-                      <th style={{padding:"6px 10px", fontSize:10}}>Patente Chasis</th>
-                      <th style={{padding:"6px 10px", fontSize:10}}>Kilos</th>
-                      <th style={{padding:"6px 10px", fontSize:10}}>Destino</th>
+                      <th style={{padding:"6px 10px", fontSize:10}}>Patente / Chofer</th>
+                      <th style={{padding:"6px 10px", fontSize:10}}>Kg Carga (Neto)</th>
+                      <th style={{padding:"6px 10px", fontSize:10}}>Kg Descarga (Neto)</th>
+                      <th style={{padding:"6px 10px", fontSize:10}}>Factor Calidad</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1696,10 +1877,21 @@ const Movimientos = ({modulo}) => {
                         <td style={{padding:"6px 10px", color:"#8890a8"}} className="mono">{row._index}</td>
                         <td style={{padding:"6px 10px", fontWeight:500}}>{row.remitente}</td>
                         <td style={{padding:"6px 10px", color:"#8890a8"}}>{row.comprador}</td>
-                        <td style={{padding:"6px 10px", color:"#8890a8"}}>{row.chofer || "—"}</td>
-                        <td style={{padding:"6px 10px"}} className="mono">{row.patente || "—"}</td>
-                        <td style={{padding:"6px 10px", color:"#f5a623"}} className="mono">{row.kilos?.toLocaleString()}</td>
-                        <td style={{padding:"6px 10px", color:"#8890a8"}}>{row.lugar || "—"}</td>
+                        <td style={{padding:"6px 10px", color:"#8890a8", fontSize:11}}>
+                          <div className="mono" style={{fontWeight:600}}>{row.patente || "—"} {row.acoplado ? `+ ${row.acoplado}` : ""}</div>
+                          <div style={{color:"#565d7a"}}>{row.chofer || "—"}</div>
+                        </td>
+                        <td style={{padding:"6px 10px", color:"#e8eaf0"}} className="mono">
+                          {row.neto_salida?.toLocaleString()} kg
+                          {row.humedad_salida && <div style={{fontSize:10, color:"#565d7a"}}>H°: {row.humedad_salida}%</div>}
+                        </td>
+                        <td style={{padding:"6px 10px", color:"#f5a623"}} className="mono">
+                          {row.neto_llegada !== null ? `${row.neto_llegada?.toLocaleString()} kg` : <span style={{color:"#8890a8", fontSize:11}}>🚚 En tránsito</span>}
+                          {row.humedad_llegada && <div style={{fontSize:10, color:"#565d7a"}}>H°: {row.humedad_llegada}%</div>}
+                        </td>
+                        <td style={{padding:"6px 10px", color:"#27ae60"}} className="mono">
+                          {row.factor !== null ? row.factor : "—"}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
