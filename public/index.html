@@ -600,9 +600,23 @@ const Contratos = ({modulo}) => {
   const cargarContrapartes = async () => {
     try {
       const data = await api.get(`/api/contrapartes?modalidad=${modulo}`);
-      setContrapartes(data);
+      const mapped = data.map(c => ({
+        ...c,
+        tipo: c.tipo_contraparte || c.tipo,
+        tipo_contraparte: c.tipo_contraparte || c.tipo,
+        codigo: c.codigo_interno || c.codigo,
+        codigo_interno: c.codigo_interno || c.codigo
+      }));
+      setContrapartes(mapped);
     } catch(e) {
-      setContrapartes(mockContrapartes);
+      const mappedMock = mockContrapartes.map(c => ({
+        ...c,
+        tipo: c.tipo_contraparte || c.tipo,
+        tipo_contraparte: c.tipo_contraparte || c.tipo,
+        codigo: c.codigo_interno || c.codigo,
+        codigo_interno: c.codigo_interno || c.codigo
+      }));
+      setContrapartes(mappedMock);
     }
   };
 
@@ -903,7 +917,13 @@ const Movimientos = ({modulo}) => {
   const [contratosReal,setContratosReal]=useState(null);
   const contratos = contratosReal !== null ? contratosReal : mockContratos.filter(c=>c.modalidad===modulo);
   const [contrapartesReal, setContrapartesReal] = useState(null);
-  const contrapartes = contrapartesReal !== null ? contrapartesReal : mockContrapartes;
+  const contrapartes = (contrapartesReal !== null ? contrapartesReal : mockContrapartes).map(c => ({
+    ...c,
+    tipo: c.tipo_contraparte || c.tipo,
+    tipo_contraparte: c.tipo_contraparte || c.tipo,
+    codigo: c.codigo_interno || c.codigo,
+    codigo_interno: c.codigo_interno || c.codigo
+  }));
   const [tempFactor, setTempFactor] = useState(null);
 
   const cargarContrapartes = async () => {
