@@ -329,6 +329,29 @@ async function initDB() {
         updated_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(id_ubicacion, id_especie, id_campana)
       );
+
+      CREATE TABLE IF NOT EXISTS mermas_humedad (
+        id SERIAL PRIMARY KEY,
+        id_especie INTEGER REFERENCES especies(id),
+        humedad DECIMAL(5,2) NOT NULL,
+        merma_porcentaje DECIMAL(5,2) NOT NULL,
+        UNIQUE(id_especie, humedad)
+      );
+
+      CREATE TABLE IF NOT EXISTS tablas_flete (
+        id SERIAL PRIMARY KEY,
+        nombre VARCHAR(100) NOT NULL UNIQUE,
+        activa BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS tarifas_flete (
+        id SERIAL PRIMARY KEY,
+        id_tabla INTEGER REFERENCES tablas_flete(id) ON DELETE CASCADE,
+        km INTEGER NOT NULL,
+        valor_tonelada DECIMAL(12,4) NOT NULL,
+        UNIQUE(id_tabla, km)
+      );
     `);
 
     // Insertar datos iniciales si no existen
@@ -349,17 +372,82 @@ async function initDB() {
       `);
     }
 
-    // Recalcular mermas por humedad de Soja retroactivas para movimientos descargados
+    // Sembrar tabla mermas_humedad
+    const { rows: mermasExist } = await client.query('SELECT id FROM mermas_humedad LIMIT 1');
+    if (mermasExist.length === 0) {
+      console.log('Sembrando tabla mermas_humedad...');
+      let mermasMap = null;
+      try {
+        const XLSX = require('xlsx');
+        const excelPath = "C:/Users/JCMARZILIO/Desktop/tabla de mermas humedad.xlsx";
+        const wb = XLSX.readFile(excelPath);
+        const sheet = wb.Sheets["tabla de mermas"];
+        if (sheet) {
+          const data = XLSX.utils.sheet_to_json(sheet, {header: 1});
+          mermasMap = { soja: [], maiz: [], trigo: [] };
+          for (let i = 2; i < data.length; i++) {
+            const row = data[i];
+            // Maiz (col 0, 1)
+            if (row[0] !== undefined && row[1] !== undefined) {
+              mermasMap.maiz.push({ hum: parseFloat(row[0]), merma: parseFloat(row[1]) });
+            }
+            // Soja (col 3, 4)
+            if (row[3] !== undefined && row[4] !== undefined) {
+              mermasMap.soja.push({ hum: parseFloat(row[3]), merma: parseFloat(row[4]) });
+            }
+            // Trigo (col 6, 7)
+            if (row[6] !== undefined && row[7] !== undefined) {
+              mermasMap.trigo.push({ hum: parseFloat(row[6]), merma: parseFloat(row[7]) });
+            }
+          }
+        }
+      } catch (err) {
+        console.log('No se pudo leer el Excel de mermas, usando fallback estático:', err.message);
+      }
+
+      if (!mermasMap) {
+        mermasMap = require('./services/mermas_fallback.json');
+        // Transformar formato fallback { "13.6": 0.94 } a [{ hum: 13.6, merma: 0.94 }]
+        const transform = obj => Object.keys(obj).map(k => ({ hum: parseFloat(k), merma: obj[k] }));
+        mermasMap = {
+          soja: transform(mermasMap.soja),
+          maiz: transform(mermasMap.maiz),
+          trigo: transform(mermasMap.trigo)
+        };
+      }
+
+      // Insertar Soja (1), Trigo (2), Maíz (3)
+      for (const item of mermasMap.soja) {
+        await client.query('INSERT INTO mermas_humedad (id_especie, humedad, merma_porcentaje) VALUES (1, $1, $2) ON CONFLICT DO NOTHING', [item.hum, item.merma]);
+      }
+      for (const item of mermasMap.trigo) {
+        await client.query('INSERT INTO mermas_humedad (id_especie, humedad, merma_porcentaje) VALUES (2, $1, $2) ON CONFLICT DO NOTHING', [item.hum, item.merma]);
+      }
+      for (const item of mermasMap.maiz) {
+        await client.query('INSERT INTO mermas_humedad (id_especie, humedad, merma_porcentaje) VALUES (3, $1, $2) ON CONFLICT DO NOTHING', [item.hum, item.merma]);
+      }
+
+      // Generar Girasol (id_especie = 4) con base de humedad 11.0%
+      for (let h = 11.1; h <= 25.05; h += 0.1) {
+        const hum = Math.round(h * 10) / 10;
+        const merma = Math.round(((hum - 11.0) * 1.15 + 0.25) * 100) / 100;
+        await client.query('INSERT INTO mermas_humedad (id_especie, humedad, merma_porcentaje) VALUES (4, $1, $2) ON CONFLICT DO NOTHING', [hum, merma]);
+      }
+      console.log('Semilla de mermas_humedad completada.');
+    }
+
+    // Recalcular mermas por humedad retroactivas para todos los movimientos descargados basados en mermas_humedad
     await client.query(`
-      UPDATE movimientos SET
-        factor_calculado = 1.0 - ((FLOOR((0.575 + (humedad_llegada_pct - 13.5) * 1.15) * 100) / 100.0 + 0.25) / 100.0),
-        factor_aplicado = CASE WHEN factor_manual IS NOT NULL THEN factor_manual ELSE 1.0 - ((FLOOR((0.575 + (humedad_llegada_pct - 13.5) * 1.15) * 100) / 100.0 + 0.25) / 100.0) END,
-        kg_liquidables = peso_neto_llegada_kg * CASE WHEN factor_manual IS NOT NULL THEN factor_manual ELSE 1.0 - ((FLOOR((0.575 + (humedad_llegada_pct - 13.5) * 1.15) * 100) / 100.0 + 0.25) / 100.0) END,
+      UPDATE movimientos m SET
+        factor_calculado = 1.0 - (mh.merma_porcentaje / 100.0),
+        factor_aplicado = CASE WHEN m.factor_manual IS NOT NULL THEN m.factor_manual ELSE 1.0 - (mh.merma_porcentaje / 100.0) END,
+        kg_liquidables = m.peso_neto_llegada_kg * CASE WHEN m.factor_manual IS NOT NULL THEN m.factor_manual ELSE 1.0 - (mh.merma_porcentaje / 100.0) END,
         updated_at = NOW()
-      WHERE id_especie = 1 
-        AND humedad_llegada_pct > 13.5 
-        AND peso_neto_llegada_kg IS NOT NULL 
-        AND (factor_aplicado IS NULL OR factor_aplicado = 1.0)
+      FROM mermas_humedad mh
+      WHERE m.id_especie = mh.id_especie
+        AND ROUND(m.humedad_llegada_pct, 1) = mh.humedad
+        AND m.peso_neto_llegada_kg IS NOT NULL
+        AND (m.factor_aplicado IS NULL OR m.factor_aplicado = 1.0)
     `);
 
     console.log('Base de datos inicializada correctamente');

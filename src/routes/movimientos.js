@@ -73,6 +73,16 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET todas las mermas por humedad
+router.get('/mermas', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM mermas_humedad ORDER BY id_especie, humedad');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET un movimiento con calidad y servicios
 router.get('/:id', async (req, res) => {
   try {
@@ -225,19 +235,50 @@ router.put('/:id/llegada', async (req, res) => {
     const tolerancia = mov[0].peso_neto_salida_kg * 0.0003; // 0.3‰
     const faltante = Math.max(0, diferencia - tolerancia);
 
-    // Calcular factor de humedad para Soja
-    let factor_calculado = 1.0;
-    if (mov[0].id_especie === 1 && humedad_llegada_pct && parseFloat(humedad_llegada_pct) > 13.5) {
-      const hum = parseFloat(humedad_llegada_pct);
-      const secado = Math.floor((0.575 + (hum - 13.5) * 1.15) * 100) / 100;
-      const manipuleo = 0.25;
-      const mermaTotal = secado + manipuleo;
-      factor_calculado = 1 - (mermaTotal / 100);
+    // Obtener la merma de humedad desde la base de datos
+    let merma_humedad_pct = 0.0;
+    if (humedad_llegada_pct && parseFloat(humedad_llegada_pct) > 0) {
+      const hum_redondeada = Math.round(parseFloat(humedad_llegada_pct) * 10) / 10;
+      const { rows: mermaRows } = await pool.query(
+        'SELECT merma_porcentaje FROM mermas_humedad WHERE id_especie = $1 AND humedad = $2',
+        [mov[0].id_especie, hum_redondeada]
+      );
+      if (mermaRows[0]) {
+        merma_humedad_pct = parseFloat(mermaRows[0].merma_porcentaje);
+      } else {
+        // Fallback si la humedad excede el máximo de la tabla (25.0%)
+        if (hum_redondeada > 25.0) {
+          const { rows: maxMermaRows } = await pool.query(
+            'SELECT merma_porcentaje FROM mermas_humedad WHERE id_especie = $1 AND humedad = 25.0',
+            [mov[0].id_especie]
+          );
+          const maxMerma = maxMermaRows[0] ? parseFloat(maxMermaRows[0].merma_porcentaje) : 0.0;
+          merma_humedad_pct = maxMerma + (hum_redondeada - 25.0) * 1.15;
+        }
+      }
     }
 
-    // Mantener factor manual si ya existe, de lo contrario usar factor_calculado
-    const factor_manual = mov[0].factor_manual ? parseFloat(mov[0].factor_manual) : null;
-    const factor_aplicado = factor_manual !== null ? factor_manual : factor_calculado;
+    // Consultar descuentos de calidad registrados
+    const { rows: calidad } = await pool.query(
+      'SELECT * FROM calidad_movimiento WHERE id_movimiento = $1',
+      [req.params.id]
+    );
+    let descuento_calidad_pct = 0.0;
+    if (calidad.length > 0) {
+      for (const c of calidad) {
+        descuento_calidad_pct += parseFloat(c.factor_descuento_bonificacion_pct || 0);
+      }
+    }
+
+    const factor_calculado = 1.0 - (merma_humedad_pct / 100.0) + (descuento_calidad_pct / 100.0);
+    const factor_manual = mov[0].factor_manual !== null && mov[0].factor_manual !== undefined ? parseFloat(mov[0].factor_manual) : null;
+    
+    // Si hay factor_manual, representa el factor de calidad directo en modo informal. 
+    // Le descontamos la merma de humedad para obtener el factor_aplicado final.
+    const factor_aplicado = factor_manual !== null 
+      ? factor_manual - (merma_humedad_pct / 100.0)
+      : factor_calculado;
+
     const kg_liquidables = peso_neto_llegada * factor_aplicado;
 
     const { rows } = await pool.query(`
@@ -275,35 +316,55 @@ router.put('/:id/calidad', async (req, res) => {
     if (!mov[0]) return res.status(404).json({ error: 'No encontrado' });
     const m = mov[0];
 
-    let factor_calculado = 1.0;
-
-    // Calcular merma por humedad para Soja
-    if (m.id_especie === 1 && m.humedad_llegada_pct && parseFloat(m.humedad_llegada_pct) > 13.5) {
-      const hum = parseFloat(m.humedad_llegada_pct);
-      const secado = Math.floor((0.575 + (hum - 13.5) * 1.15) * 100) / 100;
-      const manipuleo = 0.25;
-      const mermaTotal = secado + manipuleo;
-      factor_calculado = 1 - (mermaTotal / 100);
+    // Obtener la merma de humedad desde la base de datos
+    let merma_humedad_pct = 0.0;
+    if (m.humedad_llegada_pct && parseFloat(m.humedad_llegada_pct) > 0) {
+      const hum_redondeada = Math.round(parseFloat(m.humedad_llegada_pct) * 10) / 10;
+      const { rows: mermaRows } = await pool.query(
+        'SELECT merma_porcentaje FROM mermas_humedad WHERE id_especie = $1 AND humedad = $2',
+        [m.id_especie, hum_redondeada]
+      );
+      if (mermaRows[0]) {
+        merma_humedad_pct = parseFloat(mermaRows[0].merma_porcentaje);
+      } else {
+        // Fallback si la humedad excede el máximo de la tabla (25.0%)
+        if (hum_redondeada > 25.0) {
+          const { rows: maxMermaRows } = await pool.query(
+            'SELECT merma_porcentaje FROM mermas_humedad WHERE id_especie = $1 AND humedad = 25.0',
+            [m.id_especie]
+          );
+          const maxMerma = maxMermaRows[0] ? parseFloat(maxMermaRows[0].merma_porcentaje) : 0.0;
+          merma_humedad_pct = maxMerma + (hum_redondeada - 25.0) * 1.15;
+        }
+      }
     }
+
+    let factor_calculado = 1.0 - (merma_humedad_pct / 100.0);
 
     if (parametros && parametros.length > 0) {
       for (const p of parametros) {
         const exceso = Math.max(0, p.valor_declarado - p.tolerancia);
         const ajuste = exceso > 0
+          ? -(excess = exceso * (p.descuento_por_punto || 0)) + (exceso * (p.bonificacion_por_punto || 0))
+          : 0;
+        // Corregir un posible typo de arriba, mantener ajuste limpio
+        const ajuste_limpio = exceso > 0
           ? -(exceso * (p.descuento_por_punto || 0)) + (exceso * (p.bonificacion_por_punto || 0))
           : 0;
-        factor_calculado += ajuste / 100;
+        factor_calculado += ajuste_limpio / 100;
 
         await pool.query(`
           INSERT INTO calidad_movimiento
             (id_movimiento, id_parametro, valor_declarado_pct, tolerancia_parametro_pct,
              exceso_sobre_tolerancia_pct, factor_descuento_bonificacion_pct)
           VALUES ($1,$2,$3,$4,$5,$6)
-        `, [id, p.id_parametro, p.valor_declarado, p.tolerancia, exceso, ajuste]);
+        `, [id, p.id_parametro, p.valor_declarado, p.tolerancia, exceso, ajuste_limpio]);
       }
     }
 
-    const factor_aplicado = factor_manual !== undefined && factor_manual !== null ? parseFloat(factor_manual) : factor_calculado;
+    const factor_aplicado = factor_manual !== undefined && factor_manual !== null 
+      ? parseFloat(factor_manual) - (merma_humedad_pct / 100.0) 
+      : factor_calculado;
     const kg_liquidables = m.peso_neto_llegada_kg * factor_aplicado;
 
     const { rows } = await pool.query(`

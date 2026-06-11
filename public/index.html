@@ -1045,6 +1045,7 @@ const Contratos = ({modulo}) => {
 };
 
 // ── MOVIMIENTOS ──
+// ── MOVIMIENTOS ──
 const Movimientos = ({modulo}) => {
   const [showForm,setShowForm]=useState(false);
   const [showImport,setShowImport]=useState(false);
@@ -1075,6 +1076,40 @@ const Movimientos = ({modulo}) => {
   }));
   const [tempFactor, setTempFactor] = useState(null);
 
+  // Estados locales para persistencia de llegada
+  const [brutoLlegada, setBrutoLlegada] = useState(null);
+  const [taraLlegada, setTaraLlegada] = useState(null);
+  const [humedadLlegada, setHumedadLlegada] = useState(null);
+  const [fechaArribo, setFechaArribo] = useState("");
+  const [fechaDescarga, setFechaDescarga] = useState("");
+  const [nroTurno, setNroTurno] = useState("");
+  const [mermas, setMermas] = useState({});
+
+  const formatDateTimeLocal = (isoString) => {
+    if (!isoString) return "";
+    try {
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return "";
+      const offset = d.getTimezoneOffset() * 60000;
+      return (new Date(d.getTime() - offset)).toISOString().slice(0, 16);
+    } catch(e) {
+      return "";
+    }
+  };
+
+  const openModal = (m) => {
+    setSelected(m);
+    setTempFactor(m.factor);
+    setBrutoLlegada(m.peso_bruto_llegada);
+    setTaraLlegada(m.peso_tara_llegada);
+    setHumedadLlegada(m.humedad_llegada);
+    setFechaArribo(formatDateTimeLocal(m.fecha_arribo));
+    setFechaDescarga(formatDateTimeLocal(m.fecha_descarga));
+    setNroTurno(m.nro_turno || "");
+    setTab("salida");
+    setShowForm(true);
+  };
+
   const cargarContrapartes = async () => {
     try {
       const data = await api.get("/api/contrapartes");
@@ -1086,7 +1121,7 @@ const Movimientos = ({modulo}) => {
 
   const cargarContratos = async () => {
     try {
-      const data = await api.get(`/api/contratos?modalidad=${modulo}`);
+      const data = await api.get(`/api/contratos?modulo=${modulo}`); // Corregido el parámetro de query
       const mapped = data.map(c => ({
         id: c.id,
         numero: c.numero_contrato,
@@ -1110,6 +1145,45 @@ const Movimientos = ({modulo}) => {
     }
   };
 
+  const cargarMermas = async () => {
+    try {
+      const data = await api.get("/api/movimientos/mermas");
+      const map = {};
+      data.forEach(item => {
+        const key = `${item.id_especie}-${parseFloat(item.humedad).toFixed(1)}`;
+        map[key] = parseFloat(item.merma_porcentaje);
+      });
+      setMermas(map);
+    } catch(e) {
+      console.error("Error al cargar mermas:", e);
+    }
+  };
+
+  const getMermaHumedadPct = (idEspecie, humedad) => {
+    if (!humedad || humedad <= 0) return 0;
+    
+    let base = 13.5; // Soja
+    if (idEspecie === 2) base = 14.0; // Trigo
+    else if (idEspecie === 3) base = 14.5; // Maíz
+    else if (idEspecie === 4) base = 11.0; // Girasol
+    
+    if (humedad <= base) return 0;
+    
+    const key = `${idEspecie}-${parseFloat(humedad).toFixed(1)}`;
+    if (mermas[key] !== undefined) {
+      return mermas[key];
+    }
+    
+    const roundedHum = Math.round(humedad * 10) / 10;
+    if (roundedHum > 25.0) {
+      const maxKey = `${idEspecie}-25.0`;
+      const maxMerma = mermas[maxKey] || 0;
+      return maxMerma + (roundedHum - 25.0) * 1.15;
+    }
+    
+    return 0;
+  };
+
   const cargarMovimientos = async () => {
     try {
       const data = await api.get(`/api/movimientos?modalidad=${modulo}`);
@@ -1118,6 +1192,7 @@ const Movimientos = ({modulo}) => {
         numero: m.numero_movimiento,
         nro_ctg: m.nro_ctg,
         nro_cpe: m.nro_cpe,
+        id_especie: m.id_especie,
         especie: m.especie_nombre || 'Soja',
         campana: m.campana_desc,
         contrato_compra: m.nro_contrato_compra,
@@ -1136,6 +1211,9 @@ const Movimientos = ({modulo}) => {
         peso_tara_salida: parseFloat(m.peso_tara_salida_kg) || 0,
         peso_neto_salida: parseFloat(m.peso_neto_salida_kg) || 0,
         humedad_salida: parseFloat(m.humedad_salida_pct) || 0,
+        fecha_arribo: m.fecha_arribo,
+        fecha_descarga: m.fecha_descarga,
+        nro_turno: m.nro_turno,
         peso_bruto_llegada: m.peso_bruto_llegada_kg ? parseFloat(m.peso_bruto_llegada_kg) : null,
         peso_tara_llegada: m.peso_tara_llegada_kg ? parseFloat(m.peso_tara_llegada_kg) : null,
         peso_neto_llegada: m.peso_neto_llegada_kg ? parseFloat(m.peso_neto_llegada_kg) : null,
@@ -1157,6 +1235,7 @@ const Movimientos = ({modulo}) => {
     cargarMovimientos();
     cargarContratos();
     cargarContrapartes();
+    cargarMermas();
   },[modulo]);
 
   const estadoColor = e=>({EN_TRANSITO:"orange",DESCARGADO:"blue",LIQUIDADO:"green",ANULADO:"red",BORRADOR:"gray"}[e]||"gray");
@@ -1677,7 +1756,7 @@ const Movimientos = ({modulo}) => {
             <td><span className="mono" style={{fontWeight:600}}>{m.kg_liquidables?.toLocaleString()||"—"}</span></td>
             <td><Badge label={m.estado} color={estadoColor(m.estado)}/></td>
             <td><Badge label={m.estado_liq} color={liqColor(m.estado_liq)}/></td>
-            <td><Btn variant="ghost" size="sm" onClick={()=>{setSelected(m);setTempFactor(m.factor);setTab("salida");setShowForm(true);}}>Ver</Btn></td>
+            <td><Btn variant="ghost" size="sm" onClick={()=>openModal(m)}>Ver</Btn></td>
           </tr>
         ))}</tbody></table>
         </div>
@@ -2273,33 +2352,73 @@ const Movimientos = ({modulo}) => {
             </div>
           )}
 
-          {tab==="llegada"&&(
-            <div>
-              <div className="form-grid-2">
-                <FF label="Fecha Arribo"><input type="datetime-local"/></FF>
-                <FF label="Fecha Descarga"><input type="datetime-local"/></FF>
-                <FF label="N° Turno"><input defaultValue={selected?"RTSOCOM260217001063":""}/></FF>
-                <FF label="Localidad Destino"><input defaultValue={selected?.destino||""}/></FF>
-                <FF label="Kg Bruto Llegada"><input type="number" defaultValue={selected?.peso_bruto_llegada||""}/></FF>
-                <FF label="Kg Tara Llegada"><input type="number"/></FF>
-                <FF label="Humedad Llegada (%)"><input type="number" step="0.1" defaultValue={selected?.humedad_llegada||""}/></FF>
-              </div>
-              {selected&&selected.peso_neto_llegada&&(
-                <div style={{marginTop:16,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e"}}>
-                  <div style={{fontSize:11,color:"#8890a8",marginBottom:12,fontWeight:600,textTransform:"uppercase"}}>Cálculo de Faltante (0,3‰ tolerancia)</div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
-                    {[["Kg Neto Salida",selected.peso_neto_salida?.toLocaleString(),"#e8eaf0"],["Kg Neto Llegada",selected.peso_neto_llegada?.toLocaleString(),"#e8eaf0"],["Diferencia",(selected.peso_neto_salida-selected.peso_neto_llegada)?.toLocaleString(),"#e74c3c"],["Faltante Cobrable",selected.faltante>0?selected.faltante:"OK",selected.faltante>0?"#e74c3c":"#27ae60"]].map(([l,v,c])=>(
-                      <div key={l} style={{textAlign:"center",padding:"10px 8px",background:"rgba(255,255,255,.03)",borderRadius:6}}>
-                        <div style={{fontSize:10,color:"#8890a8",marginBottom:4}}>{l}</div>
-                        <div className="mono" style={{fontSize:18,fontWeight:700,color:c}}>{v}</div>
-                      </div>
-                    ))}
-                  </div>
-                  {selected.faltante>0&&<div className="alert-danger" style={{marginTop:12}}>⚠ Se debitarán {selected.faltante} kg en la cuenta corriente del transportista</div>}
+          {tab==="llegada"&&(() => {
+            const netoSal = selected?.peso_neto_salida || 0;
+            const bruto = brutoLlegada !== null ? brutoLlegada : 0;
+            const tara = taraLlegada !== null ? taraLlegada : 0;
+            const neto = bruto - tara;
+            
+            const diff = neto > 0 ? netoSal - neto : 0;
+            const tol = netoSal * 0.0003;
+            const falt = Math.max(0, diff - tol);
+            
+            const humPct = getMermaHumedadPct(selected?.id_especie, humedadLlegada);
+            const humKg = neto * (humPct / 100);
+            
+            const calPct = (modulo === "INFORMAL" && tempFactor !== null) ? (1.0 - tempFactor) * 100 : 0;
+            const calKg = neto * (calPct / 100);
+            
+            const finalFact = 1.0 - (humPct / 100) - (calPct / 100);
+            const liqKg = neto * finalFact;
+            
+            return (
+              <div>
+                <div className="form-grid-2">
+                  <FF label="Fecha Arribo"><input type="datetime-local" id="input_fecha_arribo" value={fechaArribo} onChange={e=>setFechaArribo(e.target.value)}/></FF>
+                  <FF label="Fecha Descarga"><input type="datetime-local" id="input_fecha_descarga" value={fechaDescarga} onChange={e=>setFechaDescarga(e.target.value)}/></FF>
+                  <FF label="N° Turno"><input id="input_nro_turno" value={nroTurno} onChange={e=>setNroTurno(e.target.value)}/></FF>
+                  <FF label="Localidad Destino"><input defaultValue={selected?.destino||""} id="input_localidad_destino"/></FF>
+                  <FF label="Kg Bruto Llegada"><input type="number" id="input_bruto_llegada" value={brutoLlegada !== null ? brutoLlegada : ""} onChange={e=>setBrutoLlegada(e.target.value === "" ? null : parseFloat(e.target.value))}/></FF>
+                  <FF label="Kg Tara Llegada"><input type="number" id="input_tara_llegada" value={taraLlegada !== null ? taraLlegada : ""} onChange={e=>setTaraLlegada(e.target.value === "" ? null : parseFloat(e.target.value))}/></FF>
+                  <FF label="Humedad Llegada (%)"><input type="number" step="0.1" id="input_humedad_llegada" value={humedadLlegada !== null ? humedadLlegada : ""} onChange={e=>setHumedadLlegada(e.target.value === "" ? null : parseFloat(e.target.value))}/></FF>
                 </div>
-              )}
-            </div>
-          )}
+                {neto > 0 && (
+                  <div style={{marginTop:16,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e"}}>
+                    <div style={{fontSize:11,color:"#8890a8",marginBottom:12,fontWeight:600,textTransform:"uppercase"}}>Cálculo de Faltante (0,3‰ tolerancia)</div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:18}}>
+                      {[
+                        ["Kg Neto Salida", netoSal.toLocaleString(), "#e8eaf0"],
+                        ["Kg Neto Llegada", neto.toLocaleString(), "#e8eaf0"],
+                        ["Diferencia", diff.toLocaleString(), "#e74c3c"],
+                        ["Faltante Cobrable", falt > 0 ? Math.round(falt) : "OK", falt > 0 ? "#e74c3c" : "#27ae60"]
+                      ].map(([l,v,c])=>(
+                        <div key={l} style={{textAlign:"center",padding:"10px 8px",background:"rgba(255,255,255,.03)",borderRadius:6}}>
+                          <div style={{fontSize:10,color:"#8890a8",marginBottom:4}}>{l}</div>
+                          <div className="mono" style={{fontSize:16,fontWeight:700,color:c}}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {falt > 0 && <div className="alert-danger" style={{marginBottom:18}}>⚠ Se debitarán {Math.round(falt)} kg en la cuenta corriente del transportista</div>}
+                    
+                    <div style={{fontSize:11,color:"#f5a623",marginBottom:12,fontWeight:600,textTransform:"uppercase"}}>Cálculo de Mermas y Kilos a Liquidar</div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
+                      {[
+                        ["Merma Humedad", `${humPct.toFixed(2)}% (${Math.round(humKg).toLocaleString()} kg)`, "#e8eaf0"],
+                        ["Merma Calidad", `${calPct.toFixed(2)}% (${Math.round(calKg).toLocaleString()} kg)`, "#e8eaf0"],
+                        ["Factor Aplicado", finalFact.toFixed(4), "#f5a623"],
+                        ["Kilos a Liquidar", `${Math.round(liqKg).toLocaleString()} kg`, "#27ae60"]
+                      ].map(([l,v,c])=>(
+                        <div key={l} style={{textAlign:"center",padding:"10px 8px",background:"rgba(255,255,255,.03)",borderRadius:6}}>
+                          <div style={{fontSize:10,color:"#8890a8",marginBottom:4}}>{l}</div>
+                          <div className="mono" style={{fontSize:13,fontWeight:700,color:c}}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {tab==="calidad"&&(
             <div>
@@ -2400,7 +2519,20 @@ const Movimientos = ({modulo}) => {
             <Btn onClick={async()=>{
               try {
                 if(selected) {
-                  if (modulo === "INFORMAL" && tempFactor !== selected.factor) {
+                  // Guardar llegada si se ingresaron pesos
+                  if (brutoLlegada !== null && taraLlegada !== null) {
+                    await api.put(`/api/movimientos/${selected.id}/llegada`, {
+                      fecha_arribo: fechaArribo || null,
+                      fecha_descarga: fechaDescarga || null,
+                      nro_turno: nroTurno || null,
+                      peso_bruto_llegada_kg: brutoLlegada,
+                      peso_tara_llegada_kg: taraLlegada,
+                      humedad_llegada_pct: humedadLlegada
+                    });
+                  }
+                  
+                  // Guardar calidad en modo informal (factor manual)
+                  if (modulo === "INFORMAL") {
                     await api.put(`/api/movimientos/${selected.id}/calidad`, {
                       parametros: [],
                       factor_manual: tempFactor
