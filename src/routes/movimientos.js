@@ -225,17 +225,34 @@ router.put('/:id/llegada', async (req, res) => {
     const tolerancia = mov[0].peso_neto_salida_kg * 0.0003; // 0.3‰
     const faltante = Math.max(0, diferencia - tolerancia);
 
+    // Calcular factor de humedad para Soja
+    let factor_calculado = 1.0;
+    if (mov[0].id_especie === 1 && humedad_llegada_pct && parseFloat(humedad_llegada_pct) > 13.5) {
+      const hum = parseFloat(humedad_llegada_pct);
+      const secado = Math.floor((0.575 + (hum - 13.5) * 1.15) * 100) / 100;
+      const manipuleo = 0.25;
+      const mermaTotal = secado + manipuleo;
+      factor_calculado = 1 - (mermaTotal / 100);
+    }
+
+    // Mantener factor manual si ya existe, de lo contrario usar factor_calculado
+    const factor_manual = mov[0].factor_manual ? parseFloat(mov[0].factor_manual) : null;
+    const factor_aplicado = factor_manual !== null ? factor_manual : factor_calculado;
+    const kg_liquidables = peso_neto_llegada * factor_aplicado;
+
     const { rows } = await pool.query(`
       UPDATE movimientos SET
         fecha_arribo=$1, fecha_descarga=$2, nro_turno=$3,
         peso_bruto_llegada_kg=$4, peso_tara_llegada_kg=$5,
         peso_neto_llegada_kg=$6, humedad_llegada_pct=$7,
         diferencia_kg=$8, tolerancia_kg=$9, faltante_kg=$10,
+        factor_calculado=$11, factor_aplicado=$12, kg_liquidables=$13,
         estado='DESCARGADO', updated_at=NOW()
-      WHERE id=$11 RETURNING *
+      WHERE id=$14 RETURNING *
     `, [fecha_arribo||null, fecha_descarga||null, nro_turno||null,
         peso_bruto_llegada_kg, peso_tara_llegada_kg, peso_neto_llegada,
         humedad_llegada_pct||null, diferencia, tolerancia, faltante,
+        factor_calculado, factor_aplicado, kg_liquidables,
         req.params.id]);
 
     res.json(rows[0]);
@@ -253,7 +270,21 @@ router.put('/:id/calidad', async (req, res) => {
     // Borrar calidad anterior
     await pool.query('DELETE FROM calidad_movimiento WHERE id_movimiento = $1', [id]);
 
+    // Obtener movimiento para ver especie y humedad
+    const { rows: mov } = await pool.query('SELECT id_especie, humedad_llegada_pct, peso_neto_llegada_kg FROM movimientos WHERE id = $1', [id]);
+    if (!mov[0]) return res.status(404).json({ error: 'No encontrado' });
+    const m = mov[0];
+
     let factor_calculado = 1.0;
+
+    // Calcular merma por humedad para Soja
+    if (m.id_especie === 1 && m.humedad_llegada_pct && parseFloat(m.humedad_llegada_pct) > 13.5) {
+      const hum = parseFloat(m.humedad_llegada_pct);
+      const secado = Math.floor((0.575 + (hum - 13.5) * 1.15) * 100) / 100;
+      const manipuleo = 0.25;
+      const mermaTotal = secado + manipuleo;
+      factor_calculado = 1 - (mermaTotal / 100);
+    }
 
     if (parametros && parametros.length > 0) {
       for (const p of parametros) {
@@ -272,11 +303,8 @@ router.put('/:id/calidad', async (req, res) => {
       }
     }
 
-    const factor_aplicado = factor_manual || factor_calculado;
-
-    // Obtener kg neto llegada
-    const { rows: mov } = await pool.query('SELECT peso_neto_llegada_kg FROM movimientos WHERE id = $1', [id]);
-    const kg_liquidables = mov[0].peso_neto_llegada_kg * factor_aplicado;
+    const factor_aplicado = factor_manual !== undefined && factor_manual !== null ? parseFloat(factor_manual) : factor_calculado;
+    const kg_liquidables = m.peso_neto_llegada_kg * factor_aplicado;
 
     const { rows } = await pool.query(`
       UPDATE movimientos SET
@@ -284,7 +312,7 @@ router.put('/:id/calidad', async (req, res) => {
         tipo_factor=$4, kg_liquidables=$5, updated_at=NOW()
       WHERE id=$6 RETURNING *
     `, [factor_calculado, factor_manual||null, factor_aplicado,
-        factor_manual ? 'MANUAL' : 'CALCULADO', kg_liquidables, id]);
+        factor_manual !== undefined && factor_manual !== null ? 'MANUAL' : 'CALCULADO', kg_liquidables, id]);
 
     res.json(rows[0]);
   } catch (err) {

@@ -347,8 +347,20 @@ async function initDB() {
         INSERT INTO ubicaciones (nombre, tipo, localidad, provincia) VALUES
         ('Planta Propia', 'PLANTA_PROPIA', 'Santiago del Estero', 'Santiago del Estero');
       `);
-      console.log('Datos iniciales insertados');
     }
+
+    // Recalcular mermas por humedad de Soja retroactivas para movimientos descargados
+    await client.query(`
+      UPDATE movimientos SET
+        factor_calculado = 1.0 - ((FLOOR((0.575 + (humedad_llegada_pct - 13.5) * 1.15) * 100) / 100.0 + 0.25) / 100.0),
+        factor_aplicado = CASE WHEN factor_manual IS NOT NULL THEN factor_manual ELSE 1.0 - ((FLOOR((0.575 + (humedad_llegada_pct - 13.5) * 1.15) * 100) / 100.0 + 0.25) / 100.0) END,
+        kg_liquidables = peso_neto_llegada_kg * CASE WHEN factor_manual IS NOT NULL THEN factor_manual ELSE 1.0 - ((FLOOR((0.575 + (humedad_llegada_pct - 13.5) * 1.15) * 100) / 100.0 + 0.25) / 100.0) END,
+        updated_at = NOW()
+      WHERE id_especie = 1 
+        AND humedad_llegada_pct > 13.5 
+        AND peso_neto_llegada_kg IS NOT NULL 
+        AND (factor_aplicado IS NULL OR factor_aplicado = 1.0)
+    `);
 
     console.log('Base de datos inicializada correctamente');
   } finally {

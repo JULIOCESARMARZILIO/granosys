@@ -133,4 +133,124 @@ router.put('/:id/estado', async (req, res) => {
   }
 });
 
+// PUT actualizar contrato (solo si no tiene liquidaciones)
+router.put('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verificar si tiene liquidaciones asociadas
+    const { rows: liqs } = await pool.query(
+      'SELECT COUNT(*) as total FROM liquidaciones WHERE id_contrato = $1',
+      [id]
+    );
+    if (parseInt(liqs[0].total) > 0) {
+      return res.status(400).json({
+        error: 'No se puede modificar el contrato porque ya tiene liquidaciones asociadas.'
+      });
+    }
+
+    const {
+      tipo_contrato, modalidad, tipo_liquidacion, fecha_contrato,
+      fecha_entrega_desde, fecha_entrega_hasta, id_contraparte,
+      id_especie, id_campana, cantidad_toneladas_pactadas,
+      tipo_precio, moneda, precio_pactado, referencia_fijacion,
+      diferencial_fijacion, tipo_diferencial, tipo_entrega,
+      localidad_entrega, provincia_entrega, flete_estimado,
+      forma_pago, plazo_pago_dias, condicion_pago,
+      precio_venta_estimado, destino_venta_estimado, observaciones,
+      aplica_cpe, costo_cpe_pct, costo_financiero_pct,
+      comprador_estimado_id
+    } = req.body;
+
+    // Actualizar contrato
+    const { rows } = await pool.query(`
+      UPDATE contratos SET
+        tipo_contrato = COALESCE($1, tipo_contrato),
+        modalidad = COALESCE($2, modalidad),
+        tipo_liquidacion = COALESCE($3, tipo_liquidacion),
+        fecha_contrato = COALESCE($4, fecha_contrato),
+        fecha_entrega_desde = $5,
+        fecha_entrega_hasta = $6,
+        id_contraparte = COALESCE($7, id_contraparte),
+        id_especie = COALESCE($8, id_especie),
+        id_campana = COALESCE($9, id_campana),
+        cantidad_toneladas_pactadas = COALESCE($10, cantidad_toneladas_pactadas),
+        tipo_precio = COALESCE($11, tipo_precio),
+        moneda = COALESCE($12, moneda),
+        precio_pactado = $13,
+        referencia_fijacion = $14,
+        diferencial_fijacion = $15,
+        tipo_diferencial = $16,
+        tipo_entrega = COALESCE($17, tipo_entrega),
+        localidad_entrega = $18,
+        provincia_entrega = $19,
+        flete_estimado = $20,
+        forma_pago = COALESCE($21, forma_pago),
+        plazo_pago_dias = COALESCE($22, plazo_pago_dias),
+        condicion_pago = COALESCE($23, condicion_pago),
+        precio_venta_estimado = $24,
+        destino_venta_estimado = $25,
+        observaciones = $26,
+        aplica_cpe = $27,
+        costo_cpe_pct = $28,
+        costo_financiero_pct = $29,
+        comprador_estimado_id = $30,
+        updated_at = NOW()
+      WHERE id = $31 RETURNING *
+    `, [
+      tipo_contrato, modalidad, tipo_liquidacion, fecha_contrato,
+      fecha_entrega_desde, fecha_entrega_hasta, id_contraparte,
+      id_especie, id_campana, cantidad_toneladas_pactadas,
+      tipo_precio, moneda, precio_pactado, referencia_fijacion,
+      diferencial_fijacion, tipo_diferencial, tipo_entrega,
+      localidad_entrega, provincia_entrega, flete_estimado,
+      forma_pago, plazo_pago_dias, condicion_pago,
+      precio_venta_estimado, destino_venta_estimado, observaciones,
+      aplica_cpe, costo_cpe_pct, costo_financiero_pct,
+      comprador_estimado_id, id
+    ]);
+
+    if (!rows[0]) {
+      return res.status(404).json({ error: 'Contrato no encontrado' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE eliminar contrato (solo si no tiene movimientos asociados)
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verificar si tiene movimientos asociados
+    const { rows: movs } = await pool.query(`
+      SELECT COUNT(*) as total FROM movimientos
+      WHERE id_contrato_compra = $1 OR id_contrato_venta = $1
+    `, [id]);
+
+    if (parseInt(movs[0].total) > 0) {
+      return res.status(400).json({
+        error: 'No se puede eliminar el contrato porque tiene camiones/movimientos asociados.'
+      });
+    }
+
+    // Soft delete
+    const { rows } = await pool.query(
+      'UPDATE contratos SET activo = FALSE, updated_at = NOW() WHERE id = $1 RETURNING *',
+      [id]
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ error: 'Contrato no encontrado' });
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

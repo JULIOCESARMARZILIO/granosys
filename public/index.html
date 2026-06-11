@@ -564,6 +564,81 @@ const Contratos = ({modulo}) => {
   const [campanas,setCampanas]=useState(CAMPANAS.map((d,i)=>({id:i+1,descripcion:d})));
   const [guardando,setGuardando]=useState(false);
   const [form,setForm]=useState({tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:""});
+  const [selectedContract, setSelectedContract] = useState(null);
+
+  const abrirDetalleContrato = async (c) => {
+    try {
+      const data = await api.get(`/api/contratos/${c.id}`);
+      setSelectedContract({
+        ...c,
+        movimientos: data.movimientos || []
+      });
+    } catch(err) {
+      alert("Error al cargar detalles: " + err.message);
+    }
+  };
+
+  const abrirEditarContrato = async (c) => {
+    try {
+      const checkLiqs = await api.get(`/api/liquidaciones?modalidad=${modulo}`);
+      const hasLiq = checkLiqs.some(l => l.id_contrato === c.id);
+      if (hasLiq) {
+        alert("⚠️ No se puede modificar este contrato porque ya tiene liquidaciones asociadas.");
+        return;
+      }
+    } catch(err) {
+      console.error(err);
+    }
+
+    setForm({
+      tipo: c.tipo_contrato || "COMPRA",
+      id_especie: c.id_especie || 1,
+      id_campana: c.id_campana || 2,
+      id_contraparte: c.id_contraparte || "",
+      tipo_precio: c.tipo_precio || "PRECIO_HECHO",
+      moneda: c.moneda || "PESOS",
+      precio: c.precio_pactado || "",
+      diferencial: c.diferencial_fijacion || "",
+      tipo_diferencial: c.tipo_diferencial || "ARS",
+      referencia: c.referencia_fijacion || "MATBA_ROFEX",
+      toneladas: c.toneladas || "",
+      tipo_entrega: c.tipo_entrega || "A_RETIRAR",
+      tipo_liq: c.tipo_liq || "INCISO_A",
+      forma_pago: c.forma_pago || "TRANSFERENCIA",
+      plazo: c.plazo_pago_dias || "0",
+      precio_venta_est: c.precio_venta_estimado || "",
+      flete_est: c.flete_estimado || "",
+      destino_est: c.destino_venta_estimado || "",
+      aplica_cpe: !!c.aplica_cpe,
+      costo_cpe: c.costo_cpe_pct || "",
+      costo_financiero: c.costo_financiero_pct || "",
+      comprador_estimado_id: c.comprador_estimado_id || "",
+      _id: c.id,
+      _editando: true
+    });
+    setShowForm(true);
+  };
+
+  const eliminarContrato = async (c) => {
+    try {
+      const data = await api.get(`/api/contratos/${c.id}`);
+      if (data.movimientos && data.movimientos.length > 0) {
+        alert(`⚠️ No se puede eliminar este contrato porque tiene ${data.movimientos.length} camiones/movimientos asociados.`);
+        return;
+      }
+    } catch(err) {
+      console.error(err);
+    }
+
+    if (!confirm(`¿Eliminar contrato ${c.numero}?`)) return;
+    try {
+      await api.delete(`/api/contratos/${c.id}`);
+      alert("✓ Contrato eliminado correctamente");
+      cargarContratos();
+    } catch(err) {
+      alert("Error al eliminar: " + (err.response?.data?.error || err.message));
+    }
+  };
 
   useEffect(()=>{
     cargarContratos();
@@ -576,6 +651,7 @@ const Contratos = ({modulo}) => {
     try {
       const data = await api.get(`/api/contratos?modalidad=${modulo}&tipo=${tab}`);
       const mapped = data.map(c => ({
+        ...c,
         id: c.id,
         numero: c.numero_contrato,
         fecha: c.fecha_contrato ? c.fecha_contrato.split('T')[0] : '',
@@ -589,7 +665,8 @@ const Contratos = ({modulo}) => {
         moneda: c.moneda,
         tipo_entrega: c.tipo_entrega,
         estado: c.estado,
-        tipo_liq: c.tipo_liquidacion
+        tipo_liq: c.tipo_liquidacion,
+        tipo: c.tipo_contrato
       }));
       setLista(mapped);
     } catch(e) {
@@ -638,7 +715,10 @@ const Contratos = ({modulo}) => {
     <div className="fade-in">
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
         <h2 style={{fontSize:18,fontWeight:700}}>Contratos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
-        <Btn onClick={()=>setShowForm(true)}>+ Nuevo Contrato</Btn>
+        <Btn onClick={()=>{
+          setForm({tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",_editando:false,_id:null});
+          setShowForm(true);
+        }}>+ Nuevo Contrato</Btn>
       </div>
       <div className="tab-bar" style={{marginBottom:16}}>
         {["COMPRA","VENTA","CANJE"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t==="COMPRA"?"Compras":t==="VENTA"?"Ventas":"Canjes"}</button>)}
@@ -664,13 +744,17 @@ const Contratos = ({modulo}) => {
             <td>{c.tipo_precio==="A_FIJAR"?<Badge label="A FIJAR" color="purple"/>:<span className="mono" style={{fontSize:12}}>${c.precio?.toLocaleString()}</span>}</td>
             {modulo==="FORMAL"&&<td>{c.tipo_liq?<Badge label={c.tipo_liq==="INCISO_A"?"Inc.A":"Inc.B"} color={c.tipo_liq==="INCISO_A"?"blue":"purple"}/>:"—"}</td>}
             <td><Badge label={c.estado} color={estadoColor(c.estado)}/></td>
-            <td><Btn variant="ghost" size="sm">Ver</Btn></td>
+            <td style={{display:"flex",gap:6}}>
+              <Btn variant="ghost" size="sm" onClick={() => abrirDetalleContrato(c)}>Ver</Btn>
+              <Btn variant="ghost" size="sm" onClick={() => abrirEditarContrato(c)}>Editar</Btn>
+              <Btn variant="danger" size="sm" onClick={() => eliminarContrato(c)}>✕</Btn>
+            </td>
           </tr>
         ))}</tbody></table>
         {lista.length===0&&<div style={{padding:40,textAlign:"center",color:"#565d7a"}}>No hay contratos de {tab.toLowerCase()} en modalidad {modulo.toLowerCase()}</div>}
       </div>
       {showForm&&(
-        <Modal title="Nuevo Contrato" onClose={()=>setShowForm(false)} width={900}>
+        <Modal title={form._editando ? "Editar Contrato" : "Nuevo Contrato"} onClose={()=>setShowForm(false)} width={900}>
           <div style={{display:"flex",gap:8,marginBottom:18}}>
             {["COMPRA","VENTA","CANJE"].map(t=><Btn key={t} variant={form.tipo===t?"primary":"secondary"} size="sm" onClick={()=>setForm({...form,tipo:t})}>{t}</Btn>)}
           </div>
@@ -857,7 +941,7 @@ const Contratos = ({modulo}) => {
               if(!form.toneladas){alert("Las toneladas son obligatorias");return;}
               setGuardando(true);
               try {
-                await api.post("/api/contratos",{
+                const payload = {
                   tipo_contrato: form.tipo,
                   modalidad: modulo,
                   tipo_liquidacion: modulo==="FORMAL"?form.tipo_liq:null,
@@ -878,16 +962,81 @@ const Contratos = ({modulo}) => {
                   precio_venta_estimado: form.precio_venta_est?parseFloat(form.precio_venta_est):null,
                   destino_venta_estimado: form.destino_est||null,
                   flete_estimado: form.flete_est?parseFloat(form.flete_est):null,
-                });
-                alert("✓ Contrato guardado correctamente");
+                };
+                if (form._editando && form._id) {
+                  await api.put(`/api/contratos/${form._id}`, payload);
+                  alert("✓ Contrato actualizado correctamente");
+                } else {
+                  await api.post("/api/contratos", payload);
+                  alert("✓ Contrato guardado correctamente");
+                }
                 setShowForm(false);
                 cargarContratos();
               } catch(e) {
-                alert("Error al guardar contrato: "+e.message);
+                alert("Error al guardar contrato: " + (e.response?.data?.error || e.message));
               } finally {
                 setGuardando(false);
               }
-            }}>{guardando?"Guardando...":"Guardar Contrato"}</Btn>
+            }}>{guardando?"Guardando...":(form._editando?"Actualizar Contrato":"Guardar Contrato")}</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {selectedContract && (
+        <Modal title={`Detalle del Contrato ${selectedContract.numero}`} onClose={() => setSelectedContract(null)} width={800}>
+          <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 20px", marginBottom: 20}}>
+            <div><strong>Número de Contrato:</strong> <span className="mono" style={{color:"#f5a623"}}>{selectedContract.numero}</span></div>
+            <div><strong>Tipo:</strong> {selectedContract.tipo_contrato}</div>
+            <div><strong>Contraparte:</strong> {selectedContract.contraparte}</div>
+            <div><strong>Fecha:</strong> {selectedContract.fecha}</div>
+            <div><strong>Especie:</strong> {selectedContract.especie}</div>
+            <div><strong>Campaña:</strong> {selectedContract.campana}</div>
+            <div><strong>Toneladas Pactadas:</strong> {selectedContract.toneladas} tn</div>
+            <div><strong>Toneladas Asignadas:</strong> {selectedContract.asignadas} tn</div>
+            <div><strong>Tipo de Precio:</strong> {selectedContract.tipo_precio === "A_FIJAR" ? "A Fijar" : "Precio Hecho"}</div>
+            {selectedContract.tipo_precio !== "A_FIJAR" ? (
+              <div><strong>Precio:</strong> ${selectedContract.precio?.toLocaleString()} ({selectedContract.moneda})</div>
+            ) : (
+              <div><strong>Referencia:</strong> {selectedContract.referencia_fijacion} | Diferencial: {selectedContract.diferencial_fijacion} {selectedContract.tipo_diferencial}</div>
+            )}
+            <div><strong>Tipo de Entrega:</strong> {selectedContract.tipo_entrega}</div>
+            <div><strong>Forma de Pago:</strong> {selectedContract.forma_pago} (Plazo: {selectedContract.plazo_pago_dias} días)</div>
+            <div><strong>Estado:</strong> {selectedContract.estado}</div>
+          </div>
+          
+          <div style={{fontSize: 12, color: "#f5a623", fontWeight: 700, borderBottom: "1px solid #2a2d3e", paddingBottom: 6, marginBottom: 10, marginTop: 14}}>
+            🚚 CAMIONES / MOVIMIENTOS ASOCIADOS
+          </div>
+          <div style={{maxHeight: 200, overflowY: "auto"}}>
+            {selectedContract.movimientos && selectedContract.movimientos.length > 0 ? (
+              <table style={{width: "100%", fontSize: 12}}>
+                <thead>
+                  <tr>
+                    <th>N° Mov</th>
+                    <th>Fecha</th>
+                    <th>Kg Salida</th>
+                    <th>Kg Llegada</th>
+                    <th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedContract.movimientos.map(m => (
+                    <tr key={m.id}>
+                      <td><span className="mono" style={{color: "#f5a623"}}>{m.numero_movimiento}</span></td>
+                      <td>{m.created_at ? new Date(m.created_at).toLocaleDateString() : ""}</td>
+                      <td><span className="mono">{m.peso_neto_salida_kg?.toLocaleString()} kg</span></td>
+                      <td><span className="mono">{m.peso_neto_llegada_kg?.toLocaleString() || "🚚 En tránsito"} kg</span></td>
+                      <td>{m.estado}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div style={{color: "#8890a8", padding: "10px 0", textAlign: "center"}}>No hay movimientos asociados a este contrato.</div>
+            )}
+          </div>
+          <div style={{display: "flex", justifyContent: "flex-end", marginTop: 20}}>
+            <Btn variant="secondary" onClick={() => setSelectedContract(null)}>Cerrar</Btn>
           </div>
         </Modal>
       )}
