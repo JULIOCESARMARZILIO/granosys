@@ -2624,7 +2624,61 @@ const Movimientos = ({modulo}) => {
 // ── LIQUIDACIONES ──
 const Liquidaciones = ({modulo}) => {
   const [lista,setLista]=useState([]);
-  useEffect(()=>{
+  const [showNuevaModal, setShowNuevaModal] = useState(false);
+  const [contrapartes, setContrapartes] = useState([]);
+  const [contratos, setContratos] = useState([]);
+  const [movimientos, setMovimientos] = useState([]);
+  const [mermas, setMermas] = useState({});
+
+  // Form states
+  const [tipo, setTipo] = useState("COMPRA"); // COMPRA o VENTA
+  const [idContraparte, setIdContraparte] = useState("");
+  const [idContrato, setIdContrato] = useState("");
+  const [selectedMovs, setSelectedMovs] = useState([]);
+  const [fechaLiq, setFechaLiq] = useState(new Date().toISOString().split('T')[0]);
+  const [tipoLiq, setTipoLiq] = useState("INCISO_A");
+  const [moneda, setMoneda] = useState("PESOS");
+
+  const cargarMermas = async () => {
+    try {
+      const data = await api.get("/api/movimientos/mermas");
+      const map = {};
+      data.forEach(item => {
+        const key = `${item.id_especie}-${parseFloat(item.humedad).toFixed(1)}`;
+        map[key] = parseFloat(item.merma_porcentaje);
+      });
+      setMermas(map);
+    } catch(e) {
+      console.error("Error al cargar mermas:", e);
+    }
+  };
+
+  const getMermaHumedadPct = (idEspecie, humedad) => {
+    if (!humedad || humedad <= 0) return 0;
+    
+    let base = 13.5; // Soja
+    if (idEspecie === 2) base = 14.0; // Trigo
+    else if (idEspecie === 3) base = 14.5; // Maíz
+    else if (idEspecie === 4) base = 11.0; // Girasol
+    
+    if (humedad <= base) return 0;
+    
+    const key = `${idEspecie}-${parseFloat(humedad).toFixed(1)}`;
+    if (mermas[key] !== undefined) {
+      return mermas[key];
+    }
+    
+    const roundedHum = Math.round(humedad * 10) / 10;
+    if (roundedHum > 25.0) {
+      const maxKey = `${idEspecie}-25.0`;
+      const maxMerma = mermas[maxKey] || 0;
+      return maxMerma + (roundedHum - 25.0) * 1.15;
+    }
+    
+    return 0;
+  };
+
+  const cargarLiquidaciones = () => {
     api.get(`/api/liquidaciones?modalidad=${modulo}`)
       .then(data=>{
         if (data.length > 0) {
@@ -2649,12 +2703,150 @@ const Liquidaciones = ({modulo}) => {
         }
       })
       .catch(()=>setLista(mockLiquidaciones.filter(l=>l.modalidad===modulo)));
+  };
+
+  useEffect(()=>{
+    cargarLiquidaciones();
+    cargarMermas();
   },[modulo]);
+
+  const abrirNuevaModal = async () => {
+    try {
+      const cps = await api.get("/api/contrapartes");
+      const ctrs = await api.get(`/api/contratos?modulo=${modulo}`);
+      const movs = await api.get(`/api/movimientos?modalidad=${modulo}`);
+      
+      setContrapartes(cps.map(c => ({
+        ...c,
+        tipo: c.tipo_contraparte || c.tipo,
+        tipo_contraparte: c.tipo_contraparte || c.tipo,
+        codigo: c.codigo_interno || c.codigo,
+        codigo_interno: c.codigo_interno || c.codigo
+      })));
+      setContratos(ctrs.map(c => ({
+        id: c.id,
+        numero: c.numero_contrato,
+        fecha: c.fecha_contrato ? c.fecha_contrato.split('T')[0] : '',
+        contraparte: c.contraparte_nombre,
+        id_contraparte: c.id_contraparte,
+        especie: c.especie_nombre,
+        campana: c.campana_desc,
+        toneladas: parseFloat(c.cantidad_toneladas_pactadas) || 0,
+        asignadas: parseFloat(c.cantidad_toneladas_asignadas) || 0,
+        tipo_precio: c.tipo_precio,
+        precio: c.precio_pactado ? parseFloat(c.precio_pactado) : null,
+        moneda: c.moneda,
+        tipo_entrega: c.tipo_entrega,
+        estado: c.estado,
+        tipo_liq: c.tipo_liquidacion,
+        tipo_contrato: c.tipo_contrato
+      })));
+      setMovimientos(movs.map(m => ({
+        id: m.id,
+        numero: m.numero_movimiento,
+        nro_ctg: m.nro_ctg,
+        nro_cpe: m.nro_cpe,
+        id_especie: m.id_especie,
+        especie: m.especie_nombre || 'Soja',
+        campana: m.campana_desc,
+        id_contrato_compra: m.id_contrato_compra,
+        id_contrato_venta: m.id_contrato_venta,
+        contrato_compra: m.nro_contrato_compra,
+        contrato_venta: m.nro_contrato_venta,
+        productor: m.remitente_comercial_productor_nombre || m.titular_cpe_nombre,
+        comprador: m.destinatario_nombre,
+        patente_chasis: m.patente_chasis,
+        peso_neto_llegada: m.peso_neto_llegada_kg ? parseFloat(m.peso_neto_llegada_kg) : null,
+        humedad_llegada: m.humedad_llegada_pct ? parseFloat(m.humedad_llegada_pct) : null,
+        estado: m.estado,
+        estado_liq: m.estado_liquidacion,
+        factor_aplicado: m.factor_aplicado ? parseFloat(m.factor_aplicado) : null,
+        factor_manual: m.factor_manual ? parseFloat(m.factor_manual) : null,
+        kg_liquidables: m.kg_liquidables ? parseFloat(m.kg_liquidables) : null
+      })));
+      
+      // Reset form fields
+      setTipo("COMPRA");
+      setIdContraparte("");
+      setIdContrato("");
+      setSelectedMovs([]);
+      setFechaLiq(new Date().toISOString().split('T')[0]);
+      setTipoLiq("INCISO_A");
+      setMoneda("PESOS");
+      
+      setShowNuevaModal(true);
+    } catch (err) {
+      alert("Error al cargar datos para liquidar: " + err.message);
+    }
+  };
+
+  const handleCrearLiquidacion = async () => {
+    if (!idContraparte) return alert("Seleccioná un cliente");
+    if (!idContrato) return alert("Seleccioná un contrato");
+    if (selectedMovs.length === 0) return alert("Seleccioná al menos un camión para liquidar");
+
+    try {
+      await api.post("/api/liquidaciones", {
+        tipo: tipo,
+        modalidad: modulo,
+        tipo_liquidacion: modulo === "FORMAL" ? tipoLiq : null,
+        id_contrato: parseInt(idContrato),
+        id_contraparte: parseInt(idContraparte),
+        fecha_liquidacion: fechaLiq,
+        ids_movimientos: selectedMovs,
+        moneda: moneda
+      });
+      alert("✓ Liquidación creada exitosamente");
+      setShowNuevaModal(false);
+      cargarLiquidaciones();
+    } catch (err) {
+      alert("Error al crear liquidación: " + err.message);
+    }
+  };
+
+  // Filtrado de contrapartes:
+  const contrapartesFiltradas = contrapartes.filter(cp => {
+    const t = cp.tipo_contraparte || cp.tipo;
+    if (tipo === "COMPRA") return t === "PRODUCTOR" || t === "AMBOS";
+    return t === "COMPRADOR" || t === "AMBOS";
+  });
+
+  // Filtrado de contratos:
+  const contratosFiltrados = contratos.filter(c => {
+    return c.id_contraparte === parseInt(idContraparte) && c.tipo_contrato === tipo;
+  });
+
+  // Contrato seleccionado
+  const contratoSeleccionado = contratos.find(c => c.id === parseInt(idContrato));
+
+  // Filtrado de movimientos/camiones:
+  const movimientosFiltrados = movimientos.filter(m => {
+    if (m.estado_liq !== 'ASIGNADO') return false;
+    if (tipo === "COMPRA") {
+      return m.id_contrato_compra === parseInt(idContrato);
+    } else {
+      return m.id_contrato_venta === parseInt(idContrato);
+    }
+  });
+
+  // Totales dinámicos
+  const totalKgLiquidables = movimientosFiltrados
+    .filter(m => selectedMovs.includes(m.id))
+    .reduce((a, m) => {
+      const humPct = getMermaHumedadPct(m.id_especie, m.humedad_llegada);
+      const kgSecos = (m.peso_neto_llegada || 0) * (1.0 - (humPct / 100));
+      const calculatedLiquidables = m.kg_liquidables || (kgSecos * (m.factor_aplicado || 1.0));
+      return a + calculatedLiquidables;
+    }, 0);
+
+  const precioContrato = contratoSeleccionado?.precio || 0;
+  const montoBrutoCalculado = (totalKgLiquidables / 1000) * precioContrato;
+
   return (
     <div className="fade-in">
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
         <h2 style={{fontSize:18,fontWeight:700}}>Liquidaciones {modulo==="FORMAL"?"Formales":"Informales"}</h2>
-        <Btn>+ Nueva Liquidación</Btn>
+        <Btn onClick={abrirNuevaModal}>+ Nueva Liquidación</Btn>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:20}}>
         <StatCard label="Total Emitido (mes)" value={`$ ${lista.reduce((a,l)=>a+l.monto_neto,0).toLocaleString()}`} sub={`${lista.length} liquidaciones`} color="#3498db"/>
@@ -2683,10 +2875,203 @@ const Liquidaciones = ({modulo}) => {
         ))}</tbody></table>
         {lista.length===0&&<div style={{padding:40,textAlign:"center",color:"#565d7a"}}>No hay liquidaciones en modalidad {modulo.toLowerCase()}</div>}
       </div>
+
+      {showNuevaModal && (
+        <Modal title="Generar Nueva Liquidación" onClose={() => setShowNuevaModal(false)} width={960}>
+          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            
+            <div className="form-grid-3">
+              <FF label="Tipo de Operación" required>
+                <select value={tipo} onChange={e => {
+                  setTipo(e.target.value);
+                  setIdContraparte("");
+                  setIdContrato("");
+                  setSelectedMovs([]);
+                }}>
+                  <option value="COMPRA">COMPRA (Liquidar a Productor)</option>
+                  <option value="VENTA">VENTA (Liquidar a Comprador)</option>
+                </select>
+              </FF>
+
+              <FF label="Cliente (Contraparte)" required>
+                <select value={idContraparte} onChange={e => {
+                  setIdContraparte(e.target.value);
+                  setIdContrato("");
+                  setSelectedMovs([]);
+                }}>
+                  <option value="">Seleccionar cliente...</option>
+                  {contrapartesFiltradas.map(cp => (
+                    <option key={cp.id} value={cp.id}>
+                      {cp.codigo} — {cp.razon_social} {cp.cuit ? `(${cp.cuit})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </FF>
+
+              <FF label="Contrato de Respaldo" required>
+                <select value={idContrato} onChange={e => {
+                  setIdContrato(e.target.value);
+                  setSelectedMovs([]);
+                  // Cargar moneda predeterminada del contrato
+                  const selectedC = contratos.find(c => c.id === parseInt(e.target.value));
+                  if (selectedC) {
+                    setMoneda(selectedC.moneda || "PESOS");
+                    if (modulo === "FORMAL" && selectedC.tipo_liq) {
+                      setTipoLiq(selectedC.tipo_liq);
+                    }
+                  }
+                }}>
+                  <option value="">Seleccionar contrato...</option>
+                  {contratosFiltrados.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.numero} — {c.contraparte} — {c.especie} {c.tipo_precio === "A_FIJAR" ? "(A FIJAR)" : `$ ${c.precio?.toLocaleString()}`}
+                    </option>
+                  ))}
+                </select>
+              </FF>
+            </div>
+
+            {contratoSeleccionado && (
+              <div style={{padding:"12px 14px",background:"rgba(245,166,35,.04)",border:"1px solid rgba(245,166,35,.15)",borderRadius:8,display:"flex",gap:16,fontSize:12,justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <span style={{color:"#8890a8",marginRight:12}}><strong>Especie:</strong> {contratoSeleccionado.especie}</span>
+                  <span style={{color:"#8890a8",marginRight:12}}><strong>Campaña:</strong> {contratoSeleccionado.campana}</span>
+                  <span style={{color:"#8890a8",marginRight:12}}><strong>Precio Pactado:</strong> {contratoSeleccionado.precio > 0 ? `$ ${contratoSeleccionado.precio.toLocaleString()} / tn` : "A Fijar (Sin precio fijado)"}</span>
+                  <span style={{color:"#8890a8"}}><strong>Moneda:</strong> {contratoSeleccionado.moneda}</span>
+                </div>
+                <div>
+                  <Badge label={contratoSeleccionado.tipo_precio} color={contratoSeleccionado.tipo_precio === "A_FIJAR" ? "purple" : "green"}/>
+                </div>
+              </div>
+            )}
+
+            <div className="form-grid-3">
+              <FF label="Fecha de Liquidación" required>
+                <input type="date" value={fechaLiq} onChange={e => setFechaLiq(e.target.value)}/>
+              </FF>
+
+              <FF label="Moneda de Liquidación" required>
+                <select value={moneda} onChange={e => setMoneda(e.target.value)}>
+                  <option value="PESOS">PESOS ($)</option>
+                  <option value="DOLARES">DÓLARES (USD)</option>
+                </select>
+              </FF>
+
+              {modulo === "FORMAL" && (
+                <FF label="Tipo de Liquidación (Formal)" required>
+                  <select value={tipoLiq} onChange={e => setTipoLiq(e.target.value)}>
+                    <option value="INCISO_A">Inciso A (Liquidación Primaria de Granos)</option>
+                    <option value="INCISO_B">Inciso B (Liquidación Secundaria)</option>
+                  </select>
+                </FF>
+              )}
+            </div>
+
+            {idContrato && (
+              <div style={{marginTop:8}}>
+                <div style={{fontSize:12,fontWeight:600,color:"#e8eaf0",marginBottom:8,textTransform:"uppercase",letterSpacing:".04em"}}>
+                  🚚 Camiones asignados pendientes de liquidación
+                </div>
+                <div style={{maxHeight:250,overflowY:"auto",border:"1px solid #2a2d3e",borderRadius:6}}>
+                  <table style={{width:"100%",margin:0,fontSize:12}}>
+                    <thead>
+                      <tr>
+                        <th style={{width:40,textAlign:"center"}}>
+                          <input 
+                            type="checkbox" 
+                            checked={movimientosFiltrados.length > 0 && selectedMovs.length === movimientosFiltrados.length}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedMovs(movimientosFiltrados.map(m => m.id));
+                              } else {
+                                setSelectedMovs([]);
+                              }
+                            }}
+                          />
+                        </th>
+                        <th>N° Movimiento</th>
+                        <th>Patente</th>
+                        <th style={{textAlign:"right"}}>Kg Neto Llegada</th>
+                        <th style={{textAlign:"right"}}>Humedad (%)</th>
+                        <th style={{textAlign:"right"}}>Factor Calidad</th>
+                        <th style={{textAlign:"right"}}>Kg Liquidables</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {movimientosFiltrados.map(m => {
+                        const isChecked = selectedMovs.includes(m.id);
+                        const humPct = getMermaHumedadPct(m.id_especie, m.humedad_llegada);
+                        const kgSecos = (m.peso_neto_llegada || 0) * (1.0 - (humPct / 100));
+                        const calculatedLiquidables = m.kg_liquidables || (kgSecos * (m.factor_aplicado || 1.0));
+                        
+                        return (
+                          <tr key={m.id} style={isChecked ? {background:"rgba(39,174,96,.04)"} : {}}>
+                            <td style={{textAlign:"center"}}>
+                              <input 
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedMovs([...selectedMovs, m.id]);
+                                  } else {
+                                    setSelectedMovs(selectedMovs.filter(id => id !== m.id));
+                                  }
+                                }}
+                              />
+                            </td>
+                            <td><span className="mono" style={{color:"#f5a623"}}>{m.numero}</span></td>
+                            <td><span className="mono">{m.patente_chasis}</span></td>
+                            <td style={{textAlign:"right",fontFamily:"monospace"}}>{m.peso_neto_llegada?.toLocaleString()} kg</td>
+                            <td style={{textAlign:"right",fontFamily:"monospace"}}>{m.humedad_llegada ? `${m.humedad_llegada}%` : "—"}</td>
+                            <td style={{textAlign:"right",fontFamily:"monospace"}}>{m.factor_aplicado ? m.factor_aplicado.toFixed(4) : "1.0000"}</td>
+                            <td style={{textAlign:"right",fontFamily:"monospace",fontWeight:600,color:"#27ae60"}}>{Math.round(calculatedLiquidables).toLocaleString()} kg</td>
+                          </tr>
+                        );
+                      })}
+                      {movimientosFiltrados.length === 0 && (
+                        <tr>
+                          <td colSpan="7" style={{textAlign:"center",padding:24,color:"#565d7a"}}>
+                            No hay camiones pendientes de liquidar asignados a este contrato.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {selectedMovs.length > 0 && contratoSeleccionado && (
+              <div style={{padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",marginTop:8}}>
+                <div style={{fontSize:11,color:"#8890a8",marginBottom:8,fontWeight:600,textTransform:"uppercase"}}>Resumen Parcial de Liquidación</div>
+                <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1e2133"}}>
+                  <span style={{color:"#8890a8",fontSize:13}}>Kilos Totales a Liquidar</span>
+                  <span className="mono" style={{fontWeight:600}}>{Math.round(totalKgLiquidables).toLocaleString()} kg</span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1e2133"}}>
+                  <span style={{color:"#8890a8",fontSize:13}}>Precio Contrato</span>
+                  <span className="mono" style={{fontWeight:600}}>$ {precioContrato.toLocaleString()} / tn</span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1e2133"}}>
+                  <span style={{color:"#8890a8",fontSize:13}}>Monto Bruto Estimado</span>
+                  <span className="mono" style={{fontWeight:700,fontSize:16,color:"#27ae60"}}>
+                    {moneda === "PESOS" ? "$" : "USD"} {montoBrutoCalculado.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16,paddingTop:14,borderTop:"1px solid #2a2d3e"}}>
+              <Btn variant="secondary" onClick={() => setShowNuevaModal(false)}>Cerrar</Btn>
+              <Btn onClick={handleCrearLiquidacion} disabled={selectedMovs.length === 0}>Generar Liquidación</Btn>
+            </div>
+
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };
-
 // ── CUENTA CORRIENTE ──
 const CuentaCorriente = ({modulo}) => {
   const [tab,setTab]=useState("productores");

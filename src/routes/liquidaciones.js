@@ -96,13 +96,17 @@ router.post('/', async (req, res) => {
     }
 
     // Crear movimiento en cuenta corriente
+    const debeVal = tipo === 'COMPRA' ? 0 : monto_bruto;
+    const haberVal = tipo === 'COMPRA' ? monto_bruto : 0;
+    const saldoAcumulado = tipo === 'COMPRA' ? -monto_bruto : monto_bruto;
+
     await pool.query(`
       INSERT INTO cc_contrapartes
         (id_contraparte, id_liquidacion, id_contrato, fecha, tipo_movimiento,
          concepto, debe, haber, saldo_acumulado, modalidad, estado)
-      VALUES ($1,$2,$3,$4,'LIQUIDACION',$5,$6,0,$6,$7,'ABIERTO')
+      VALUES ($1,$2,$3,$4,'LIQUIDACION',$5,$6,$7,$8,$9,'ABIERTO')
     `, [id_contraparte, rows[0].id, id_contrato, fecha_liquidacion,
-        `Liquidación ${nro_liquidacion}`, monto_bruto, modalidad]);
+        `Liquidación ${nro_liquidacion}`, debeVal, haberVal, saldoAcumulado, modalidad]);
 
     res.status(201).json(rows[0]);
   } catch (err) {
