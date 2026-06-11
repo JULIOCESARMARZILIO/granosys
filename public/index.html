@@ -324,7 +324,16 @@ const Contrapartes = ({modulo}) => {
   const [loading,setLoading]=useState(true);
   const [guardando,setGuardando]=useState(false);
   const [consultandoArca,setConsultandoArca]=useState(false);
-  const [form,setForm]=useState({cuit:"",razon_social:"",es_productor:false,es_comprador:false,es_transportista:false,es_corredor:false,condicion_iva:"RI",provincia:"",localidad:"",telefono:"",email:"",domicilio:""});
+  const [form,setForm]=useState({cuit:"",razon_social:"",es_productor:false,es_comprador:false,es_transportista:false,es_corredor:false,condicion_iva:"RI",provincia:"",localidad:"",telefono:"",email:"",domicilio:"",canal_operacion:modulo==="FORMAL"?"FORMAL":"INFORMAL",id_contraparte_relacionada:""});
+  const [contrapartesFormales, setContrapartesFormales] = useState([]);
+
+  useEffect(() => {
+    if (showForm && modulo === "INFORMAL") {
+      api.get("/api/contrapartes?canal=FORMAL")
+        .then(data => setContrapartesFormales(Array.isArray(data) ? data : []))
+        .catch(e => console.error("Error cargando contrapartes formales:", e));
+    }
+  }, [showForm, modulo]);
 
   const consultarCuitEnArca = async () => {
     const cuitLimpio = form.cuit.replace(/[^0-9]/g, '');
@@ -360,6 +369,7 @@ const Contrapartes = ({modulo}) => {
     try {
       const params = new URLSearchParams();
       if (search) params.append("search",search);
+      if (modulo) params.append("canal", modulo);
       const url = `/api/contrapartes?${params.toString()}`;
       const data = await api.get(url);
       setLista(Array.isArray(data) ? data : []);
@@ -452,7 +462,7 @@ const Contrapartes = ({modulo}) => {
       {showForm&&(
         <Modal title={form._editando?`Editar Contraparte`:`Nueva Contraparte`} onClose={()=>setShowForm(false)} width={860}>
           <div className="form-grid-2">
-            <FF label="CUIT" required>
+            <FF label="CUIT" required={modulo === "FORMAL"}>
               <div style={{display:"flex",gap:8}}>
                 <input 
                   placeholder="20-12345678-9" 
@@ -502,11 +512,42 @@ const Contrapartes = ({modulo}) => {
             <FF label="Localidad"><input placeholder="Ciudad / Localidad" value={form.localidad} onChange={e=>setForm({...form,localidad:e.target.value})}/></FF>
             <FF label="Teléfono"><input placeholder="Teléfono" value={form.telefono} onChange={e=>setForm({...form,telefono:e.target.value})}/></FF>
             <FF label="Email"><input placeholder="correo@ejemplo.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></FF>
+            {modulo === "FORMAL" && (
+              <div className="form-field" style={{gridColumn:"span 2", marginTop: 8}}>
+                <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
+                  <input
+                    type="checkbox"
+                    checked={form.canal_operacion === 'AMBOS'}
+                    onChange={e => setForm({...form, canal_operacion: e.target.checked ? 'AMBOS' : 'FORMAL'})}
+                    style={{width:16,height:16}}
+                  />
+                  <div>
+                    <div style={{fontWeight:600,fontSize:13}}>Disponible en canal Informal</div>
+                    <div style={{fontSize:11,color:"#8890a8",marginTop:2}}>Permite visualizar y utilizar esta contraparte en el canal informal.</div>
+                  </div>
+                </label>
+              </div>
+            )}
+            {modulo === "INFORMAL" && (
+              <FF label="Relacionar con cuenta Formal">
+                <select 
+                  value={form.id_contraparte_relacionada} 
+                  onChange={e => setForm({...form, id_contraparte_relacionada: e.target.value})}
+                >
+                  <option value="">Sin relación (Cuenta independiente)</option>
+                  {contrapartesFormales.map(cf => (
+                    <option key={cf.id} value={cf.id}>
+                      {cf.razon_social} {cf.cuit ? `(CUIT: ${cf.cuit})` : ''} - {cf.codigo_interno}
+                    </option>
+                  ))}
+                </select>
+              </FF>
+            )}
           </div>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:8}}>
             <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn>
             <Btn disabled={guardando} onClick={async()=>{
-              if(!form.cuit){alert("El CUIT es obligatorio");return;}
+              if(modulo === "FORMAL" && !form.cuit){alert("El CUIT es obligatorio");return;}
               if(!form.razon_social){alert("La razón social es obligatoria");return;}
               if(!form.es_productor&&!form.es_comprador&&!form.es_transportista&&!form.es_corredor){
                 alert("Seleccioná al menos un rubro");return;
@@ -520,16 +561,17 @@ const Contrapartes = ({modulo}) => {
                 if(form.es_corredor) rubros.push("CORREDOR");
                 const tipo = rubros.length>1?"AMBOS":rubros[0];
                 const datos = {
-                  cuit: form.cuit,
+                  cuit: form.cuit || null,
                   razon_social: form.razon_social,
                   tipo_contraparte: tipo,
-                  canal_operacion: "AMBOS",
+                  canal_operacion: form.canal_operacion || (modulo === 'FORMAL' ? 'FORMAL' : 'INFORMAL'),
                   condicion_iva: form.condicion_iva||null,
                   domicilio: form.domicilio||null,
                   localidad: form.localidad||null,
                   provincia: form.provincia||null,
                   telefono: form.telefono||null,
                   email: form.email||null,
+                  id_contraparte_relacionada: modulo === 'INFORMAL' && form.id_contraparte_relacionada ? parseInt(form.id_contraparte_relacionada) : null
                 };
                 if(form._editando && form._id) {
                   await api.put(`/api/contrapartes/${form._id}`, datos);
@@ -539,7 +581,7 @@ const Contrapartes = ({modulo}) => {
                   alert("✓ Contraparte guardada");
                 }
                 setShowForm(false);
-                setForm({cuit:"",razon_social:"",es_productor:false,es_comprador:false,es_transportista:false,es_corredor:false,condicion_iva:"RI",provincia:"",localidad:"",telefono:"",email:"",domicilio:"",_id:null,_editando:false});
+                setForm({cuit:"",razon_social:"",es_productor:false,es_comprador:false,es_transportista:false,es_corredor:false,condicion_iva:"RI",provincia:"",localidad:"",telefono:"",email:"",domicilio:"",canal_operacion:modulo==="FORMAL"?"FORMAL":"INFORMAL",id_contraparte_relacionada:"",_id:null,_editando:false});
                 cargarContrapartes();
               } catch(e) {
                 alert("Error: "+e.message);
@@ -4489,6 +4531,31 @@ const StockConsolidado = () => {
 // ── CC CONSOLIDADA ──
 const CCConsolidada = () => {
   const [filtroModalidad, setFiltroModalidad] = useState("TODOS");
+  const [saldosConsolidados, setSaldosConsolidados] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    api.get("/api/cc/consolidado")
+      .then(data => {
+        setSaldosConsolidados(Array.isArray(data) ? data : []);
+      })
+      .catch(e => console.error("Error al cargar saldos consolidados:", e))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const totalAPagar = saldosConsolidados
+    .map(r => (r.f || 0) + (r.i || 0))
+    .filter(val => val < 0)
+    .reduce((acc, val) => acc + Math.abs(val), 0);
+
+  const totalACobrar = saldosConsolidados
+    .map(r => (r.f || 0) + (r.i || 0))
+    .filter(val => val > 0)
+    .reduce((acc, val) => acc + val, 0);
+
+  const balanceNeto = totalACobrar - totalAPagar;
+
   return (
     <div className="fade-in">
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
@@ -4508,9 +4575,9 @@ const CCConsolidada = () => {
       </div>
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:20}}>
-        <StatCard label="Total a Pagar" value="$ 18.4M" sub="productores y transportistas" color="#e74c3c"/>
-        <StatCard label="Total a Cobrar" value="$ 18.4M" sub="compradores" color="#27ae60"/>
-        <StatCard label="Balance Neto" value="$ 0" sub="equilibrado" color="#f5a623"/>
+        <StatCard label="Total a Pagar" value={`$ ${totalAPagar.toLocaleString(undefined, {maximumFractionDigits:0})}`} sub="deuda consolidada" color="#e74c3c"/>
+        <StatCard label="Total a Cobrar" value={`$ ${totalACobrar.toLocaleString(undefined, {maximumFractionDigits:0})}`} sub="acreencias consolidadas" color="#27ae60"/>
+        <StatCard label="Balance Neto" value={`$ ${Math.abs(balanceNeto).toLocaleString(undefined, {maximumFractionDigits:0})}`} sub={balanceNeto < 0 ? "Saldo neto a pagar" : balanceNeto > 0 ? "Saldo neto a cobrar" : "equilibrado"} color="#f5a623"/>
       </div>
 
       <div className="card">
@@ -4520,31 +4587,31 @@ const CCConsolidada = () => {
           <th>Estado</th>
         </tr></thead>
         <tbody>
-          {[
-            {nombre:"García Juan Carlos",tipo:"PRODUCTOR",f:-9200828,i:0},
-            {nombre:"Bunge Argentina S.A.",tipo:"COMPRADOR",f:9200828,i:0},
-            {nombre:"Rodríguez Pedro",tipo:"PRODUCTOR",f:0,i:-450000},
-            {nombre:"Logística Centro S.R.L.",tipo:"TRANSPORTISTA",f:-148500,i:-89200},
-          ].filter(r=>filtroModalidad==="TODOS"||(filtroModalidad==="FORMAL"&&r.f!==0)||(filtroModalidad==="INFORMAL"&&r.i!==0))
-          .map((r,i)=>{
-            const total = r.f + r.i;
-            return (
-              <tr key={i}>
-                <td style={{fontWeight:500}}>{r.nombre}</td>
-                <td><Badge label={r.tipo} color={r.tipo==="PRODUCTOR"?"orange":r.tipo==="COMPRADOR"?"blue":"green"}/></td>
-                <td><span className="mono" style={{fontSize:12,color:r.f<0?"#e74c3c":r.f>0?"#27ae60":"#565d7a"}}>
-                  {r.f!==0?`${r.f<0?"▼":"▲"} $ ${Math.abs(r.f).toLocaleString()}`:"—"}
-                </span></td>
-                <td><span className="mono" style={{fontSize:12,color:r.i<0?"#e74c3c":r.i>0?"#27ae60":"#565d7a"}}>
-                  {r.i!==0?`${r.i<0?"▼":"▲"} $ ${Math.abs(r.i).toLocaleString()}`:"—"}
-                </span></td>
-                <td><span className="mono" style={{fontWeight:700,color:total<0?"#e74c3c":total>0?"#27ae60":"#565d7a"}}>
-                  {total<0?"A PAGAR":"A COBRAR"} $ {Math.abs(total).toLocaleString()}
-                </span></td>
-                <td><Badge label={total===0?"EQUILIBRADO":total<0?"PENDIENTE PAGO":"PENDIENTE COBRO"} color={total===0?"green":total<0?"red":"blue"}/></td>
-              </tr>
-            );
-          })}
+          {loading ? (
+            <tr><td colSpan={6} style={{textAlign:"center",padding:30,color:"#8890a8"}}><span className="pulse">Cargando saldos...</span></td></tr>
+          ) : saldosConsolidados.length === 0 ? (
+            <tr><td colSpan={6} style={{textAlign:"center",padding:30,color:"#565d7a"}}>No se encontraron saldos registrados.</td></tr>
+          ) : saldosConsolidados.filter(r => filtroModalidad==="TODOS" || (filtroModalidad==="FORMAL" && r.f!==0) || (filtroModalidad==="INFORMAL" && r.i!==0))
+            .map((r,idx) => {
+              const total = r.f + r.i;
+              return (
+                <tr key={idx}>
+                  <td style={{fontWeight:500}}>{r.nombre}</td>
+                  <td><Badge label={r.tipo} color={r.tipo==="PRODUCTOR"?"orange":r.tipo==="COMPRADOR"?"blue":"green"}/></td>
+                  <td><span className="mono" style={{fontSize:12,color:r.f<0?"#e74c3c":r.f>0?"#27ae60":"#565d7a"}}>
+                    {r.f!==0?`${r.f<0?"▼":"▲"} $ ${Math.abs(r.f).toLocaleString()}`:"—"}
+                  </span></td>
+                  <td><span className="mono" style={{fontSize:12,color:r.i<0?"#e74c3c":r.i>0?"#27ae60":"#565d7a"}}>
+                    {r.i!==0?`${r.i<0?"▼":"▲"} $ ${Math.abs(r.i).toLocaleString()}`:"—"}
+                  </span></td>
+                  <td><span className="mono" style={{fontWeight:700,color:total<0?"#e74c3c":total>0?"#27ae60":"#565d7a"}}>
+                    {total<0?"A PAGAR":"A COBRAR"} $ {Math.abs(total).toLocaleString()}
+                  </span></td>
+                  <td><Badge label={total===0?"EQUILIBRADO":total<0?"PENDIENTE PAGO":"PENDIENTE COBRO"} color={total===0?"green":total<0?"red":"blue"}/></td>
+                </tr>
+              );
+            })
+          }
         </tbody></table>
       </div>
     </div>

@@ -354,6 +354,11 @@ async function initDB() {
       );
     `);
 
+    // Migración para relaciones de contrapartes
+    await client.query(`
+      ALTER TABLE contrapartes ADD COLUMN IF NOT EXISTS id_contraparte_relacionada INTEGER REFERENCES contrapartes(id);
+    `);
+
     // Insertar datos iniciales si no existen
     const { rows: campanas } = await client.query('SELECT id FROM campanas LIMIT 1');
     if (campanas.length === 0) {

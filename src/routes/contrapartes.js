@@ -181,7 +181,7 @@ router.get('/consulta-arca/:cuit', async (req, res) => {
 // GET todas las contrapartes
 router.get('/', async (req, res) => {
   try {
-    const { tipo, search } = req.query;
+    const { tipo, search, canal } = req.query;
     let query = 'SELECT * FROM contrapartes WHERE 1=1';
     const params = [];
 
@@ -192,6 +192,13 @@ router.get('/', async (req, res) => {
     if (search) {
       params.push(`%${search}%`);
       query += ` AND (razon_social ILIKE $${params.length} OR cuit ILIKE $${params.length})`;
+    }
+    if (canal) {
+      if (canal === 'FORMAL') {
+        query += ` AND canal_operacion IN ('FORMAL', 'AMBOS')`;
+      } else if (canal === 'INFORMAL') {
+        query += ` AND canal_operacion IN ('INFORMAL', 'AMBOS')`;
+      }
     }
     query += ' ORDER BY razon_social';
 
@@ -217,19 +224,22 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { cuit, razon_social, tipo_contraparte, canal_operacion, condicion_iva,
-            domicilio, localidad, provincia, telefono, email, observaciones } = req.body;
+            domicilio, localidad, provincia, telefono, email, observaciones, id_contraparte_relacionada } = req.body;
 
-    if (!cuit) {
-      return res.status(400).json({ error: 'El CUIT es obligatorio' });
+    const isInformal = (canal_operacion === 'INFORMAL');
+    if (!isInformal && !cuit) {
+      return res.status(400).json({ error: 'El CUIT es obligatorio para contrapartes formales' });
     }
     if (!razon_social) {
       return res.status(400).json({ error: 'La Razón Social es obligatoria' });
     }
 
-    // Verificar unicidad de CUIT
-    const { rows: existing } = await pool.query('SELECT id FROM contrapartes WHERE cuit = $1', [cuit]);
-    if (existing.length > 0) {
-      return res.status(400).json({ error: 'Ya existe una contraparte registrada con ese CUIT' });
+    // Verificar unicidad de CUIT si se proporciona
+    if (cuit && cuit.trim() !== '') {
+      const { rows: existing } = await pool.query('SELECT id FROM contrapartes WHERE cuit = $1', [cuit.trim()]);
+      if (existing.length > 0) {
+        return res.status(400).json({ error: 'Ya existe una contraparte registrada con ese CUIT' });
+      }
     }
 
     // Generar código interno
@@ -243,12 +253,12 @@ router.post('/', async (req, res) => {
 
     const { rows } = await pool.query(`
       INSERT INTO contrapartes (codigo_interno, cuit, razon_social, tipo_contraparte,
-        canal_operacion, condicion_iva, domicilio, localidad, provincia, telefono, email, observaciones)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        canal_operacion, condicion_iva, domicilio, localidad, provincia, telefono, email, observaciones, id_contraparte_relacionada)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       RETURNING *
-    `, [codigo_interno, cuit, razon_social, tipo_contraparte,
+    `, [codigo_interno, cuit ? cuit.trim() : null, razon_social, tipo_contraparte,
         canal_operacion||'AMBOS', condicion_iva, domicilio, localidad,
-        provincia, telefono, email, observaciones]);
+        provincia, telefono, email, observaciones, id_contraparte_relacionada || null]);
 
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -259,30 +269,33 @@ router.post('/', async (req, res) => {
 // PUT actualizar contraparte
 router.put('/:id', async (req, res) => {
   try {
-    const { cuit, razon_social, tipo_contraparte, condicion_iva,
-            domicilio, localidad, provincia, telefono, email, activo } = req.body;
+    const { cuit, razon_social, tipo_contraparte, canal_operacion, condicion_iva,
+            domicilio, localidad, provincia, telefono, email, activo, id_contraparte_relacionada } = req.body;
 
-    if (!cuit) {
-      return res.status(400).json({ error: 'El CUIT es obligatorio' });
+    const isInformal = (canal_operacion === 'INFORMAL');
+    if (!isInformal && !cuit) {
+      return res.status(400).json({ error: 'El CUIT es obligatorio para contrapartes formales' });
     }
     if (!razon_social) {
       return res.status(400).json({ error: 'La Razón Social es obligatoria' });
     }
 
-    // Verificar unicidad de CUIT en otras contrapartes
-    const { rows: existing } = await pool.query('SELECT id FROM contrapartes WHERE cuit = $1 AND id <> $2', [cuit, req.params.id]);
-    if (existing.length > 0) {
-      return res.status(400).json({ error: 'Ya existe otra contraparte registrada con ese CUIT' });
+    // Verificar unicidad de CUIT en otras contrapartes si se proporciona
+    if (cuit && cuit.trim() !== '') {
+      const { rows: existing } = await pool.query('SELECT id FROM contrapartes WHERE cuit = $1 AND id <> $2', [cuit.trim(), req.params.id]);
+      if (existing.length > 0) {
+        return res.status(400).json({ error: 'Ya existe otra contraparte registrada con ese CUIT' });
+      }
     }
 
     const { rows } = await pool.query(`
       UPDATE contrapartes SET
-        cuit=$1, razon_social=$2, tipo_contraparte=$3, condicion_iva=$4,
-        domicilio=$5, localidad=$6, provincia=$7, telefono=$8, email=$9,
-        activo=$10, updated_at=NOW()
-      WHERE id=$11 RETURNING *
-    `, [cuit, razon_social, tipo_contraparte, condicion_iva,
-        domicilio, localidad, provincia, telefono, email, activo !== undefined ? activo : true, req.params.id]);
+        cuit=$1, razon_social=$2, tipo_contraparte=$3, canal_operacion=$4, condicion_iva=$5,
+        domicilio=$6, localidad=$7, provincia=$8, telefono=$9, email=$10,
+        activo=$11, id_contraparte_relacionada=$12, updated_at=NOW()
+      WHERE id=$13 RETURNING *
+    `, [cuit ? cuit.trim() : null, razon_social, tipo_contraparte, canal_operacion || 'AMBOS', condicion_iva,
+        domicilio, localidad, provincia, telefono, email, activo !== undefined ? activo : true, id_contraparte_relacionada || null, req.params.id]);
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
