@@ -385,13 +385,20 @@ router.put('/:id/calidad', async (req, res) => {
 router.put('/:id/asignar', async (req, res) => {
   try {
     const { id_contrato_compra, id_contrato_venta } = req.body;
+    
+    // Permitir actualizar a null si se pasa explícitamente en el body
+    const id_compra = id_contrato_compra !== undefined ? id_contrato_compra : null;
+    const id_venta = id_contrato_venta !== undefined ? id_contrato_venta : null;
+    const estado_liq = (id_compra === null && id_venta === null) ? 'SIN_ASIGNAR' : 'ASIGNADO';
+
     const { rows } = await pool.query(`
       UPDATE movimientos SET
-        id_contrato_compra=COALESCE($1, id_contrato_compra),
-        id_contrato_venta=COALESCE($2, id_contrato_venta),
-        estado_liquidacion='ASIGNADO', updated_at=NOW()
-      WHERE id=$3 RETURNING *
-    `, [id_contrato_compra||null, id_contrato_venta||null, req.params.id]);
+        id_contrato_compra=$1,
+        id_contrato_venta=$2,
+        estado_liquidacion=$3,
+        updated_at=NOW()
+      WHERE id=$4 RETURNING *
+    `, [id_compra, id_venta, estado_liq, req.params.id]);
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });

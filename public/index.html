@@ -1195,6 +1195,8 @@ const Movimientos = ({modulo}) => {
         id_especie: m.id_especie,
         especie: m.especie_nombre || 'Soja',
         campana: m.campana_desc,
+        id_contrato_compra: m.id_contrato_compra,
+        id_contrato_venta: m.id_contrato_venta,
         contrato_compra: m.nro_contrato_compra,
         contrato_venta: m.nro_contrato_venta,
         productor: m.remitente_comercial_productor_nombre || m.titular_cpe_nombre,
@@ -2225,18 +2227,18 @@ const Movimientos = ({modulo}) => {
               </div>
               <div className="form-grid-2" style={{marginBottom:8}}>
                 <FF label="Contrato de Compra">
-                  <select defaultValue={selected?.contrato_compra||""}>
+                  <select defaultValue={selected?.id_contrato_compra||""} id="input_id_contrato_compra">
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
                     {contratos.filter(c=>c.tipo==="COMPRA").map(c=>(
-                      <option key={c.id} value={c.numero}>{c.numero} — {c.contraparte} — {c.especie} {c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString()}</option>
+                      <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString()}</option>
                     ))}
                   </select>
                 </FF>
                 <FF label="Contrato de Venta">
-                  <select defaultValue={selected?.contrato_venta||""}>
+                  <select defaultValue={selected?.id_contrato_venta||""} id="input_id_contrato_venta">
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
                     {contratos.filter(c=>c.tipo==="VENTA").map(c=>(
-                      <option key={c.id} value={c.numero}>{c.numero} — {c.contraparte} — {c.especie} {c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString()}</option>
+                      <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString()}</option>
                     ))}
                   </select>
                 </FF>
@@ -2519,6 +2521,16 @@ const Movimientos = ({modulo}) => {
             <Btn onClick={async()=>{
               try {
                 if(selected) {
+                  // Guardar asignación de contratos si se editaron
+                  const compraVal = document.getElementById('input_id_contrato_compra')?.value;
+                  const ventaVal = document.getElementById('input_id_contrato_venta')?.value;
+                  if (compraVal !== undefined || ventaVal !== undefined) {
+                    await api.put(`/api/movimientos/${selected.id}/asignar`, {
+                      id_contrato_compra: compraVal ? parseInt(compraVal) : null,
+                      id_contrato_venta: ventaVal ? parseInt(ventaVal) : null
+                    });
+                  }
+
                   // Guardar llegada si se ingresaron pesos
                   if (brutoLlegada !== null && taraLlegada !== null) {
                     await api.put(`/api/movimientos/${selected.id}/llegada`, {
