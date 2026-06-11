@@ -902,6 +902,18 @@ const Movimientos = ({modulo}) => {
   const movs = movsReal !== null ? movsReal : mockMovimientos.filter(m=>m.modalidad===modulo);
   const [contratosReal,setContratosReal]=useState(null);
   const contratos = contratosReal !== null ? contratosReal : mockContratos.filter(c=>c.modalidad===modulo);
+  const [contrapartesReal, setContrapartesReal] = useState(null);
+  const contrapartes = contrapartesReal !== null ? contrapartesReal : mockContrapartes;
+  const [tempFactor, setTempFactor] = useState(null);
+
+  const cargarContrapartes = async () => {
+    try {
+      const data = await api.get("/api/contrapartes");
+      setContrapartesReal(data);
+    } catch(e) {
+      setContrapartesReal(null);
+    }
+  };
 
   const cargarContratos = async () => {
     try {
@@ -975,6 +987,7 @@ const Movimientos = ({modulo}) => {
   useEffect(()=>{
     cargarMovimientos();
     cargarContratos();
+    cargarContrapartes();
   },[modulo]);
 
   const estadoColor = e=>({EN_TRANSITO:"orange",DESCARGADO:"blue",LIQUIDADO:"green",ANULADO:"red",BORRADOR:"gray"}[e]||"gray");
@@ -1236,7 +1249,10 @@ const Movimientos = ({modulo}) => {
           }
           
           // Parse quality factor
-          const factor = colMap.factor !== -1 && String(r[colMap.factor]).trim() !== "" ? parseFloat(String(r[colMap.factor]).replace(/[^\d.-]/g, '')) || null : null;
+          let factor = colMap.factor !== -1 && String(r[colMap.factor]).trim() !== "" ? parseFloat(String(r[colMap.factor]).replace(/[^\d.-]/g, '')) || null : null;
+          if (factor !== null && factor > 1) {
+            factor = factor / 100;
+          }
           
           const parsed = {
             remitente: String(r[colMap.remitente] || "").trim(),
@@ -1382,7 +1398,7 @@ const Movimientos = ({modulo}) => {
             <Btn variant="secondary" size="sm" onClick={()=>setShowImportExcel(true)}>↑ Importar Excel</Btn>
             <Btn variant="secondary" size="sm" onClick={downloadExcelTemplate}>📥 Bajar Modelo Excel</Btn>
           </>}
-          <Btn onClick={()=>{setSelected(null);setTab("salida");setShowForm(true);}}>+ Nuevo</Btn>
+          <Btn onClick={()=>{setSelected(null);setTempFactor(null);setTab("salida");setShowForm(true);}}>+ Nuevo</Btn>
         </div>
       </div>
 
@@ -1492,7 +1508,7 @@ const Movimientos = ({modulo}) => {
             <td><span className="mono" style={{fontWeight:600}}>{m.kg_liquidables?.toLocaleString()||"—"}</span></td>
             <td><Badge label={m.estado} color={estadoColor(m.estado)}/></td>
             <td><Badge label={m.estado_liq} color={liqColor(m.estado_liq)}/></td>
-            <td><Btn variant="ghost" size="sm" onClick={()=>{setSelected(m);setTab("salida");setShowForm(true);}}>Ver</Btn></td>
+            <td><Btn variant="ghost" size="sm" onClick={()=>{setSelected(m);setTempFactor(m.factor);setTab("salida");setShowForm(true);}}>Ver</Btn></td>
           </tr>
         ))}</tbody></table>
         </div>
@@ -1503,7 +1519,7 @@ const Movimientos = ({modulo}) => {
         <Modal title="⚡ Carga Rápida de Movimiento" onClose={()=>setShowRapido(false)} width={560}>
           <div className="alert-info" style={{marginBottom:16}}>Registrá lo mínimo ahora. Los datos faltantes se completan después.</div>
           <div className="form-grid-2">
-            <FF label="Productor" required><select><option value="">Seleccionar...</option>{mockContrapartes.filter(c=>c.tipo!=="COMPRADOR").map(c=><option key={c.id}>{c.razon_social}</option>)}</select></FF>
+            <FF label="Productor" required><select><option value="">Seleccionar...</option>{contrapartes.filter(c=>c.tipo!=="COMPRADOR").map(c=><option key={c.id}>{c.razon_social}</option>)}</select></FF>
             <FF label="Especie / Campaña" required>
               <div style={{display:"flex",gap:8}}>
                 <select style={{flex:1}}>{ESPECIES.map(e=><option key={e}>{e}</option>)}</select>
@@ -1940,7 +1956,7 @@ const Movimientos = ({modulo}) => {
                 <FF label="Productor" required>
                   <select defaultValue={selected?.productor||""}>
                     <option value="">Seleccionar productor...</option>
-                    {mockContrapartes.filter(c=>c.tipo==="PRODUCTOR"||c.tipo==="AMBOS").map(c=>(
+                    {contrapartes.filter(c=>c.tipo==="PRODUCTOR"||c.tipo==="AMBOS").map(c=>(
                       <option key={c.id} value={c.razon_social}>{c.codigo} — {c.razon_social} {c.cuit?"("+c.cuit+")":""}</option>
                     ))}
                   </select>
@@ -1948,7 +1964,7 @@ const Movimientos = ({modulo}) => {
                 <FF label="Comprador / Destino" required>
                   <select defaultValue={selected?.comprador||""}>
                     <option value="">Seleccionar comprador...</option>
-                    {mockContrapartes.filter(c=>c.tipo==="COMPRADOR"||c.tipo==="AMBOS").map(c=>(
+                    {contrapartes.filter(c=>c.tipo==="COMPRADOR"||c.tipo==="AMBOS").map(c=>(
                       <option key={c.id} value={c.razon_social}>{c.codigo} — {c.razon_social} {c.cuit?"("+c.cuit+")":""}</option>
                     ))}
                   </select>
@@ -2118,29 +2134,51 @@ const Movimientos = ({modulo}) => {
 
           {tab==="calidad"&&(
             <div>
-              <div style={{display:"flex",gap:8,marginBottom:16}}>
-                <Btn variant="primary" size="sm">Rubro por rubro</Btn>
-                <Btn variant="secondary" size="sm">Factor directo</Btn>
-              </div>
-              <table><thead><tr><th>Parámetro</th><th>Tolerancia</th><th>Valor Declarado</th><th>Exceso</th><th>Ajuste</th></tr></thead>
-              <tbody>
-                {[{p:"Humedad",t:"13.0%",v:"13.0",e:"0.0",a:"0.00%"},{p:"Materia Extraña",t:"0.5%",v:"0.3",e:"0.0",a:"0.00%"},{p:"Grano Dañado",t:"3.0%",v:"5.0",e:"2.0",a:"-1.00%"},{p:"Grano Verde",t:"1.0%",v:"0.8",e:"0.0",a:"0.00%"}].map(r=>(
-                  <tr key={r.p}>
-                    <td>{r.p}</td>
-                    <td><span className="mono" style={{color:"#8890a8"}}>{r.t}</span></td>
-                    <td><input type="number" step="0.1" defaultValue={r.v} style={{width:80}}/></td>
-                    <td><span className="mono" style={{color:parseFloat(r.e)>0?"#e74c3c":"#565d7a"}}>{r.e}</span></td>
-                    <td><span className="mono" style={{color:r.a.startsWith("-")?"#e74c3c":"#27ae60"}}>{r.a}</span></td>
-                  </tr>
-                ))}
-              </tbody></table>
+              {modulo === "FORMAL" ? (
+                <div>
+                  <div style={{display:"flex",gap:8,marginBottom:16}}>
+                    <Btn variant="primary" size="sm">Rubro por rubro</Btn>
+                    <Btn variant="secondary" size="sm">Factor directo</Btn>
+                  </div>
+                  <table><thead><tr><th>Parámetro</th><th>Tolerancia</th><th>Valor Declarado</th><th>Exceso</th><th>Ajuste</th></tr></thead>
+                  <tbody>
+                    {[{p:"Humedad",t:"13.0%",v:"13.0",e:"0.0",a:"0.00%"},{p:"Materia Extraña",t:"0.5%",v:"0.3",e:"0.0",a:"0.00%"},{p:"Grano Dañado",t:"3.0%",v:"5.0",e:"2.0",a:"-1.00%"},{p:"Grano Verde",t:"1.0%",v:"0.8",e:"0.0",a:"0.00%"}].map(r=>(
+                      <tr key={r.p}>
+                        <td>{r.p}</td>
+                        <td><span className="mono" style={{color:"#8890a8"}}>{r.t}</span></td>
+                        <td><input type="number" step="0.1" defaultValue={r.v} style={{width:80}}/></td>
+                        <td><span className="mono" style={{color:parseFloat(r.e)>0?"#e74c3c":"#565d7a"}}>{r.e}</span></td>
+                        <td><span className="mono" style={{color:r.a.startsWith("-")?"#e74c3c":"#27ae60"}}>{r.a}</span></td>
+                      </tr>
+                    ))}
+                  </tbody></table>
+                </div>
+              ) : (
+                <div style={{padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",marginBottom:16}}>
+                  <div style={{fontWeight:600,color:"#f5a623",marginBottom:10,fontSize:13}}>🔬 Factor de Calidad Directo</div>
+                  <p style={{color:"#8890a8",fontSize:12,marginBottom:14}}>Operación informal. Se aplica un factor único directo sobre los kilos de llegada.</p>
+                  <FF label="Factor de Calidad (manual)">
+                    <input 
+                      type="number" 
+                      step="0.001" 
+                      placeholder="1.000" 
+                      value={tempFactor !== null ? tempFactor : ""}
+                      id="factor-calidad-directo-input"
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        setTempFactor(isNaN(val) ? null : val);
+                      }}
+                    />
+                  </FF>
+                </div>
+              )}
               {selected&&(
                 <div style={{marginTop:16,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",display:"flex",gap:24,alignItems:"center",flexWrap:"wrap"}}>
-                  <div><div style={{fontSize:11,color:"#8890a8"}}>Factor Aplicado</div><div className="mono" style={{fontSize:24,fontWeight:700,color:"#f5a623"}}>{selected.factor}</div></div>
+                  <div><div style={{fontSize:11,color:"#8890a8"}}>Factor Aplicado</div><div className="mono" style={{fontSize:24,fontWeight:700,color:"#f5a623"}}>{tempFactor !== null ? tempFactor : "—"}</div></div>
                   <div style={{fontSize:22,color:"#2a2d3e"}}>×</div>
-                  <div><div style={{fontSize:11,color:"#8890a8"}}>Kg Neto Llegada</div><div className="mono" style={{fontSize:20,fontWeight:600}}>{selected.peso_neto_llegada?.toLocaleString()}</div></div>
+                  <div><div style={{fontSize:11,color:"#8890a8"}}>Kg Neto Llegada</div><div className="mono" style={{fontSize:20,fontWeight:600}}>{(selected.peso_neto_llegada || selected.peso_neto_salida || 0)?.toLocaleString()}</div></div>
                   <div style={{fontSize:22,color:"#2a2d3e"}}>=</div>
-                  <div><div style={{fontSize:11,color:"#8890a8"}}>Kg Liquidables</div><div className="mono" style={{fontSize:24,fontWeight:700,color:"#27ae60"}}>{selected.kg_liquidables?.toLocaleString()}</div></div>
+                  <div><div style={{fontSize:11,color:"#8890a8"}}>Kg Liquidables</div><div className="mono" style={{fontSize:24,fontWeight:700,color:"#27ae60"}}>{((selected.peso_neto_llegada || selected.peso_neto_salida || 0) * (tempFactor !== null ? tempFactor : 1.0))?.toLocaleString()}</div></div>
                 </div>
               )}
             </div>
@@ -2193,6 +2231,12 @@ const Movimientos = ({modulo}) => {
             <Btn onClick={async()=>{
               try {
                 if(selected) {
+                  if (modulo === "INFORMAL" && tempFactor !== selected.factor) {
+                    await api.put(`/api/movimientos/${selected.id}/calidad`, {
+                      parametros: [],
+                      factor_manual: tempFactor
+                    });
+                  }
                   alert("✓ Cambios guardados");
                 } else {
                   alert("✓ Movimiento creado");
