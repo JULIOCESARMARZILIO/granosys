@@ -1099,7 +1099,7 @@ const Movimientos = ({modulo}) => {
 
   const openModal = (m) => {
     setSelected(m);
-    setTempFactor(m.factor);
+    setTempFactor(m.factor_manual !== null && m.factor_manual !== undefined ? m.factor_manual : 1.0);
     setBrutoLlegada(m.peso_bruto_llegada);
     setTaraLlegada(m.peso_tara_llegada);
     setHumedadLlegada(m.humedad_llegada);
@@ -1223,7 +1223,9 @@ const Movimientos = ({modulo}) => {
         faltante: m.faltante_kg ? parseFloat(m.faltante_kg) : null,
         estado: m.estado,
         estado_liq: m.estado_liquidacion,
-        factor: m.factor_aplicado ? parseFloat(m.factor_aplicado) : null,
+        factor_aplicado: m.factor_aplicado ? parseFloat(m.factor_aplicado) : null,
+        factor_manual: m.factor_manual ? parseFloat(m.factor_manual) : null,
+        factor: m.factor_manual ? parseFloat(m.factor_manual) : null, // Alias para compatibilidad de vistas
         kg_liquidables: m.kg_liquidables ? parseFloat(m.kg_liquidables) : null,
         modalidad: m.modalidad
       }));
@@ -2462,15 +2464,27 @@ const Movimientos = ({modulo}) => {
                   </FF>
                 </div>
               )}
-              {selected&&(
-                <div style={{marginTop:16,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",display:"flex",gap:24,alignItems:"center",flexWrap:"wrap"}}>
-                  <div><div style={{fontSize:11,color:"#8890a8"}}>Factor Aplicado</div><div className="mono" style={{fontSize:24,fontWeight:700,color:"#f5a623"}}>{tempFactor !== null ? tempFactor : "—"}</div></div>
-                  <div style={{fontSize:22,color:"#2a2d3e"}}>×</div>
-                  <div><div style={{fontSize:11,color:"#8890a8"}}>Kg Neto Llegada</div><div className="mono" style={{fontSize:20,fontWeight:600}}>{(selected.peso_neto_llegada || selected.peso_neto_salida || 0)?.toLocaleString()}</div></div>
-                  <div style={{fontSize:22,color:"#2a2d3e"}}>=</div>
-                  <div><div style={{fontSize:11,color:"#8890a8"}}>Kg Liquidables</div><div className="mono" style={{fontSize:24,fontWeight:700,color:"#27ae60"}}>{((selected.peso_neto_llegada || selected.peso_neto_salida || 0) * (tempFactor !== null ? tempFactor : 1.0))?.toLocaleString()}</div></div>
-                </div>
-              )}
+              {selected&&(() => {
+                const humPct = getMermaHumedadPct(selected.id_especie, humedadLlegada);
+                const neto = (brutoLlegada !== null && taraLlegada !== null) ? (brutoLlegada - taraLlegada) : (selected.peso_neto_llegada || selected.peso_neto_salida || 0);
+                const qFactor = tempFactor !== null ? tempFactor : 1.0;
+                const finalFact = Math.max(0, qFactor - (humPct / 100));
+                const liqKg = neto * finalFact;
+                
+                return (
+                  <div style={{marginTop:16,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",display:"flex",gap:16,alignItems:"center",flexWrap:"wrap",fontSize:13}}>
+                    <div><div style={{fontSize:11,color:"#8890a8"}}>Factor Calidad</div><div className="mono" style={{fontSize:18,fontWeight:600}}>{qFactor.toFixed(4)}</div></div>
+                    <div style={{fontSize:18,color:"#2a2d3e"}}>-</div>
+                    <div><div style={{fontSize:11,color:"#8890a8"}}>Merma Humedad</div><div className="mono" style={{fontSize:18,color:"#e74c3c"}}>{(humPct / 100).toFixed(4)} ({humPct.toFixed(2)}%)</div></div>
+                    <div style={{fontSize:18,color:"#2a2d3e"}}>=</div>
+                    <div><div style={{fontSize:11,color:"#8890a8"}}>Factor Aplicado</div><div className="mono" style={{fontSize:24,fontWeight:700,color:"#f5a623"}}>{finalFact.toFixed(4)}</div></div>
+                    <div style={{fontSize:18,color:"#2a2d3e"}}>×</div>
+                    <div><div style={{fontSize:11,color:"#8890a8"}}>Kg Neto Llegada</div><div className="mono" style={{fontSize:18,fontWeight:600}}>{neto.toLocaleString()}</div></div>
+                    <div style={{fontSize:18,color:"#2a2d3e"}}>=</div>
+                    <div><div style={{fontSize:11,color:"#8890a8"}}>Kg Liquidables</div><div className="mono" style={{fontSize:24,fontWeight:700,color:"#27ae60"}}>{Math.round(liqKg).toLocaleString()}</div></div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
