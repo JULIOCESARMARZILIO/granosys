@@ -1225,7 +1225,7 @@ const Movimientos = ({modulo}) => {
         estado_liq: m.estado_liquidacion,
         factor_aplicado: m.factor_aplicado ? parseFloat(m.factor_aplicado) : null,
         factor_manual: m.factor_manual ? parseFloat(m.factor_manual) : null,
-        factor: m.factor_manual ? parseFloat(m.factor_manual) : null, // Alias para compatibilidad de vistas
+        factor: m.factor_manual !== null && m.factor_manual !== undefined ? parseFloat(m.factor_manual) : (m.factor_aplicado ? parseFloat(m.factor_aplicado) : null), // Alias para compatibilidad de vistas
         kg_liquidables: m.kg_liquidables ? parseFloat(m.kg_liquidables) : null,
         modalidad: m.modalidad
       }));
@@ -2229,7 +2229,14 @@ const Movimientos = ({modulo}) => {
               </div>
               <div className="form-grid-2" style={{marginBottom:8}}>
                 <FF label="Contrato de Compra">
-                  <select defaultValue={selected?.id_contrato_compra||""} id="input_id_contrato_compra">
+                  <select
+                    value={selected?.id_contrato_compra || ""}
+                    id="input_id_contrato_compra"
+                    onChange={(e) => {
+                      const val = e.target.value ? parseInt(e.target.value) : null;
+                      setSelected({ ...selected, id_contrato_compra: val });
+                    }}
+                  >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
                     {contratos.filter(c=>c.tipo==="COMPRA").map(c=>(
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString()}</option>
@@ -2237,7 +2244,14 @@ const Movimientos = ({modulo}) => {
                   </select>
                 </FF>
                 <FF label="Contrato de Venta">
-                  <select defaultValue={selected?.id_contrato_venta||""} id="input_id_contrato_venta">
+                  <select
+                    value={selected?.id_contrato_venta || ""}
+                    id="input_id_contrato_venta"
+                    onChange={(e) => {
+                      const val = e.target.value ? parseInt(e.target.value) : null;
+                      setSelected({ ...selected, id_contrato_venta: val });
+                    }}
+                  >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
                     {contratos.filter(c=>c.tipo==="VENTA").map(c=>(
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString()}</option>
@@ -2366,14 +2380,11 @@ const Movimientos = ({modulo}) => {
             const tol = netoSal * 0.0003;
             const falt = Math.max(0, diff - tol);
             
-            const humPct = getMermaHumedadPct(selected?.id_especie, humedadLlegada);
+            const humPct = getMermaHumedadPct(selected?.id_especie, humedadLlegada !== null ? humedadLlegada : selected?.humedad_llegada);
             const humKg = neto * (humPct / 100);
-            
-            const calPct = (modulo === "INFORMAL" && tempFactor !== null) ? (1.0 - tempFactor) * 100 : 0;
-            const calKg = neto * (calPct / 100);
-            
-            const finalFact = 1.0 - (humPct / 100) - (calPct / 100);
-            const liqKg = neto * finalFact;
+            const kgSecos = neto - humKg;
+            const qFactor = tempFactor !== null ? tempFactor : (selected?.factor_aplicado || 1.0);
+            const liqKg = kgSecos * qFactor;
             
             return (
               <div>
@@ -2407,9 +2418,9 @@ const Movimientos = ({modulo}) => {
                     <div style={{fontSize:11,color:"#f5a623",marginBottom:12,fontWeight:600,textTransform:"uppercase"}}>Cálculo de Mermas y Kilos a Liquidar</div>
                     <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
                       {[
-                        ["Merma Humedad", `${humPct.toFixed(2)}% (${Math.round(humKg).toLocaleString()} kg)`, "#e8eaf0"],
-                        ["Merma Calidad", `${calPct.toFixed(2)}% (${Math.round(calKg).toLocaleString()} kg)`, "#e8eaf0"],
-                        ["Factor Aplicado", finalFact.toFixed(4), "#f5a623"],
+                        ["Merma Humedad", `${humPct.toFixed(2)}% (${Math.round(humKg).toLocaleString()} kg)`, "#e74c3c"],
+                        ["Kilos Secos", `${Math.round(kgSecos).toLocaleString()} kg`, "#e8eaf0"],
+                        ["Factor Calidad", qFactor.toFixed(4), "#f5a623"],
                         ["Kilos a Liquidar", `${Math.round(liqKg).toLocaleString()} kg`, "#27ae60"]
                       ].map(([l,v,c])=>(
                         <div key={l} style={{textAlign:"center",padding:"10px 8px",background:"rgba(255,255,255,.03)",borderRadius:6}}>
@@ -2465,21 +2476,21 @@ const Movimientos = ({modulo}) => {
                 </div>
               )}
               {selected&&(() => {
-                const humPct = getMermaHumedadPct(selected.id_especie, humedadLlegada);
+                const humPct = getMermaHumedadPct(selected.id_especie, humedadLlegada !== null ? humedadLlegada : selected.humedad_llegada);
                 const neto = (brutoLlegada !== null && taraLlegada !== null) ? (brutoLlegada - taraLlegada) : (selected.peso_neto_llegada || selected.peso_neto_salida || 0);
-                const qFactor = tempFactor !== null ? tempFactor : 1.0;
-                const finalFact = Math.max(0, qFactor - (humPct / 100));
-                const liqKg = neto * finalFact;
+                const qFactor = tempFactor !== null ? tempFactor : (selected.factor_aplicado || 1.0);
+                const kgSecos = neto * (1.0 - (humPct / 100));
+                const liqKg = kgSecos * qFactor;
                 
                 return (
                   <div style={{marginTop:16,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",display:"flex",gap:16,alignItems:"center",flexWrap:"wrap",fontSize:13}}>
-                    <div><div style={{fontSize:11,color:"#8890a8"}}>Factor Calidad</div><div className="mono" style={{fontSize:18,fontWeight:600}}>{qFactor.toFixed(4)}</div></div>
-                    <div style={{fontSize:18,color:"#2a2d3e"}}>-</div>
-                    <div><div style={{fontSize:11,color:"#8890a8"}}>Merma Humedad</div><div className="mono" style={{fontSize:18,color:"#e74c3c"}}>{(humPct / 100).toFixed(4)} ({humPct.toFixed(2)}%)</div></div>
-                    <div style={{fontSize:18,color:"#2a2d3e"}}>=</div>
-                    <div><div style={{fontSize:11,color:"#8890a8"}}>Factor Aplicado</div><div className="mono" style={{fontSize:24,fontWeight:700,color:"#f5a623"}}>{finalFact.toFixed(4)}</div></div>
-                    <div style={{fontSize:18,color:"#2a2d3e"}}>×</div>
                     <div><div style={{fontSize:11,color:"#8890a8"}}>Kg Neto Llegada</div><div className="mono" style={{fontSize:18,fontWeight:600}}>{neto.toLocaleString()}</div></div>
+                    <div style={{fontSize:18,color:"#2a2d3e"}}>-</div>
+                    <div><div style={{fontSize:11,color:"#8890a8"}}>Merma Humedad</div><div className="mono" style={{fontSize:18,color:"#e74c3c"}}>{Math.round(neto * humPct / 100).toLocaleString()} kg ({(humPct).toFixed(2)}%)</div></div>
+                    <div style={{fontSize:18,color:"#2a2d3e"}}>=</div>
+                    <div><div style={{fontSize:11,color:"#8890a8"}}>Kg Secos</div><div className="mono" style={{fontSize:18,fontWeight:600}}>{Math.round(kgSecos).toLocaleString()}</div></div>
+                    <div style={{fontSize:18,color:"#2a2d3e"}}>×</div>
+                    <div><div style={{fontSize:11,color:"#8890a8"}}>Factor Calidad</div><div className="mono" style={{fontSize:24,fontWeight:700,color:"#f5a623"}}>{qFactor.toFixed(4)}</div></div>
                     <div style={{fontSize:18,color:"#2a2d3e"}}>=</div>
                     <div><div style={{fontSize:11,color:"#8890a8"}}>Kg Liquidables</div><div className="mono" style={{fontSize:24,fontWeight:700,color:"#27ae60"}}>{Math.round(liqKg).toLocaleString()}</div></div>
                   </div>
@@ -2488,27 +2499,60 @@ const Movimientos = ({modulo}) => {
             </div>
           )}
 
-          {tab==="liquidacion"&&(
-            <div>
-              {selected&&selected.kg_liquidables?(
-                <div>
-                  <div style={{padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",marginBottom:16}}>
-                    <div style={{fontSize:11,color:"#8890a8",marginBottom:12,fontWeight:600,textTransform:"uppercase"}}>Resumen de Liquidación</div>
-                    {[["Kg Liquidables",`${selected.kg_liquidables?.toLocaleString()} kg`,"#e8eaf0"],["Precio Contrato","$ 285.000 / tn","#e8eaf0"],["Monto Bruto",`$ ${(selected.kg_liquidables*285).toLocaleString()}`,"#e8eaf0"],["— Secada (2 pts × $800)","— $ 55.000","#e74c3c"],["— Zarandeo","— $ 18.000","#e74c3c"],["= Monto Neto",`$ ${((selected.kg_liquidables*285)-73000).toLocaleString()}`,"#27ae60"]].map(([l,v,c])=>(
-                      <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1e2133"}}>
-                        <span style={{color:"#8890a8",fontSize:13}}>{l}</span>
-                        <span className="mono" style={{fontWeight:600,color:c}}>{v}</span>
+          {tab==="liquidacion"&&(() => {
+            // Buscar contrato asignado en los contratos reales cargados
+            const contratoAsignado = contratos.find(c => c.id === selected?.id_contrato_compra);
+            const precioContrato = contratoAsignado?.precio || 0;
+            const precioContratoFormateado = precioContrato > 0 ? `$ ${precioContrato.toLocaleString()} / tn` : "A Fijar (Sin precio fijado)";
+            
+            const humPct = getMermaHumedadPct(selected?.id_especie, humedadLlegada !== null ? humedadLlegada : selected?.humedad_llegada);
+            const neto = (brutoLlegada !== null && taraLlegada !== null) ? (brutoLlegada - taraLlegada) : (selected?.peso_neto_llegada || selected?.peso_neto_salida || 0);
+            const qFactor = tempFactor !== null ? tempFactor : (selected?.factor_aplicado || 1.0);
+            const kgSecos = neto * (1.0 - (humPct / 100));
+            const currentKgLiquidables = kgSecos * qFactor;
+
+            const montoBruto = precioContrato > 0 ? (currentKgLiquidables / 1000) * precioContrato : 0;
+            const montoBrutoFormateado = precioContrato > 0 ? `$ ${montoBruto.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : "—";
+            
+            // Descuentos por secado/zarandeo demo (solo si hay precio y kilos liquidables)
+            const secadaVal = precioContrato > 0 ? 55000 : 0;
+            const zarandeoVal = precioContrato > 0 ? 18000 : 0;
+            const montoNeto = precioContrato > 0 ? montoBruto - secadaVal - zarandeoVal : 0;
+            const montoNetoFormateado = precioContrato > 0 ? `$ ${montoNeto.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : "—";
+
+            return (
+              <div>
+                {selected && neto > 0 ? (
+                  <div>
+                    <div style={{padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",marginBottom:16}}>
+                      <div style={{fontSize:11,color:"#8890a8",marginBottom:12,fontWeight:600,textTransform:"uppercase"}}>Resumen de Liquidación</div>
+                      {[
+                        ["Kg Liquidables", `${Math.round(currentKgLiquidables).toLocaleString()} kg`, "#e8eaf0"],
+                        ["Precio Contrato", precioContratoFormateado, "#e8eaf0"],
+                        ["Monto Bruto", montoBrutoFormateado, "#e8eaf0"],
+                        ["— Secada (2 pts × $800)", precioContrato > 0 ? `— $ ${secadaVal.toLocaleString()}` : "—", "#e74c3c"],
+                        ["— Zarandeo", precioContrato > 0 ? `— $ ${zarandeoVal.toLocaleString()}` : "—", "#e74c3c"],
+                        ["= Monto Neto", montoNetoFormateado, "#27ae60"]
+                      ].map(([l,v,c])=>(
+                        <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1e2133"}}>
+                          <span style={{color:"#8890a8",fontSize:13}}>{l}</span>
+                          <span className="mono" style={{fontWeight:600,color:c}}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {precioContrato > 0 ? (
+                      <div style={{display:"flex",gap:8}}>
+                        <Btn variant="success" size="sm">Generar Liquidación</Btn>
+                        <Btn variant="secondary" size="sm">Agregar a Liquidación Existente</Btn>
                       </div>
-                    ))}
+                    ) : (
+                      <div className="alert-info">💡 El contrato asociado no tiene un precio pactado asignado (contrato a fijar). Fijá el precio del contrato para poder liquidar.</div>
+                    )}
                   </div>
-                  <div style={{display:"flex",gap:8}}>
-                    <Btn variant="success" size="sm">Generar Liquidación</Btn>
-                    <Btn variant="secondary" size="sm">Agregar a Liquidación Existente</Btn>
-                  </div>
-                </div>
-              ):<div style={{textAlign:"center",padding:"30px 0",color:"#565d7a"}}>Completá salida, llegada y calidad primero</div>}
-            </div>
-          )}
+                ) : <div style={{textAlign:"center",padding:"30px 0",color:"#565d7a"}}>Completá salida, llegada y calidad primero</div>}
+              </div>
+            );
+          })()}
 
           {tab==="flete"&&(
             <div>
@@ -2535,15 +2579,11 @@ const Movimientos = ({modulo}) => {
             <Btn onClick={async()=>{
               try {
                 if(selected) {
-                  // Guardar asignación de contratos si se editaron
-                  const compraVal = document.getElementById('input_id_contrato_compra')?.value;
-                  const ventaVal = document.getElementById('input_id_contrato_venta')?.value;
-                  if (compraVal !== undefined || ventaVal !== undefined) {
-                    await api.put(`/api/movimientos/${selected.id}/asignar`, {
-                      id_contrato_compra: compraVal ? parseInt(compraVal) : null,
-                      id_contrato_venta: ventaVal ? parseInt(ventaVal) : null
-                    });
-                  }
+                  // Guardar asignación de contratos
+                  await api.put(`/api/movimientos/${selected.id}/asignar`, {
+                    id_contrato_compra: selected.id_contrato_compra || null,
+                    id_contrato_venta: selected.id_contrato_venta || null
+                  });
 
                   // Guardar llegada si se ingresaron pesos
                   if (brutoLlegada !== null && taraLlegada !== null) {

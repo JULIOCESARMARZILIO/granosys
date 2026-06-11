@@ -270,16 +270,13 @@ router.put('/:id/llegada', async (req, res) => {
       }
     }
 
-    const factor_calculado = 1.0 - (merma_humedad_pct / 100.0) + (descuento_calidad_pct / 100.0);
+    const factor_calculado = 1.0 + (descuento_calidad_pct / 100.0);
     const factor_manual = mov[0].factor_manual !== null && mov[0].factor_manual !== undefined ? parseFloat(mov[0].factor_manual) : null;
-    
-    // Si hay factor_manual, representa el factor de calidad directo en modo informal. 
-    // Le descontamos la merma de humedad para obtener el factor_aplicado final.
-    const factor_aplicado = factor_manual !== null 
-      ? factor_manual - (merma_humedad_pct / 100.0)
-      : factor_calculado;
+    const factor_aplicado = factor_manual !== null ? factor_manual : factor_calculado;
 
-    const kg_liquidables = peso_neto_llegada * factor_aplicado;
+    // Los kilos liquidables aplican la merma de humedad al peso y luego el factor de calidad
+    const kg_secos = peso_neto_llegada * (1.0 - (merma_humedad_pct / 100.0));
+    const kg_liquidables = kg_secos * factor_aplicado;
 
     const { rows } = await pool.query(`
       UPDATE movimientos SET
@@ -339,15 +336,11 @@ router.put('/:id/calidad', async (req, res) => {
       }
     }
 
-    let factor_calculado = 1.0 - (merma_humedad_pct / 100.0);
+    let factor_calculado = 1.0;
 
     if (parametros && parametros.length > 0) {
       for (const p of parametros) {
         const exceso = Math.max(0, p.valor_declarado - p.tolerancia);
-        const ajuste = exceso > 0
-          ? -(excess = exceso * (p.descuento_por_punto || 0)) + (exceso * (p.bonificacion_por_punto || 0))
-          : 0;
-        // Corregir un posible typo de arriba, mantener ajuste limpio
         const ajuste_limpio = exceso > 0
           ? -(exceso * (p.descuento_por_punto || 0)) + (exceso * (p.bonificacion_por_punto || 0))
           : 0;
@@ -363,9 +356,12 @@ router.put('/:id/calidad', async (req, res) => {
     }
 
     const factor_aplicado = factor_manual !== undefined && factor_manual !== null 
-      ? parseFloat(factor_manual) - (merma_humedad_pct / 100.0) 
+      ? parseFloat(factor_manual)
       : factor_calculado;
-    const kg_liquidables = m.peso_neto_llegada_kg * factor_aplicado;
+
+    // Los kilos liquidables aplican la merma de humedad al peso y luego el factor de calidad
+    const kg_secos = m.peso_neto_llegada_kg * (1.0 - (merma_humedad_pct / 100.0));
+    const kg_liquidables = kg_secos * factor_aplicado;
 
     const { rows } = await pool.query(`
       UPDATE movimientos SET

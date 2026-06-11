@@ -439,9 +439,9 @@ async function initDB() {
     // Recalcular mermas por humedad retroactivas para todos los movimientos descargados basados en mermas_humedad
     await client.query(`
       UPDATE movimientos m SET
-        factor_calculado = 1.0 - (mh.merma_porcentaje / 100.0),
-        factor_aplicado = CASE WHEN m.factor_manual IS NOT NULL THEN m.factor_manual ELSE 1.0 - (mh.merma_porcentaje / 100.0) END,
-        kg_liquidables = m.peso_neto_llegada_kg * CASE WHEN m.factor_manual IS NOT NULL THEN m.factor_manual ELSE 1.0 - (mh.merma_porcentaje / 100.0) END,
+        factor_calculado = 1.0,
+        factor_aplicado = CASE WHEN m.factor_manual IS NOT NULL THEN m.factor_manual ELSE 1.0 END,
+        kg_liquidables = m.peso_neto_llegada_kg * (1.0 - (mh.merma_porcentaje / 100.0)) * CASE WHEN m.factor_manual IS NOT NULL THEN m.factor_manual ELSE 1.0 END,
         updated_at = NOW()
       FROM mermas_humedad mh
       WHERE m.id_especie = mh.id_especie
