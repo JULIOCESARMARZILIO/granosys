@@ -354,9 +354,21 @@ async function initDB() {
       );
     `);
 
-    // Migración para relaciones de contrapartes
+    // Migración para relaciones de contrapartes, usuario de carga y reportes
     await client.query(`
       ALTER TABLE contrapartes ADD COLUMN IF NOT EXISTS id_contraparte_relacionada INTEGER REFERENCES contrapartes(id);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS usuario_carga VARCHAR(50);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS chofer_nombre VARCHAR(200);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS transportista_nombre VARCHAR(200);
+
+      CREATE TABLE IF NOT EXISTS reportes_ia (
+        id SERIAL PRIMARY KEY,
+        titulo VARCHAR(200) NOT NULL,
+        prompt TEXT NOT NULL,
+        sql_query TEXT NOT NULL,
+        columnas TEXT[] NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
     `);
 
     // Insertar datos iniciales si no existen

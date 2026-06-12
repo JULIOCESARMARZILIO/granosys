@@ -1088,7 +1088,7 @@ const Contratos = ({modulo}) => {
 
 // ── MOVIMIENTOS ──
 // ── MOVIMIENTOS ──
-const Movimientos = ({modulo}) => {
+const Movimientos = ({modulo, usuario}) => {
   const [showForm,setShowForm]=useState(false);
   const [showImport,setShowImport]=useState(false);
   const [showRapido,setShowRapido]=useState(false);
@@ -1105,7 +1105,20 @@ const Movimientos = ({modulo}) => {
   const [importingExcel, setImportingExcel] = useState(false);
   const [excelFileName, setExcelFileName] = useState("");
   const [movsReal,setMovsReal]=useState(null);
-  const movs = movsReal !== null ? movsReal : mockMovimientos.filter(m=>m.modalidad===modulo);
+  const rawMovs = movsReal !== null ? movsReal : mockMovimientos.filter(m=>m.modalidad===modulo);
+  const movs = [...rawMovs].sort((a, b) => {
+    const isAPending = a.estado === "BORRADOR" || a.estado === "EN_TRANSITO" || !a.peso_tara_salida || (a.estado === "DESCARGADO" && a.factor === null);
+    const isBPending = b.estado === "BORRADOR" || b.estado === "EN_TRANSITO" || !b.peso_tara_salida || (b.estado === "DESCARGADO" && b.factor === null);
+    if (isAPending && !isBPending) return -1;
+    if (!isAPending && isBPending) return 1;
+    return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+  });
+  const tienePendientesViejos = movs.some(m => {
+    const isPending = m.estado === "BORRADOR" || m.estado === "EN_TRANSITO" || !m.peso_tara_salida || (m.estado === "DESCARGADO" && m.factor === null);
+    if (!isPending) return false;
+    const creado = new Date(m.created_at || 0).getTime();
+    return (Date.now() - creado) > 24 * 60 * 60 * 1000;
+  });
   const [contratosReal,setContratosReal]=useState(null);
   const contratos = contratosReal !== null ? contratosReal : mockContratos.filter(c=>c.modalidad===modulo);
   const [contrapartesReal, setContrapartesReal] = useState(null);
@@ -1117,6 +1130,54 @@ const Movimientos = ({modulo}) => {
     codigo_interno: c.codigo_interno || c.codigo
   }));
   const [tempFactor, setTempFactor] = useState(null);
+  const [movForm, setMovForm] = useState({
+    productor_nombre: "",
+    comprador_nombre: "",
+    id_contrato_compra: null,
+    id_contrato_venta: null,
+    nro_cpe: "",
+    nro_ctg: "",
+    fecha_cpe: "",
+    fecha_vencimiento_cpe: "",
+    titular_cpe_cuit: "",
+    titular_cpe_nombre: "",
+    remitente_comercial_productor_cuit: "",
+    remitente_comercial_productor_nombre: "",
+    rte_primaria_cuit: "",
+    rte_primaria_nombre: "",
+    destinatario_cuit: "",
+    destinatario_nombre: "",
+    destino_cuit: "",
+    destino_nombre: "",
+    flete_pagador_cuit: "",
+    flete_pagador_nombre: "",
+    id_especie: 1,
+    id_campana: 2,
+    declaracion_calidad: "CONFORME",
+    observaciones: "",
+    localidad_origen: "",
+    provincia_origen: "",
+    renspa: "",
+    descripcion_campo: "",
+    latitud: "",
+    longitud: "",
+    localidad_destino: "",
+    provincia_destino: "",
+    nro_planta_destino: "",
+    direccion_destino: "",
+    transportista_nombre: "",
+    chofer_nombre: "",
+    patente_chasis: "",
+    patente_acoplado: "",
+    km_a_recorrer: "",
+    tipo_tarifa: "LLENA",
+    tarifa_catac: "",
+    tarifa_flete_real: "",
+    fecha_partida: "",
+    peso_bruto_salida_kg: "",
+    peso_tara_salida_kg: "",
+    humedad_salida_pct: "",
+  });
 
   // Estados locales para persistencia de llegada
   const [brutoLlegada, setBrutoLlegada] = useState(null);
@@ -1126,6 +1187,70 @@ const Movimientos = ({modulo}) => {
   const [fechaDescarga, setFechaDescarga] = useState("");
   const [nroTurno, setNroTurno] = useState("");
   const [mermas, setMermas] = useState({});
+
+  // Estados locales para Carga Rápida
+  const [rapidoProductor, setRapidoProductor] = useState("");
+  const [rapidoEspecie, setRapidoEspecie] = useState("Soja");
+  const [rapidoCampana, setRapidoCampana] = useState("2024/2025");
+  const [rapidoContrato, setRapidoContrato] = useState("");
+  const [rapidoPatente, setRapidoPatente] = useState("");
+  const [rapidoBruto, setRapidoBruto] = useState("");
+  const [rapidoTara, setRapidoTara] = useState("");
+  const [rapidoHumedad, setRapidoHumedad] = useState("");
+  const [rapidoDestino, setRapidoDestino] = useState("");
+
+  const handleGuardarRapido = async () => {
+    if (!rapidoProductor) return alert("Por favor, selecciona un productor");
+    if (!rapidoBruto || !rapidoTara) return alert("Por favor, ingresa bruto y tara");
+    
+    const prod = contrapartes.find(c => c.id === parseInt(rapidoProductor));
+    const espId = ESPECIES.indexOf(rapidoEspecie) + 1;
+    const campId = CAMPANAS.indexOf(rapidoCampana) + 1;
+    const rapidoNeto = parseFloat(rapidoBruto) - parseFloat(rapidoTara);
+    
+    try {
+      setGuardando(true);
+      const payload = {
+        modalidad: modulo,
+        id_contrato_compra: rapidoContrato ? parseInt(rapidoContrato) : null,
+        titular_cpe_cuit: prod?.cuit || null,
+        titular_cpe_nombre: prod?.razon_social || null,
+        remitente_comercial_productor_cuit: prod?.cuit || null,
+        remitente_comercial_productor_nombre: prod?.razon_social || null,
+        destinatario_cuit: "30111111118",
+        destinatario_nombre: "BIOGEN21",
+        flete_pagador_cuit: prod?.cuit || null,
+        flete_pagador_nombre: prod?.razon_social || null,
+        id_especie: espId > 0 ? espId : 1,
+        id_campana: campId > 0 ? campId : 2,
+        patente_chasis: rapidoPatente || null,
+        peso_bruto_salida_kg: parseFloat(rapidoBruto),
+        peso_tara_salida_kg: parseFloat(rapidoTara),
+        humedad_salida_pct: rapidoHumedad ? parseFloat(rapidoHumedad) : 13.5,
+        localidad_destino: rapidoDestino || "Planta Destino",
+        usuario_carga: usuario
+      };
+
+      const r = await api.post("/api/movimientos", payload);
+      alert(`✓ Movimiento ${r.numero_movimiento} creado exitosamente.`);
+      setShowRapido(false);
+      // Reset
+      setRapidoProductor("");
+      setRapidoEspecie("Soja");
+      setRapidoCampana("2024/2025");
+      setRapidoContrato("");
+      setRapidoPatente("");
+      setRapidoBruto("");
+      setRapidoTara("");
+      setRapidoHumedad("");
+      setRapidoDestino("");
+      cargarMovimientos();
+    } catch (err) {
+      alert("Error al guardar movimiento rápido: " + (err.response?.data?.error || err.message));
+    } finally {
+      setGuardando(false);
+    }
+  };
 
   const formatDateTimeLocal = (isoString) => {
     if (!isoString) return "";
@@ -1141,14 +1266,115 @@ const Movimientos = ({modulo}) => {
 
   const openModal = (m) => {
     setSelected(m);
-    setTempFactor(m.factor_manual !== null && m.factor_manual !== undefined ? m.factor_manual : 1.0);
-    setBrutoLlegada(m.peso_bruto_llegada);
-    setTaraLlegada(m.peso_tara_llegada);
-    setHumedadLlegada(m.humedad_llegada);
-    setFechaArribo(formatDateTimeLocal(m.fecha_arribo));
-    setFechaDescarga(formatDateTimeLocal(m.fecha_descarga));
-    setNroTurno(m.nro_turno || "");
+    setTempFactor(m ? (m.factor_manual !== null && m.factor_manual !== undefined ? m.factor_manual : 1.0) : 1.0);
+    setBrutoLlegada(m ? m.peso_bruto_llegada : null);
+    setTaraLlegada(m ? m.peso_tara_llegada : null);
+    setHumedadLlegada(m ? m.humedad_llegada : null);
+    setFechaArribo(m ? formatDateTimeLocal(m.fecha_arribo) : "");
+    setFechaDescarga(m ? formatDateTimeLocal(m.fecha_descarga) : "");
+    setNroTurno(m ? m.nro_turno || "" : "");
     setTab("salida");
+
+    if (m) {
+      setMovForm({
+        productor_nombre: m.productor || "",
+        comprador_nombre: m.comprador || "",
+        id_contrato_compra: m.id_contrato_compra || null,
+        id_contrato_venta: m.id_contrato_venta || null,
+        nro_cpe: m.nro_cpe || "",
+        nro_ctg: m.nro_ctg || "",
+        fecha_cpe: m.fecha_cpe ? m.fecha_cpe.split('T')[0] : "",
+        fecha_vencimiento_cpe: m.fecha_vencimiento_cpe ? m.fecha_vencimiento_cpe.split('T')[0] : "",
+        titular_cpe_cuit: m.titular_cpe_cuit || "",
+        titular_cpe_nombre: m.titular_cpe_nombre || "",
+        remitente_comercial_productor_cuit: m.remitente_comercial_productor_cuit || "",
+        remitente_comercial_productor_nombre: m.remitente_comercial_productor_nombre || "",
+        rte_primaria_cuit: m.rte_comercial_venta_primaria_cuit || m.rte_primaria_cuit || "",
+        rte_primaria_nombre: m.rte_comercial_venta_primaria_nombre || m.rte_primaria_nombre || "",
+        destinatario_cuit: m.destinatario_cuit || "",
+        destinatario_nombre: m.destinatario_nombre || "",
+        destino_cuit: m.destino_cuit || "",
+        destino_nombre: m.destino_nombre || "",
+        flete_pagador_cuit: m.flete_pagador_cuit || "",
+        flete_pagador_nombre: m.flete_pagador_nombre || "",
+        id_especie: m.id_especie || 1,
+        id_campana: m.id_campana || 2,
+        declaracion_calidad: m.declaracion_calidad || "CONFORME",
+        observaciones: m.observaciones || "",
+        localidad_origen: m.localidad_origen || "",
+        provincia_origen: m.provincia_origen || "",
+        renspa: m.renspa || "",
+        descripcion_campo: m.descripcion_campo || "",
+        latitud: m.latitud || "",
+        longitud: m.longitud || "",
+        localidad_destino: m.localidad_destino || "",
+        provincia_destino: m.provincia_destino || "",
+        nro_planta_destino: m.nro_planta_destino || "",
+        direccion_destino: m.direccion_destino || "",
+        transportista_nombre: m.transportista_nombre || m.transportista || "",
+        chofer_nombre: m.chofer_nombre || m.chofer || "",
+        patente_chasis: m.patente_chasis || "",
+        patente_acoplado: m.patente_acoplado || "",
+        km_a_recorrer: m.km_a_recorrer || m.km || "",
+        tipo_tarifa: m.tipo_tarifa || "LLENA",
+        tarifa_catac: m.tarifa_catac || "",
+        tarifa_flete_real: m.tarifa_flete_real || m.tarifa_real || "",
+        fecha_partida: m.fecha_partida ? formatDateTimeLocal(m.fecha_partida) : "",
+        peso_bruto_salida_kg: m.peso_bruto_salida_kg || m.peso_bruto_salida || "",
+        peso_tara_salida_kg: m.peso_tara_salida_kg || m.peso_tara_salida || "",
+        humedad_salida_pct: m.humedad_salida_pct || m.humedad_salida || "",
+      });
+    } else {
+      setMovForm({
+        productor_nombre: "",
+        comprador_nombre: "",
+        id_contrato_compra: null,
+        id_contrato_venta: null,
+        nro_cpe: "",
+        nro_ctg: "",
+        fecha_cpe: "",
+        fecha_vencimiento_cpe: "",
+        titular_cpe_cuit: "",
+        titular_cpe_nombre: "",
+        remitente_comercial_productor_cuit: "",
+        remitente_comercial_productor_nombre: "",
+        rte_primaria_cuit: "",
+        rte_primaria_nombre: "",
+        destinatario_cuit: "",
+        destinatario_nombre: "",
+        destino_cuit: "",
+        destino_nombre: "",
+        flete_pagador_cuit: "",
+        flete_pagador_nombre: "",
+        id_especie: 1,
+        id_campana: 2,
+        declaracion_calidad: "CONFORME",
+        observaciones: "",
+        localidad_origen: "",
+        provincia_origen: "",
+        renspa: "",
+        descripcion_campo: "",
+        latitud: "",
+        longitud: "",
+        localidad_destino: "",
+        provincia_destino: "",
+        nro_planta_destino: "",
+        direccion_destino: "",
+        transportista_nombre: "",
+        chofer_nombre: "",
+        patente_chasis: "",
+        patente_acoplado: "",
+        km_a_recorrer: "",
+        tipo_tarifa: "LLENA",
+        tarifa_catac: "",
+        tarifa_flete_real: "",
+        fecha_partida: "",
+        peso_bruto_salida_kg: "",
+        peso_tara_salida_kg: "",
+        humedad_salida_pct: "",
+      });
+    }
+
     setShowForm(true);
   };
 
@@ -1269,7 +1495,11 @@ const Movimientos = ({modulo}) => {
         factor_manual: m.factor_manual ? parseFloat(m.factor_manual) : null,
         factor: m.factor_manual !== null && m.factor_manual !== undefined ? parseFloat(m.factor_manual) : (m.factor_aplicado ? parseFloat(m.factor_aplicado) : null), // Alias para compatibilidad de vistas
         kg_liquidables: m.kg_liquidables ? parseFloat(m.kg_liquidables) : null,
-        modalidad: m.modalidad
+        modalidad: m.modalidad,
+        created_at: m.created_at,
+        usuario_carga: m.usuario_carga,
+        total_servicios_compra: parseFloat(m.total_servicios_compra) || 0,
+        total_servicios_venta: parseFloat(m.total_servicios_venta) || 0
       }));
       setMovsReal(mapped);
     } catch(e) {
@@ -1414,7 +1644,8 @@ const Movimientos = ({modulo}) => {
         tarifa_flete_real: 0,
         peso_bruto_salida_kg: parseFloat(data.peso_bruto) || 0,
         peso_tara_salida_kg: parseFloat(data.peso_tara) || 0,
-        humedad_salida_pct: 13.5
+        humedad_salida_pct: 13.5,
+        usuario_carga: usuario
       };
 
       const r = await api.post("/api/movimientos", payload);
@@ -1636,7 +1867,8 @@ const Movimientos = ({modulo}) => {
           tarifa_flete_real: 0,
           peso_bruto_salida_kg: row.bruto_salida,
           peso_tara_salida_kg: row.tara_salida,
-          humedad_salida_pct: row.humedad_salida || 13.5
+          humedad_salida_pct: row.humedad_salida || 13.5,
+          usuario_carga: usuario
         };
         
         // 1. Create movement
@@ -1679,6 +1911,15 @@ const Movimientos = ({modulo}) => {
     setExcelFileName("");
     cargarMovimientos();
   };
+  const hayPendientesViejos = movs.some(m => {
+    if (m.estado === 'BORRADOR' || m.estado === 'EN_TRANSITO') {
+      const createdDate = new Date(m.created_at || new Date());
+      const diffTime = Math.abs(new Date() - createdDate);
+      const diffDays = diffTime / (1000 * 60 * 60 * 24);
+      return diffDays > 1;
+    }
+    return false;
+  });
 
   return (
     <div className="fade-in">
@@ -1776,6 +2017,27 @@ const Movimientos = ({modulo}) => {
         );
       })()}
 
+      {tienePendientesViejos && (
+        <div style={{
+          background: "rgba(231,76,60,.12)",
+          color: "#e74c3c",
+          border: "1px solid rgba(231,76,60,.3)",
+          borderRadius: 8,
+          padding: "12px 16px",
+          marginBottom: 14,
+          fontSize: 13,
+          fontWeight: 500,
+          display: "flex",
+          alignItems: "center",
+          gap: 10
+        }}>
+          <span>⚠️</span>
+          <div>
+            <strong>Atención:</strong> Hay movimientos cargados hace más de un día que siguen pendientes de completar (pesadas de salida, llegada o calidad).
+          </div>
+        </div>
+      )}
+
       {modulo === "FORMAL" && movs.some(m=>m.estado==="EN_TRANSITO") && (
         <div className="alert-info" style={{marginBottom:14}}>
           ⚠ Hay {movs.filter(m=>m.estado==="EN_TRANSITO").length} camión(es) en tránsito pendiente(s) de descarga
@@ -1813,26 +2075,52 @@ const Movimientos = ({modulo}) => {
         <Modal title="⚡ Carga Rápida de Movimiento" onClose={()=>setShowRapido(false)} width={560}>
           <div className="alert-info" style={{marginBottom:16}}>Registrá lo mínimo ahora. Los datos faltantes se completan después.</div>
           <div className="form-grid-2">
-            <FF label="Productor" required><select><option value="">Seleccionar...</option>{contrapartes.filter(c=>c.tipo!=="COMPRADOR").map(c=><option key={c.id}>{c.razon_social}</option>)}</select></FF>
+            <FF label="Productor" required>
+              <select value={rapidoProductor} onChange={e=>setRapidoProductor(e.target.value)}>
+                <option value="">Seleccionar...</option>
+                {contrapartes.filter(c=>c.tipo==="PRODUCTOR"||c.tipo==="AMBOS").map(c=>(
+                  <option key={c.id} value={c.id}>{c.razon_social}</option>
+                ))}
+              </select>
+            </FF>
             <FF label="Especie / Campaña" required>
               <div style={{display:"flex",gap:8}}>
-                <select style={{flex:1}}>{ESPECIES.map(e=><option key={e}>{e}</option>)}</select>
-                <select style={{width:110}}>{CAMPANAS.map(c=><option key={c}>{c}</option>)}</select>
+                <select style={{flex:1}} value={rapidoEspecie} onChange={e=>setRapidoEspecie(e.target.value)}>
+                  {ESPECIES.map(e=><option key={e} value={e}>{e}</option>)}
+                </select>
+                <select style={{width:110}} value={rapidoCampana} onChange={e=>setRapidoCampana(e.target.value)}>
+                  {CAMPANAS.map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
               </div>
             </FF>
-            <FF label="Contrato de Compra"><select><option value="">Sin asignar</option>{contratos.filter(c=>c.tipo==="COMPRA").map(c=><option key={c.id}>{c.numero} — {c.especie}</option>)}</select></FF>
-            <FF label="Patente Chasis"><input placeholder="AA496YI"/></FF>
-            <FF label="Kg Bruto Salida" required><input type="number" placeholder="52.380"/></FF>
-            <FF label="Kg Tara Salida" required><input type="number" placeholder="17.400"/></FF>
-            <FF label="Humedad Salida (%)"><input type="number" step="0.1" placeholder="13.2"/></FF>
-            <FF label="Destino"><input placeholder="Planta / Localidad destino"/></FF>
+            <FF label="Contrato de Compra">
+              <select value={rapidoContrato} onChange={e=>setRapidoContrato(e.target.value)}>
+                <option value="">Sin asignar (Posición abierta)</option>
+                {contratos.filter(c=>c.tipo==="COMPRA" && (!rapidoProductor || c.id_contraparte === parseInt(rapidoProductor))).map(c=>(
+                  <option key={c.id} value={c.id}>{c.numero} — {c.especie}</option>
+                ))}
+              </select>
+            </FF>
+            <FF label="Patente Chasis"><input placeholder="AA496YI" value={rapidoPatente} onChange={e=>setRapidoPatente(e.target.value)}/></FF>
+            <FF label="Kg Bruto Salida" required><input type="number" placeholder="52380" value={rapidoBruto} onChange={e=>setRapidoBruto(e.target.value)}/></FF>
+            <FF label="Kg Tara Salida" required><input type="number" placeholder="17400" value={rapidoTara} onChange={e=>setRapidoTara(e.target.value)}/></FF>
+            <FF label="Kg Neto Salida (Calculado)">
+              <input 
+                type="number" 
+                value={(rapidoBruto && rapidoTara) ? (parseFloat(rapidoBruto) - parseFloat(rapidoTara)) : ""} 
+                disabled 
+                style={{background: "rgba(255,255,255,0.05)"}}
+              />
+            </FF>
+            <FF label="Humedad Salida (%)"><input type="number" step="0.1" placeholder="13.2" value={rapidoHumedad} onChange={e=>setRapidoHumedad(e.target.value)}/></FF>
+            <FF label="Destino" span={2}><input placeholder="Planta / Localidad destino" value={rapidoDestino} onChange={e=>setRapidoDestino(e.target.value)}/></FF>
           </div>
           <div style={{padding:"10px 14px",background:"rgba(245,166,35,.06)",border:"1px solid rgba(245,166,35,.15)",borderRadius:6,marginBottom:16,fontSize:12,color:"#8890a8"}}>
-            Creado por: <strong style={{color:"#e8eaf0"}}>usuario_actual</strong> — {new Date().toLocaleString("es-AR")}
+            Creado por: <strong style={{color:"#e8eaf0"}}>{usuario}</strong> — {new Date().toLocaleString("es-AR")}
           </div>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
             <Btn variant="secondary" onClick={()=>setShowRapido(false)}>Cancelar</Btn>
-            <Btn onClick={()=>{alert("✓ Movimiento creado en estado BORRADOR — completar datos faltantes");setShowRapido(false);}}>Crear Movimiento Incompleto</Btn>
+            <Btn onClick={handleGuardarRapido}>Guardar Movimiento</Btn>
           </div>
         </Modal>
       )}
@@ -1935,7 +2223,8 @@ const Movimientos = ({modulo}) => {
                       tarifa_flete_real: parseFloat(importResult.tarifa),
                       peso_bruto_salida_kg: parseFloat(importResult.peso_bruto),
                       peso_tara_salida_kg: parseFloat(importResult.peso_tara),
-                      humedad_salida_pct: 13.2
+                      humedad_salida_pct: 13.2,
+                      usuario_carga: usuario
                     };
                     const r = await api.post("/api/movimientos", payload);
                     alert(`✓ Movimiento ${r.numero_movimiento} creado desde CPE N° ${importResult.nro_cpe}\nEstado: EN_TRÁNSITO`);
@@ -2231,12 +2520,49 @@ const Movimientos = ({modulo}) => {
       {/* DETALLE MOVIMIENTO */}
       {showForm&&(
         <Modal title={selected?`Movimiento ${selected.numero}`:"Nuevo Movimiento"} onClose={()=>setShowForm(false)} width={960}>
-          <div className="tab-bar" style={{marginBottom:20}}>
-            {["salida","llegada","calidad","liquidacion","flete"].map(t=>(
-              <button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>
-                {t.charAt(0).toUpperCase()+t.slice(1)}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+            <div className="tab-bar" style={{marginBottom:0,flex:1}}>
+              {["salida","llegada","calidad","liquidacion","flete"].map(t=>(
+                <button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>
+                  {t.charAt(0).toUpperCase()+t.slice(1)}
+                </button>
+              ))}
+            </div>
+            {selected && (
+              <button
+                onClick={async () => {
+                  if (confirm(`¿Está seguro de que desea eliminar el movimiento ${selected.numero}? Esta acción no se puede deshacer y borrará los registros de calidad y servicios asociados.`)) {
+                    try {
+                      const res = await api.delete(`/api/movimientos/${selected.id}`);
+                      if (res && res.error) {
+                        alert("Error al eliminar: " + res.error);
+                      } else {
+                        alert("✓ Movimiento eliminado correctamente");
+                        setShowForm(false);
+                        cargarMovimientos();
+                      }
+                    } catch (err) {
+                      alert("Error al eliminar movimiento: " + err.message);
+                    }
+                  }
+                }}
+                style={{
+                  background: "rgba(231,76,60,.12)",
+                  color: "#e74c3c",
+                  border: "1px solid rgba(231,76,60,.3)",
+                  borderRadius: 6,
+                  padding: "6px 12px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all .2s"
+                }}
+                onMouseEnter={e=>{e.target.style.background="rgba(231,76,60,.2)";}}
+                onMouseLeave={e=>{e.target.style.background="rgba(231,76,60,.12)";}}
+              >
+                🗑️ Eliminar Movimiento
               </button>
-            ))}
+            )}
           </div>
 
           {tab==="salida"&&(
@@ -2248,7 +2574,23 @@ const Movimientos = ({modulo}) => {
               </div>
               <div className="form-grid-2" style={{marginBottom:18}}>
                 <FF label="Productor" required>
-                  <select defaultValue={selected?.productor||""}>
+                  <select
+                    value={movForm.productor_nombre}
+                    onChange={e => {
+                      const prodName = e.target.value;
+                      const prod = contrapartes.find(c => c.razon_social === prodName);
+                      setMovForm({
+                        ...movForm,
+                        productor_nombre: prodName,
+                        titular_cpe_nombre: prodName,
+                        titular_cpe_cuit: prod ? prod.cuit : "",
+                        remitente_comercial_productor_nombre: prodName,
+                        remitente_comercial_productor_cuit: prod ? prod.cuit : "",
+                        flete_pagador_nombre: prodName,
+                        flete_pagador_cuit: prod ? prod.cuit : ""
+                      });
+                    }}
+                  >
                     <option value="">Seleccionar productor...</option>
                     {contrapartes.filter(c=>c.tipo==="PRODUCTOR"||c.tipo==="AMBOS").map(c=>(
                       <option key={c.id} value={c.razon_social}>{c.codigo} — {c.razon_social} {c.cuit?"("+c.cuit+")":""}</option>
@@ -2256,7 +2598,21 @@ const Movimientos = ({modulo}) => {
                   </select>
                 </FF>
                 <FF label="Comprador / Destino" required>
-                  <select defaultValue={selected?.comprador||""}>
+                  <select
+                    value={movForm.comprador_nombre}
+                    onChange={e => {
+                      const compName = e.target.value;
+                      const comp = contrapartes.find(c => c.razon_social === compName);
+                      setMovForm({
+                        ...movForm,
+                        comprador_nombre: compName,
+                        destinatario_nombre: compName,
+                        destinatario_cuit: comp ? comp.cuit : "",
+                        destino_nombre: compName,
+                        destino_cuit: comp ? comp.cuit : ""
+                      });
+                    }}
+                  >
                     <option value="">Seleccionar comprador...</option>
                     {contrapartes.filter(c=>c.tipo==="COMPRADOR"||c.tipo==="AMBOS").map(c=>(
                       <option key={c.id} value={c.razon_social}>{c.codigo} — {c.razon_social} {c.cuit?"("+c.cuit+")":""}</option>
@@ -2272,11 +2628,10 @@ const Movimientos = ({modulo}) => {
               <div className="form-grid-2" style={{marginBottom:8}}>
                 <FF label="Contrato de Compra">
                   <select
-                    value={selected?.id_contrato_compra || ""}
-                    id="input_id_contrato_compra"
+                    value={movForm.id_contrato_compra || ""}
                     onChange={(e) => {
                       const val = e.target.value ? parseInt(e.target.value) : null;
-                      setSelected({ ...selected, id_contrato_compra: val });
+                      setMovForm({ ...movForm, id_contrato_compra: val });
                     }}
                   >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
@@ -2287,11 +2642,10 @@ const Movimientos = ({modulo}) => {
                 </FF>
                 <FF label="Contrato de Venta">
                   <select
-                    value={selected?.id_contrato_venta || ""}
-                    id="input_id_contrato_venta"
+                    value={movForm.id_contrato_venta || ""}
                     onChange={(e) => {
                       const val = e.target.value ? parseInt(e.target.value) : null;
-                      setSelected({ ...selected, id_contrato_venta: val });
+                      setMovForm({ ...movForm, id_contrato_venta: val });
                     }}
                   >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
@@ -2307,37 +2661,25 @@ const Movimientos = ({modulo}) => {
               {modulo==="FORMAL"&&<>
                 <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>Carta de Porte Electrónica</div>
                 <div className="form-grid-2" style={{marginBottom:18}}>
-                  <FF label="N° CPE"><input defaultValue={selected?.nro_cpe||""} placeholder="00000-00001444"/></FF>
-                  <FF label="N° CTG"><input defaultValue={selected?.nro_ctg||""} placeholder="10129526726"/></FF>
-                  <FF label="Fecha CPE"><input type="date"/></FF>
-                  <FF label="Vencimiento CPE"><input type="date"/></FF>
+                  <FF label="N° CPE"><input value={movForm.nro_cpe} onChange={e=>setMovForm({...movForm, nro_cpe: e.target.value})} placeholder="00000-00001444"/></FF>
+                  <FF label="N° CTG"><input value={movForm.nro_ctg} onChange={e=>setMovForm({...movForm, nro_ctg: e.target.value})} placeholder="10129526726"/></FF>
+                  <FF label="Fecha CPE"><input type="date" value={movForm.fecha_cpe} onChange={e=>setMovForm({...movForm, fecha_cpe: e.target.value})}/></FF>
+                  <FF label="Vencimiento CPE"><input type="date" value={movForm.fecha_vencimiento_cpe} onChange={e=>setMovForm({...movForm, fecha_vencimiento_cpe: e.target.value})}/></FF>
                 </div>
                 <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>A — Intervinientes</div>
                 <div className="form-grid-2" style={{marginBottom:18}}>
-                  <FF label="Titular CPE — CUIT"><input defaultValue={selected?.titular_cpe_cuit||""} placeholder="30-71018399-2"/></FF>
-                  <FF label="Titular CPE — Nombre"><input defaultValue={selected?.titular_cpe_nombre||""} placeholder="Razón social"/></FF>
-                  <FF label="Remitente Comercial Productor — CUIT"><input placeholder="CUIT del productor"/></FF>
-                  <FF label="Remitente Comercial Productor — Nombre"><input placeholder="Nombre del productor"/></FF>
-                  <FF label="Rte. Venta Primaria — CUIT"><input defaultValue={selected?.rte_primaria_cuit||""} placeholder="30-53204169-0"/></FF>
-                  <FF label="Rte. Venta Primaria — Nombre"><input defaultValue={selected?.rte_primaria_nombre||""} placeholder="Nombre"/></FF>
-                  <FF label="Rte. Venta Secundaria — CUIT"><input placeholder="CUIT (opcional)"/></FF>
-                  <FF label="Rte. Venta Secundaria — Nombre"><input placeholder="Nombre (opcional)"/></FF>
-                  <FF label="Rte. Venta Secundaria 2 — CUIT"><input placeholder="CUIT (opcional)"/></FF>
-                  <FF label="Rte. Venta Secundaria 2 — Nombre"><input placeholder="Nombre (opcional)"/></FF>
-                  <FF label="Corredor Venta Primaria — CUIT"><input placeholder="CUIT corredor"/></FF>
-                  <FF label="Corredor Venta Primaria — Nombre"><input placeholder="Nombre corredor"/></FF>
-                  <FF label="Corredor Venta Secundaria — CUIT"><input placeholder="CUIT (opcional)"/></FF>
-                  <FF label="Corredor Venta Secundaria — Nombre"><input placeholder="Nombre (opcional)"/></FF>
-                  <FF label="Mercado a Término — CUIT"><input placeholder="CUIT (opcional)"/></FF>
-                  <FF label="Representante Entregador — CUIT"><input placeholder="CUIT (opcional)"/></FF>
-                  <FF label="Representante Recibidor — CUIT"><input placeholder="CUIT (opcional)"/></FF>
-                  <FF label="Intermediario de Flete — CUIT"><input placeholder="CUIT (opcional)"/></FF>
-                  <FF label="Destinatario — CUIT"><input defaultValue={selected?.destinatario_cuit||""} placeholder="30-70086991-8"/></FF>
-                  <FF label="Destinatario — Nombre"><input defaultValue={selected?.destinatario_nombre||""} placeholder="Bunge Argentina S.A."/></FF>
-                  <FF label="Destino — CUIT"><input defaultValue={selected?.destino_cuit||""} placeholder="30-70959089-4"/></FF>
-                  <FF label="Destino — Nombre"><input defaultValue={selected?.destino_nombre||""} placeholder="Renova S.A."/></FF>
-                  <FF label="Flete Pagador — CUIT"><input defaultValue={selected?.flete_pagador_cuit||""} placeholder="30-71018399-2"/></FF>
-                  <FF label="Flete Pagador — Nombre"><input defaultValue={selected?.flete_pagador_nombre||""} placeholder="Nombre flete pagador"/></FF>
+                  <FF label="Titular CPE — CUIT"><input value={movForm.titular_cpe_cuit} onChange={e=>setMovForm({...movForm, titular_cpe_cuit: e.target.value})} placeholder="30-71018399-2"/></FF>
+                  <FF label="Titular CPE — Nombre"><input value={movForm.titular_cpe_nombre} onChange={e=>setMovForm({...movForm, titular_cpe_nombre: e.target.value})} placeholder="Razón social"/></FF>
+                  <FF label="Remitente Comercial Productor — CUIT"><input value={movForm.remitente_comercial_productor_cuit} onChange={e=>setMovForm({...movForm, remitente_comercial_productor_cuit: e.target.value})} placeholder="CUIT del productor"/></FF>
+                  <FF label="Remitente Comercial Productor — Nombre"><input value={movForm.remitente_comercial_productor_nombre} onChange={e=>setMovForm({...movForm, remitente_comercial_productor_nombre: e.target.value})} placeholder="Nombre del productor"/></FF>
+                  <FF label="Rte. Venta Primaria — CUIT"><input value={movForm.rte_primaria_cuit} onChange={e=>setMovForm({...movForm, rte_primaria_cuit: e.target.value})} placeholder="30-53204169-0"/></FF>
+                  <FF label="Rte. Venta Primaria — Nombre"><input value={movForm.rte_primaria_nombre} onChange={e=>setMovForm({...movForm, rte_primaria_nombre: e.target.value})} placeholder="Nombre"/></FF>
+                  <FF label="Destinatario — CUIT"><input value={movForm.destinatario_cuit} onChange={e=>setMovForm({...movForm, destinatario_cuit: e.target.value})} placeholder="30-70086991-8"/></FF>
+                  <FF label="Destinatario — Nombre"><input value={movForm.destinatario_nombre} onChange={e=>setMovForm({...movForm, destinatario_nombre: e.target.value})} placeholder="Bunge Argentina S.A."/></FF>
+                  <FF label="Destino — CUIT"><input value={movForm.destino_cuit} onChange={e=>setMovForm({...movForm, destino_cuit: e.target.value})} placeholder="30-70959089-4"/></FF>
+                  <FF label="Destino — Nombre"><input value={movForm.destino_nombre} onChange={e=>setMovForm({...movForm, destino_nombre: e.target.value})} placeholder="Renova S.A."/></FF>
+                  <FF label="Flete Pagador — CUIT"><input value={movForm.flete_pagador_cuit} onChange={e=>setMovForm({...movForm, flete_pagador_cuit: e.target.value})} placeholder="30-71018399-2"/></FF>
+                  <FF label="Flete Pagador — Nombre"><input value={movForm.flete_pagador_nombre} onChange={e=>setMovForm({...movForm, flete_pagador_nombre: e.target.value})} placeholder="Nombre flete pagador"/></FF>
                 </div>
               </>}
               {modulo==="INFORMAL"&&(
@@ -2347,73 +2689,121 @@ const Movimientos = ({modulo}) => {
               )}
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>{modulo==="FORMAL"?"B — Grano / Especie":"Grano / Especie"}</div>
               <div className="form-grid-2" style={{marginBottom:18}}>
-                <FF label="Especie"><select>{ESPECIES.map(e=><option key={e}>{e}</option>)}</select></FF>
-                <FF label="Campaña"><select>{CAMPANAS.map(c=><option key={c}>{c}</option>)}</select></FF>
-                {modulo==="FORMAL"&&<FF label="Declaración de Calidad"><select><option>CONFORME</option><option>CONDICIONAL</option></select></FF>}
-                {modulo==="FORMAL"&&<FF label="Observaciones CPE"><input placeholder="Ej: interviene C&S SRL 30-70982771-1"/></FF>}
-                {modulo==="INFORMAL"&&<FF label="N° Remito"><input placeholder="Nro de remito (opcional)"/></FF>}
-                {modulo==="INFORMAL"&&<FF label="Observaciones"><input placeholder="Observaciones del movimiento"/></FF>}
+                <FF label="Especie">
+                  <select
+                    value={ESPECIES[movForm.id_especie - 1] || "Soja"}
+                    onChange={e => {
+                      const idx = ESPECIES.indexOf(e.target.value);
+                      setMovForm({...movForm, id_especie: idx !== -1 ? idx + 1 : 1});
+                    }}
+                  >
+                    {ESPECIES.map(e=><option key={e} value={e}>{e}</option>)}
+                  </select>
+                </FF>
+                <FF label="Campaña">
+                  <select
+                    value={CAMPANAS[movForm.id_campana - 1] || "2024/2025"}
+                    onChange={e => {
+                      const idx = CAMPANAS.indexOf(e.target.value);
+                      setMovForm({...movForm, id_campana: idx !== -1 ? idx + 1 : 2});
+                    }}
+                  >
+                    {CAMPANAS.map(c=><option key={c} value={c}>{c}</option>)}
+                  </select>
+                </FF>
+                {modulo==="FORMAL"&&<FF label="Declaración de Calidad"><select value={movForm.declaracion_calidad} onChange={e=>setMovForm({...movForm, declaracion_calidad: e.target.value})}><option>CONFORME</option><option>CONDICIONAL</option></select></FF>}
+                <FF label="Observaciones"><input value={movForm.observaciones} onChange={e=>setMovForm({...movForm, observaciones: e.target.value})} placeholder="Observaciones del movimiento"/></FF>
               </div>
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>{modulo==="FORMAL"?"C — Procedencia":"Procedencia"}</div>
               <div className="form-grid-2" style={{marginBottom:18}}>
-                <FF label="Localidad Origen"><input defaultValue={selected?.origen?.split(",")[0]||""} placeholder="Localidad de origen"/></FF>
-                <FF label="Provincia Origen"><select><option value="">Seleccionar...</option>{PROVINCIAS.map(p=><option key={p}>{p}</option>)}</select></FF>
-                {modulo==="FORMAL"&&<FF label="RENSPA"><input placeholder="Código RENSPA del campo"/></FF>}
-                {modulo==="FORMAL"&&<FF label="Descripción Campo"><input placeholder="Nombre del establecimiento"/></FF>}
-                {modulo==="FORMAL"&&<FF label="Latitud"><input placeholder="27° 16 58"/></FF>}
-                {modulo==="FORMAL"&&<FF label="Longitud"><input placeholder="64° 40 10"/></FF>}
-                {modulo==="INFORMAL"&&<FF label="Establecimiento / Campo"><input placeholder="Nombre del campo (opcional)"/></FF>}
+                <FF label="Localidad Origen"><input value={movForm.localidad_origen} onChange={e=>setMovForm({...movForm, localidad_origen: e.target.value})} placeholder="Localidad de origen"/></FF>
+                <FF label="Provincia Origen">
+                  <select value={movForm.provincia_origen} onChange={e=>setMovForm({...movForm, provincia_origen: e.target.value})}>
+                    <option value="">Seleccionar...</option>
+                    {PROVINCIAS.map(p=><option key={p} value={p}>{p}</option>)}
+                  </select>
+                </FF>
+                {modulo==="FORMAL"&&<FF label="RENSPA"><input value={movForm.renspa} onChange={e=>setMovForm({...movForm, renspa: e.target.value})} placeholder="Código RENSPA del campo"/></FF>}
+                {modulo==="FORMAL"&&<FF label="Descripción Campo"><input value={movForm.descripcion_campo} onChange={e=>setMovForm({...movForm, descripcion_campo: e.target.value})} placeholder="Nombre del establecimiento"/></FF>}
+                {modulo==="FORMAL"&&<FF label="Latitud"><input value={movForm.latitud} onChange={e=>setMovForm({...movForm, latitud: e.target.value})} placeholder="27° 16 58"/></FF>}
+                {modulo==="FORMAL"&&<FF label="Longitud"><input value={movForm.longitud} onChange={e=>setMovForm({...movForm, longitud: e.target.value})} placeholder="64° 40 10"/></FF>}
               </div>
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>{modulo==="FORMAL"?"D — Destino de la Mercadería":"Destino"}</div>
               <div className="form-grid-2" style={{marginBottom:18}}>
-                <FF label="Localidad Destino"><input defaultValue={selected?.destino?.split(",")[0]||""} placeholder="Localidad destino"/></FF>
-                <FF label="Provincia Destino"><select><option value="">Seleccionar...</option>{PROVINCIAS.map(p=><option key={p}>{p}</option>)}</select></FF>
-                {modulo==="FORMAL"&&<FF label="N° Planta"><input placeholder="518477"/></FF>}
-                {modulo==="FORMAL"&&<FF label="Dirección Destino"><input placeholder="Brigadier López 10500"/></FF>}
+                <FF label="Localidad Destino"><input value={movForm.localidad_destino} onChange={e=>setMovForm({...movForm, localidad_destino: e.target.value})} placeholder="Localidad destino"/></FF>
+                <FF label="Provincia Destino">
+                  <select value={movForm.provincia_destino} onChange={e=>setMovForm({...movForm, provincia_destino: e.target.value})}>
+                    <option value="">Seleccionar...</option>
+                    {PROVINCIAS.map(p=><option key={p} value={p}>{p}</option>)}
+                  </select>
+                </FF>
+                {modulo==="FORMAL"&&<FF label="N° Planta"><input value={movForm.nro_planta_destino} onChange={e=>setMovForm({...movForm, nro_planta_destino: e.target.value})} placeholder="518477"/></FF>}
+                {modulo==="FORMAL"&&<FF label="Dirección Destino"><input value={movForm.direccion_destino} onChange={e=>setMovForm({...movForm, direccion_destino: e.target.value})} placeholder="Dirección destino"/></FF>}
               </div>
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>{modulo==="FORMAL"?"E — Datos del Transporte":"Transporte"}</div>
               <div className="form-grid-2" style={{marginBottom:18}}>
                 <FF label="Empresa Transportista">
-                  <select defaultValue={selected?.transportista||""}>
+                  <select value={movForm.transportista_nombre} onChange={e=>setMovForm({...movForm, transportista_nombre: e.target.value})}>
                     <option value="">Seleccionar...</option>
                     {mockTransportistas.map(t=><option key={t.id} value={t.razon_social}>{t.razon_social}{t.cuit?" — "+t.cuit:" (Informal)"}</option>)}
                   </select>
                 </FF>
                 <FF label="Chofer">
-                  <select defaultValue={selected?.chofer||""}>
+                  <select value={movForm.chofer_nombre} onChange={e=>setMovForm({...movForm, chofer_nombre: e.target.value})}>
                     <option value="">Seleccionar...</option>
                     {mockChoferes.map(c=><option key={c.id} value={c.nombre}>{c.nombre} ({c.cuit_dni})</option>)}
                   </select>
                 </FF>
-                <FF label="Patente Chasis"><input defaultValue={selected?.patente_chasis||""} placeholder="AA496YI"/></FF>
-                <FF label="Patente Acoplado"><input defaultValue={selected?.patente_acoplado||""} placeholder="AD846IU"/></FF>
-                <FF label="Km a Recorrer"><input type="number" defaultValue={selected?.km||""}/></FF>
-                {modulo==="FORMAL"&&<FF label="Tipo Tarifa"><select><option>LLENA</option><option>MENOS_10</option><option>MENOS_20</option></select></FF>}
-                {modulo==="FORMAL"&&<FF label="Tarifa CATAC (referencia)"><input type="number" defaultValue={selected?.tarifa_catac||""}/></FF>}
-                <FF label="Tarifa Real Pactada"><input type="number" defaultValue={selected?.tarifa_real||""}/></FF>
-                {modulo==="FORMAL"&&<FF label="Fecha Partida"><input type="datetime-local"/></FF>}
+                <FF label="Patente Chasis"><input value={movForm.patente_chasis} onChange={e=>setMovForm({...movForm, patente_chasis: e.target.value})} placeholder="AA496YI"/></FF>
+                <FF label="Patente Acoplado"><input value={movForm.patente_acoplado} onChange={e=>setMovForm({...movForm, patente_acoplado: e.target.value})} placeholder="AD846IU"/></FF>
+                <FF label="Km a Recorrer"><input type="number" value={movForm.km_a_recorrer} onChange={e=>setMovForm({...movForm, km_a_recorrer: e.target.value})}/></FF>
+                {modulo==="FORMAL"&&<FF label="Tipo Tarifa"><select value={movForm.tipo_tarifa} onChange={e=>setMovForm({...movForm, tipo_tarifa: e.target.value})}><option>LLENA</option><option>MENOS_10</option><option>MENOS_20</option></select></FF>}
+                {modulo==="FORMAL"&&<FF label="Tarifa CATAC (referencia)"><input type="number" value={movForm.tarifa_catac} onChange={e=>setMovForm({...movForm, tarifa_catac: e.target.value})}/></FF>}
+                <FF label="Tarifa Real Pactada"><input type="number" value={movForm.tarifa_flete_real} onChange={e=>setMovForm({...movForm, tarifa_flete_real: e.target.value})}/></FF>
+                {modulo==="FORMAL"&&<FF label="Fecha Partida"><input type="datetime-local" value={movForm.fecha_partida} onChange={e=>setMovForm({...movForm, fecha_partida: e.target.value})}/></FF>
               </div>
-              {modulo==="FORMAL"&&<>
-                <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>F — Contingencias</div>
-                <div className="form-grid-2" style={{marginBottom:18}}>
-                  <FF label="Contingencia"><input placeholder="Tipo (opcional)"/></FF>
-                  <FF label="Contingencia — Otro"><input placeholder="Descripción (opcional)"/></FF>
-                  <FF label="Desactivación"><input placeholder="Motivo (opcional)"/></FF>
-                  <FF label="Desactivación — Otro"><input placeholder="Descripción (opcional)"/></FF>
-                </div>
-              </>}
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>Pesada de Salida</div>
               <div className="form-grid-2">
-                <FF label="Kg Bruto Salida" required><input type="number" defaultValue={selected?.peso_bruto_salida||""}/></FF>
-                <FF label="Kg Tara Salida" required><input type="number"/></FF>
-                <FF label="Kg Neto Salida"><input readOnly placeholder="Calculado automático" style={{color:"#f5a623",fontWeight:600,background:"rgba(245,166,35,.05)"}}/></FF>
-                <FF label="Humedad Salida (%)"><input type="number" step="0.1" defaultValue={selected?.humedad_salida||""}/></FF>
+                <FF label="Kg Bruto Salida" required>
+                  <input
+                    type="number"
+                    value={movForm.peso_bruto_salida_kg}
+                    onChange={e => setMovForm({...movForm, peso_bruto_salida_kg: e.target.value})}
+                  />
+                </FF>
+                <FF label="Kg Tara Salida" required>
+                  <input
+                    type="number"
+                    value={movForm.peso_tara_salida_kg}
+                    onChange={e => setMovForm({...movForm, peso_tara_salida_kg: e.target.value})}
+                  />
+                </FF>
+                <FF label="Kg Neto Salida">
+                  <input
+                    readOnly
+                    value={
+                      movForm.peso_bruto_salida_kg && movForm.peso_tara_salida_kg
+                        ? parseFloat(movForm.peso_bruto_salida_kg) - parseFloat(movForm.peso_tara_salida_kg)
+                        : ""
+                    }
+                    placeholder="Calculado automático"
+                    style={{color:"#f5a623",fontWeight:600,background:"rgba(245,166,35,.05)"}}
+                  />
+                </FF>
+                <FF label="Humedad Salida (%)">
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={movForm.humedad_salida_pct}
+                    onChange={e => setMovForm({...movForm, humedad_salida_pct: e.target.value})}
+                  />
+                </FF>
               </div>
             </div>
           )}
 
           {tab==="llegada"&&(() => {
-            const netoSal = selected?.peso_neto_salida || 0;
+            const netoSal = movForm.peso_bruto_salida_kg && movForm.peso_tara_salida_kg ? parseFloat(movForm.peso_bruto_salida_kg) - parseFloat(movForm.peso_tara_salida_kg) : 0;
             const bruto = brutoLlegada !== null ? brutoLlegada : 0;
             const tara = taraLlegada !== null ? taraLlegada : 0;
             const neto = bruto - tara;
@@ -2422,7 +2812,7 @@ const Movimientos = ({modulo}) => {
             const tol = netoSal * 0.0003;
             const falt = Math.max(0, diff - tol);
             
-            const humPct = getMermaHumedadPct(selected?.id_especie, humedadLlegada !== null ? humedadLlegada : selected?.humedad_llegada);
+            const humPct = getMermaHumedadPct(movForm.id_especie, humedadLlegada !== null ? humedadLlegada : 0);
             const humKg = neto * (humPct / 100);
             const kgSecos = neto - humKg;
             const qFactor = tempFactor !== null ? tempFactor : (selected?.factor_aplicado || 1.0);
@@ -2434,7 +2824,7 @@ const Movimientos = ({modulo}) => {
                   <FF label="Fecha Arribo"><input type="datetime-local" id="input_fecha_arribo" value={fechaArribo} onChange={e=>setFechaArribo(e.target.value)}/></FF>
                   <FF label="Fecha Descarga"><input type="datetime-local" id="input_fecha_descarga" value={fechaDescarga} onChange={e=>setFechaDescarga(e.target.value)}/></FF>
                   <FF label="N° Turno"><input id="input_nro_turno" value={nroTurno} onChange={e=>setNroTurno(e.target.value)}/></FF>
-                  <FF label="Localidad Destino"><input defaultValue={selected?.destino||""} id="input_localidad_destino"/></FF>
+                  <FF label="Localidad Destino"><input value={movForm.localidad_destino} onChange={e=>setMovForm({...movForm, localidad_destino: e.target.value})} id="input_localidad_destino"/></FF>
                   <FF label="Kg Bruto Llegada"><input type="number" id="input_bruto_llegada" value={brutoLlegada !== null ? brutoLlegada : ""} onChange={e=>setBrutoLlegada(e.target.value === "" ? null : parseFloat(e.target.value))}/></FF>
                   <FF label="Kg Tara Llegada"><input type="number" id="input_tara_llegada" value={taraLlegada !== null ? taraLlegada : ""} onChange={e=>setTaraLlegada(e.target.value === "" ? null : parseFloat(e.target.value))}/></FF>
                   <FF label="Humedad Llegada (%)"><input type="number" step="0.1" id="input_humedad_llegada" value={humedadLlegada !== null ? humedadLlegada : ""} onChange={e=>setHumedadLlegada(e.target.value === "" ? null : parseFloat(e.target.value))}/></FF>
@@ -2517,10 +2907,10 @@ const Movimientos = ({modulo}) => {
                   </FF>
                 </div>
               )}
-              {selected&&(() => {
-                const humPct = getMermaHumedadPct(selected.id_especie, humedadLlegada !== null ? humedadLlegada : selected.humedad_llegada);
-                const neto = (brutoLlegada !== null && taraLlegada !== null) ? (brutoLlegada - taraLlegada) : (selected.peso_neto_llegada || selected.peso_neto_salida || 0);
-                const qFactor = tempFactor !== null ? tempFactor : (selected.factor_aplicado || 1.0);
+              {(() => {
+                const humPct = getMermaHumedadPct(movForm.id_especie, humedadLlegada !== null ? humedadLlegada : 0);
+                const neto = (brutoLlegada !== null && taraLlegada !== null) ? (brutoLlegada - taraLlegada) : 0;
+                const qFactor = tempFactor !== null ? tempFactor : (selected?.factor_aplicado || 1.0);
                 const kgSecos = neto * (1.0 - (humPct / 100));
                 const liqKg = kgSecos * qFactor;
                 
@@ -2543,12 +2933,12 @@ const Movimientos = ({modulo}) => {
 
           {tab==="liquidacion"&&(() => {
             // Buscar contrato asignado en los contratos reales cargados
-            const contratoAsignado = contratos.find(c => c.id === selected?.id_contrato_compra);
+            const contratoAsignado = contratos.find(c => c.id === movForm.id_contrato_compra);
             const precioContrato = contratoAsignado?.precio || 0;
             const precioContratoFormateado = precioContrato > 0 ? `$ ${precioContrato.toLocaleString()} / tn` : "A Fijar (Sin precio fijado)";
             
-            const humPct = getMermaHumedadPct(selected?.id_especie, humedadLlegada !== null ? humedadLlegada : selected?.humedad_llegada);
-            const neto = (brutoLlegada !== null && taraLlegada !== null) ? (brutoLlegada - taraLlegada) : (selected?.peso_neto_llegada || selected?.peso_neto_salida || 0);
+            const humPct = getMermaHumedadPct(movForm.id_especie, humedadLlegada !== null ? humedadLlegada : 0);
+            const neto = (brutoLlegada !== null && taraLlegada !== null) ? (brutoLlegada - taraLlegada) : 0;
             const qFactor = tempFactor !== null ? tempFactor : (selected?.factor_aplicado || 1.0);
             const kgSecos = neto * (1.0 - (humPct / 100));
             const currentKgLiquidables = kgSecos * qFactor;
@@ -2564,7 +2954,7 @@ const Movimientos = ({modulo}) => {
 
             return (
               <div>
-                {selected && neto > 0 ? (
+                {neto > 0 ? (
                   <div>
                     <div style={{padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",marginBottom:16}}>
                       <div style={{fontSize:11,color:"#8890a8",marginBottom:12,fontWeight:600,textTransform:"uppercase"}}>Resumen de Liquidación</div>
@@ -2599,16 +2989,51 @@ const Movimientos = ({modulo}) => {
           {tab==="flete"&&(
             <div>
               <div className="form-grid-2" style={{marginBottom:14}}>
-                <FF label="Km Recorridos"><input type="number" defaultValue={selected?.km||""}/></FF>
-                <FF label="Tipo Tarifa"><select><option>LLENA</option><option>MENOS_10</option><option>MENOS_20</option></select></FF>
-                <FF label="Tarifa Pactada"><input type="number" defaultValue={selected?.tarifa_real||""}/></FF>
-                <FF label="Toneladas"><input type="number" defaultValue={selected?((selected.kg_liquidables||selected.peso_neto_salida)/1000).toFixed(3):""}/></FF>
+                <FF label="Km Recorridos">
+                  <input
+                    type="number"
+                    value={movForm.km_a_recorrer}
+                    onChange={e => setMovForm({...movForm, km_a_recorrer: e.target.value})}
+                  />
+                </FF>
+                <FF label="Tipo Tarifa">
+                  <select
+                    value={movForm.tipo_tarifa}
+                    onChange={e => setMovForm({...movForm, tipo_tarifa: e.target.value})}
+                  >
+                    <option>LLENA</option>
+                    <option>MENOS_10</option>
+                    <option>MENOS_20</option>
+                  </select>
+                </FF>
+                <FF label="Tarifa Pactada">
+                  <input
+                    type="number"
+                    value={movForm.tarifa_flete_real}
+                    onChange={e => setMovForm({...movForm, tarifa_flete_real: e.target.value})}
+                  />
+                </FF>
+                <FF label="Toneladas">
+                  <input
+                    readOnly
+                    type="number"
+                    value={
+                      movForm.peso_bruto_salida_kg && movForm.peso_tara_salida_kg
+                        ? ((parseFloat(movForm.peso_bruto_salida_kg) - parseFloat(movForm.peso_tara_salida_kg)) / 1000).toFixed(3)
+                        : ""
+                    }
+                  />
+                </FF>
               </div>
-              {selected&&selected.tarifa_real&&selected.km&&(
+              {movForm.tarifa_flete_real && movForm.km_a_recorrer && movForm.peso_bruto_salida_kg && movForm.peso_tara_salida_kg && (
                 <div style={{padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                   <span style={{color:"#8890a8"}}>Monto Preliquidado</span>
                   <span className="mono" style={{fontSize:20,fontWeight:700,color:"#f5a623"}}>
-                    $ {Math.round(selected.km*selected.tarifa_real*(selected.kg_liquidables||selected.peso_neto_salida)/1000/100).toLocaleString()}
+                    $ {Math.round(
+                      parseFloat(movForm.km_a_recorrer) *
+                      parseFloat(movForm.tarifa_flete_real) *
+                      (parseFloat(movForm.peso_bruto_salida_kg) - parseFloat(movForm.peso_tara_salida_kg)) / 1000
+                    ).toLocaleString()}
                   </span>
                 </div>
               )}
@@ -2620,16 +3045,39 @@ const Movimientos = ({modulo}) => {
             <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cerrar</Btn>
             <Btn onClick={async()=>{
               try {
-                if(selected) {
-                  // Guardar asignación de contratos
-                  await api.put(`/api/movimientos/${selected.id}/asignar`, {
-                    id_contrato_compra: selected.id_contrato_compra || null,
-                    id_contrato_venta: selected.id_contrato_venta || null
+                const payload = {
+                  ...movForm,
+                  peso_bruto_salida_kg: movForm.peso_bruto_salida_kg ? parseFloat(movForm.peso_bruto_salida_kg) : null,
+                  peso_tara_salida_kg: movForm.peso_tara_salida_kg ? parseFloat(movForm.peso_tara_salida_kg) : null,
+                  humedad_salida_pct: movForm.humedad_salida_pct ? parseFloat(movForm.humedad_salida_pct) : null,
+                  km_a_recorrer: movForm.km_a_recorrer ? parseFloat(movForm.km_a_recorrer) : null,
+                  tarifa_catac: movForm.tarifa_catac ? parseFloat(movForm.tarifa_catac) : null,
+                  tarifa_flete_real: movForm.tarifa_flete_real ? parseFloat(movForm.tarifa_flete_real) : null,
+                };
+                
+                let movId = null;
+                if (selected) {
+                  movId = selected.id;
+                  // Guardar datos generales de salida/CPE
+                  await api.put(`/api/movimientos/${selected.id}`, payload);
+                } else {
+                  // Crear nuevo movimiento
+                  const r = await api.post("/api/movimientos", {
+                    ...payload,
+                    modalidad: modulo,
+                    usuario_carga: usuario
                   });
+                  if (r && r.id) {
+                    movId = r.id;
+                  } else {
+                    throw new Error("No se pudo crear el movimiento");
+                  }
+                }
 
+                if (movId) {
                   // Guardar llegada si se ingresaron pesos
                   if (brutoLlegada !== null && taraLlegada !== null) {
-                    await api.put(`/api/movimientos/${selected.id}/llegada`, {
+                    await api.put(`/api/movimientos/${movId}/llegada`, {
                       fecha_arribo: fechaArribo || null,
                       fecha_descarga: fechaDescarga || null,
                       nro_turno: nroTurno || null,
@@ -2641,15 +3089,13 @@ const Movimientos = ({modulo}) => {
                   
                   // Guardar calidad en modo informal (factor manual)
                   if (modulo === "INFORMAL") {
-                    await api.put(`/api/movimientos/${selected.id}/calidad`, {
+                    await api.put(`/api/movimientos/${movId}/calidad`, {
                       parametros: [],
                       factor_manual: tempFactor
                     });
                   }
-                  alert("✓ Cambios guardados");
-                } else {
-                  alert("✓ Movimiento creado");
                 }
+                alert(selected ? "✓ Cambios guardados" : "✓ Movimiento creado exitosamente");
                 setShowForm(false);
                 cargarMovimientos();
               } catch(e) {
@@ -3928,12 +4374,19 @@ const PosicionAbierta = ({modulo}) => {
 };
 
 // ── IMPORTADOR EXCEL ──
-const ImportadorExcel = ({modulo}) => {
+const ImportadorExcel = ({modulo, usuario}) => {
   const [paso, setPaso] = useState(1); // 1=subir, 2=preview, 3=resultado
   const [datos, setDatos] = useState([]);
   const [errores, setErrores] = useState([]);
   const [procesando, setProcesando] = useState(false);
   const [seleccionados, setSeleccionados] = useState([]);
+  const [contrapartes, setContrapartes] = useState([]);
+  const [contratos, setContratos] = useState([]);
+
+  useEffect(() => {
+    api.get("/api/contrapartes").then(d => setContrapartes(d || [])).catch(() => {});
+    api.get(`/api/contratos?modulo=${modulo}`).then(d => setContratos(d || [])).catch(() => {});
+  }, [modulo]);
 
   // Columnas esperadas en el Excel
   const COLUMNAS = [
@@ -4107,12 +4560,78 @@ const ImportadorExcel = ({modulo}) => {
     input.click();
   };
 
-  const confirmarImport = () => {
+  const confirmarImport = async () => {
     setProcesando(true);
-    setTimeout(()=>{
-      setProcesando(false);
+    try {
+      for (const idx of seleccionados) {
+        const r = datos[idx];
+        
+        // Buscar productor y comprador en contrapartes para resolver CUITs/Nombres
+        const prod = contrapartes.find(c => c.razon_social === r.productor);
+        const comp = contrapartes.find(c => c.razon_social === r.comprador);
+        
+        const espId = ESPECIES.indexOf(r.especie) + 1;
+        const campId = CAMPANAS.indexOf(r.campana) + 1;
+        
+        const payload = {
+          modalidad: modulo,
+          id_contrato_compra: r.contrato_compra ? (contratos.find(c => c.numero === r.contrato_compra)?.id || null) : null,
+          id_contrato_venta: r.contrato_venta ? (contratos.find(c => c.numero === r.contrato_venta)?.id || null) : null,
+          nro_ctg: r.nro_ctg || null,
+          nro_cpe: r.nro_cpe || null,
+          titular_cpe_cuit: prod?.cuit || null,
+          titular_cpe_nombre: r.productor || null,
+          remitente_comercial_productor_cuit: prod?.cuit || null,
+          remitente_comercial_productor_nombre: r.productor || null,
+          destinatario_cuit: comp?.cuit || null,
+          destinatario_nombre: r.comprador || null,
+          destino_cuit: comp?.cuit || null,
+          destino_nombre: r.comprador || null,
+          flete_pagador_cuit: prod?.cuit || null,
+          flete_pagador_nombre: r.productor || null,
+          id_especie: espId > 0 ? espId : null,
+          id_campana: campId > 0 ? campId : null,
+          patente_chasis: r.patente_chasis || null,
+          patente_acoplado: r.patente_acoplado || null,
+          chofer_nombre: r.chofer || null,
+          transportista_nombre: r.transportista || null,
+          km_a_recorrer: r.km ? parseFloat(r.km) : null,
+          tarifa_catac: r.tarifa_catac ? parseFloat(r.tarifa_catac) : null,
+          tarifa_flete_real: r.tarifa_real ? parseFloat(r.tarifa_real) : null,
+          peso_bruto_salida_kg: r.kg_bruto_salida ? parseFloat(r.kg_bruto_salida) : null,
+          peso_tara_salida_kg: r.kg_tara_salida ? parseFloat(r.kg_tara_salida) : null,
+          humedad_salida_pct: r.humedad_salida ? parseFloat(r.humedad_salida) : null,
+          usuario_carga: usuario
+        };
+
+        const created = await api.post("/api/movimientos", payload);
+        if (created && created.id) {
+          // Si tiene descarga, actualizar llegada
+          if (r.kg_bruto_llegada && r.kg_tara_llegada) {
+            await api.put(`/api/movimientos/${created.id}/llegada`, {
+              fecha_arribo: new Date().toISOString(),
+              fecha_descarga: new Date().toISOString(),
+              nro_turno: r.nro_turno || null,
+              peso_bruto_llegada_kg: parseFloat(r.kg_bruto_llegada),
+              peso_tara_llegada_kg: parseFloat(r.kg_tara_llegada),
+              humedad_llegada_pct: r.humedad_llegada ? parseFloat(r.humedad_llegada) : null
+            });
+          }
+          // Si tiene calidad factor, actualizar calidad
+          if (r.factor) {
+            await api.put(`/api/movimientos/${created.id}/calidad`, {
+              parametros: [],
+              factor_manual: parseFloat(r.factor)
+            });
+          }
+        }
+      }
       setPaso(3);
-    },1200);
+    } catch(err) {
+      alert("Error al importar movimientos: " + err.message);
+    } finally {
+      setProcesando(false);
+    }
   };
 
   const toggleSel = (i) => setSeleccionados(prev=>prev.includes(i)?prev.filter(x=>x!==i):[...prev,i]);
@@ -4879,6 +5398,7 @@ const MENU_FORMAL = [
   {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚"},
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
+  {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
 ];
 
@@ -4894,6 +5414,7 @@ const MENU_INFORMAL = [
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
   {id:"importador_excel",label:"Importar Excel",icon:"📥"},
+  {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
 ];
 
@@ -4902,6 +5423,7 @@ const MENU_CONSOLIDADO = [
   {id:"stock",label:"Stock Consolidado",icon:"🌾"},
   {id:"cc",label:"CC Consolidada",icon:"💰"},
   {id:"posicion_abierta",label:"Posición Global",icon:"📌"},
+  {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
 ];
 
 const MENU = MENU_FORMAL;
@@ -4968,6 +5490,629 @@ function Login({onLogin}) {
   );
 }
 
+// ── COMPONENTE REPORTES IA ──
+const ReportesIA = ({modulo, usuario}) => {
+  const [titulo, setTitulo] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [sqlQuery, setSqlQuery] = useState("");
+  const [columnas, setColumnas] = useState([]);
+  const [filas, setFilas] = useState([]);
+  const [historial, setHistorial] = useState([]);
+  const [cargando, setCargando] = useState(false);
+  const [filtros, setFiltros] = useState([]);
+  const [columnaSeleccionada, setColumnaSeleccionada] = useState("");
+  
+  // Controles del nuevo filtro a agregar
+  const [filtroMinVal, setFiltroMinVal] = useState("");
+  const [filtroMaxVal, setFiltroMaxVal] = useState("");
+  const [filtroMinDate, setFiltroMinDate] = useState("");
+  const [filtroMaxDate, setFiltroMaxDate] = useState("");
+  const [filtroValoresSeleccionados, setFiltroValoresSeleccionados] = useState([]);
+
+  useEffect(() => {
+    cargarHistorial();
+  }, []);
+
+  const cargarHistorial = async () => {
+    try {
+      const data = await api.get("/api/reportes/ia");
+      setHistorial(data || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const generarReporte = async () => {
+    if (!prompt.trim()) return alert("Ingresá un prompt para pedirle a la IA");
+    setCargando(true);
+    setFiltros([]); // Limpiar filtros al generar nueva consulta
+    try {
+      const res = await api.post("/api/reportes/generar-ia", { prompt, modalidad: modulo });
+      if (res) {
+        setSqlQuery(res.sql || "");
+        setColumnas(res.columnas || []);
+        setFilas(res.filas || []);
+        if (!titulo) {
+          setTitulo(`Reporte: ${prompt.substring(0, 30)}${prompt.length > 30 ? "..." : ""}`);
+        }
+      }
+    } catch (e) {
+      alert("Error al generar reporte: " + e.message);
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const guardarReporte = async () => {
+    if (!titulo.trim()) return alert("Ingresá un título para el reporte");
+    if (!sqlQuery) return alert("Generá un reporte antes de guardarlo");
+    try {
+      await api.post("/api/reportes/ia", {
+        titulo,
+        prompt,
+        sql_query: sqlQuery,
+        columnas
+      });
+      alert("✓ Reporte guardado exitosamente");
+      cargarHistorial();
+    } catch (e) {
+      alert("Error al guardar: " + e.message);
+    }
+  };
+
+  const cargarReporteGuardado = async (id) => {
+    setCargando(true);
+    setFiltros([]);
+    try {
+      const res = await api.get(`/api/reportes/ia/${id}`);
+      if (res) {
+        setTitulo(res.titulo);
+        setPrompt(res.prompt);
+        setSqlQuery(res.sql_query);
+        setColumnas(res.columnas || []);
+        setFilas(res.filas || []);
+      }
+    } catch (e) {
+      alert("Error al cargar reporte: " + e.message);
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const getColumnaTipo = (col) => {
+    const colLower = col.toLowerCase();
+    if (colLower.includes("fecha") || colLower.includes("vencimiento") || colLower.includes("creación")) return "date-range";
+    if (colLower.includes("neto") || colLower.includes("tara") || colLower.includes("bruto") || colLower.includes("faltante") || colLower.includes("kg") || colLower.includes("toneladas") || colLower.includes("precio") || colLower.includes("monto") || colLower.includes("tarifa") || colLower.includes("km") || colLower.includes("factor") || colLower.includes("humedad") || colLower.includes("descuento")) {
+      return "number-range";
+    }
+    for (let r of filas) {
+      const val = r[col];
+      if (val !== null && val !== undefined) {
+        if (typeof val === "number") return "number-range";
+        if (typeof val === "string") {
+          if (/^\d{4}-\d{2}-\d{2}/.test(val) || /^\d{2}\/\d{2}\/\d{4}/.test(val)) return "date-range";
+        }
+      }
+    }
+    return "multiselect";
+  };
+
+  // Obtener valores únicos de una columna
+  const getValoresUnicos = (col) => {
+    const vals = new Set();
+    filas.forEach(r => {
+      const val = r[col];
+      if (val !== null && val !== undefined && val !== "") {
+        vals.add(String(val));
+      }
+    });
+    return Array.from(vals).sort();
+  };
+
+  const agregarFiltro = () => {
+    if (!columnaSeleccionada) return;
+    
+    // Verificar si ya existe filtro para esta columna
+    if (filtros.some(f => f.columna === columnaSeleccionada)) {
+      alert("Ya existe un filtro activo para la columna " + columnaSeleccionada);
+      return;
+    }
+
+    const tipo = getColumnaTipo(columnaSeleccionada);
+    
+    const nuevoFiltro = {
+      columna: columnaSeleccionada,
+      tipo,
+      minVal: filtroMinVal,
+      maxVal: filtroMaxVal,
+      minDate: filtroMinDate,
+      maxDate: filtroMaxDate,
+      selectedValues: [...filtroValoresSeleccionados]
+    };
+
+    setFiltros([...filtros, nuevoFiltro]);
+    
+    // Resetear campos
+    setColumnaSeleccionada("");
+    setFiltroMinVal("");
+    setFiltroMaxVal("");
+    setFiltroMinDate("");
+    setFiltroMaxDate("");
+    setFiltroValoresSeleccionados([]);
+  };
+
+  const removerFiltro = (index) => {
+    setFiltros(filtros.filter((_, i) => i !== index));
+  };
+
+  // Aplicar filtros a las filas
+  const filasFiltradas = filas.filter(row => {
+    return filtros.every(f => {
+      const val = row[f.columna];
+      if (f.tipo === "date-range") {
+        if (!val) return false;
+        const dVal = new Date(val).getTime();
+        if (f.minDate && new Date(f.minDate).getTime() > dVal) return false;
+        if (f.maxDate && new Date(f.maxDate).getTime() < dVal) return false;
+        return true;
+      }
+      if (f.tipo === "number-range") {
+        const nVal = parseFloat(val);
+        if (isNaN(nVal)) return false;
+        if (f.minVal !== "" && f.minVal !== null && parseFloat(f.minVal) > nVal) return false;
+        if (f.maxVal !== "" && f.maxVal !== null && parseFloat(f.maxVal) < nVal) return false;
+        return true;
+      }
+      if (f.tipo === "multiselect") {
+        if (f.selectedValues.length === 0) return true;
+        return f.selectedValues.includes(String(val));
+      }
+      return true;
+    });
+  });
+
+  // Exportar a Excel
+  const exportarExcel = () => {
+    if (filasFiltradas.length === 0) return alert("No hay datos para exportar");
+    
+    const dataToExport = filasFiltradas.map(row => {
+      const obj = {};
+      // ID del movimiento obligatoriamente en la primera columna para cruzamientos
+      obj["ID Movimiento"] = row.id || row.ID || "";
+      
+      // Mapear el resto de las columnas del reporte de IA
+      columnas.forEach(col => {
+        if (col.toLowerCase() !== "id") {
+          obj[col] = row[col] !== null && row[col] !== undefined ? row[col] : "";
+        }
+      });
+      return obj;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Reporte IA");
+    
+    const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbout], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${titulo.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'reporte_ia'}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="fade-in" style={{paddingBottom: 40}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+        <div>
+          <h2 style={{fontSize:20,fontWeight:700}}>🤖 Generador de Reportes con IA</h2>
+          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Pedile al sistema en lenguaje natural qué información querés ver y la IA generará la consulta SQL correspondiente.</p>
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"260px 1fr",gap:20,alignItems:"start"}}>
+        {/* HISTORIAL / LATERAL */}
+        <div className="card" style={{padding:"16px 18px"}}>
+          <div style={{fontWeight:600,fontSize:13,color:"#f5a623",textTransform:"uppercase",letterSpacing:".05em",marginBottom:14,borderBottom:"1px solid #2a2d3e",paddingBottom:8}}>
+            📋 Reportes Guardados
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:450,overflowY:"auto"}}>
+            {historial.length === 0 ? (
+              <div style={{fontSize:12,color:"#565d7a",textAlign:"center",padding:"10px 0"}}>No hay reportes guardados aún.</div>
+            ) : (
+              historial.map(h => (
+                <button
+                  key={h.id}
+                  onClick={() => cargarReporteGuardado(h.id)}
+                  style={{
+                    background: "rgba(255,255,255,.02)",
+                    border: "1px solid #2a2d3e",
+                    borderRadius: 6,
+                    padding: "8px 10px",
+                    textAlign: "left",
+                    cursor: "pointer",
+                    transition: "all .2s"
+                  }}
+                  onMouseEnter={e => e.target.style.background = "rgba(255,255,255,.05)"}
+                  onMouseLeave={e => e.target.style.background = "rgba(255,255,255,.02)"}
+                >
+                  <div style={{fontSize:12,fontWeight:600,color:"#e8eaf0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.titulo}</div>
+                  <div style={{fontSize:10,color:"#565d7a",marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.prompt}</div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* CONTENIDO PRINCIPAL */}
+        <div style={{display:"flex",flexDirection:"column",gap:20}}>
+          {/* FORMULARIO DE CONSULTA */}
+          <div className="card" style={{padding:20}}>
+            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:16,marginBottom:16}}>
+              <FF label="Título del Reporte">
+                <input
+                  type="text"
+                  placeholder="Ej: Reporte de Movimientos de Soja de la campaña 24/25"
+                  value={titulo}
+                  onChange={e => setTitulo(e.target.value)}
+                />
+              </FF>
+              <FF label="Modalidad Actual">
+                <input readOnly value={modulo === "CONSOLIDADO" ? "Consolidado" : modulo === "FORMAL" ? "📋 Formal" : "📝 Informal"} style={{background:"rgba(255,255,255,.02)",color:"#8890a8"}}/>
+              </FF>
+            </div>
+            
+            <FF label="¿Qué información querés ver? (Pedile a la IA en lenguaje natural)">
+              <textarea
+                placeholder="Ej: Mostrame todos los movimientos de soja en tránsito de la campaña 24/25 filtrados por productor García"
+                value={prompt}
+                onChange={e => setPrompt(e.target.value)}
+                style={{
+                  width: "100%",
+                  height: 70,
+                  padding: "10px 14px",
+                  fontSize: 13,
+                  background: "#0f1117",
+                  border: "1px solid #2a2d3e",
+                  borderRadius: 6,
+                  color: "#e8eaf0",
+                  resize: "none"
+                }}
+              />
+            </FF>
+
+            <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:16}}>
+              {sqlQuery && (
+                <button
+                  onClick={guardarReporte}
+                  style={{
+                    padding: "8px 16px",
+                    background: "transparent",
+                    color: "#f5a623",
+                    border: "1px solid #f5a623",
+                    borderRadius: 6,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer"
+                  }}
+                >
+                  💾 Guardar Reporte
+                </button>
+              )}
+              <button
+                onClick={generarReporte}
+                disabled={cargando}
+                style={{
+                  padding: "8px 18px",
+                  background: "#f5a623",
+                  color: "#000",
+                  border: "none",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  opacity: cargando ? 0.7 : 1
+                }}
+              >
+                {cargando ? "Generando consulta..." : "🔍 Consultar IA"}
+              </button>
+            </div>
+          </div>
+
+          {/* VISOR SQL */}
+          {sqlQuery && (
+            <div className="card" style={{padding:"14px 18px",background:"#0a0b0f",border:"1px solid #1a1d27"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#565d7a",textTransform:"uppercase",marginBottom:6}}>
+                🖥️ Consulta SQL Generada
+              </div>
+              <pre style={{
+                fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: 12,
+                color: "#8890a8",
+                overflowX: "auto",
+                whiteSpace: "pre-wrap",
+                margin: 0,
+                background: "rgba(0,0,0,.2)",
+                padding: "8px 10px",
+                borderRadius: 4
+              }}>
+                {sqlQuery}
+              </pre>
+            </div>
+          )}
+
+          {/* GRILLA DE RESULTADOS Y FILTROS */}
+          {filas.length > 0 ? (
+            <div className="card" style={{padding:20}}>
+              {/* PANEL DE FILTROS */}
+              <div style={{marginBottom:18,borderBottom:"1px solid #2a2d3e",paddingBottom:16}}>
+                <div style={{fontWeight:600,fontSize:14,color:"#e8eaf0",marginBottom:12}}>
+                  🛠️ Filtros de Reporte Avanzados
+                </div>
+                
+                {/* FILTROS ACTIVOS */}
+                {filtros.length > 0 && (
+                  <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+                    {filtros.map((f, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          background: "rgba(245,166,35,.12)",
+                          border: "1px solid rgba(245,166,35,.3)",
+                          color: "#f5a623",
+                          borderRadius: 6,
+                          padding: "4px 10px",
+                          fontSize: 11,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6
+                        }}
+                      >
+                        <span>
+                          <strong>{f.columna}:</strong>{" "}
+                          {f.tipo === "multiselect"
+                            ? f.selectedValues.join(", ")
+                            : f.tipo === "number-range"
+                            ? `${f.minVal || "Min"} - ${f.maxVal || "Max"}`
+                            : `${f.minDate || "Min"} a ${f.maxDate || "Max"}`
+                          }
+                        </span>
+                        <button
+                          onClick={() => removerFiltro(idx)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#f5a623",
+                            fontSize: 14,
+                            cursor: "pointer",
+                            padding: "0 2px"
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* AGREGAR FILTRO FORM */}
+                <div style={{display:"flex",alignItems:"end",gap:12,flexWrap:"wrap",background:"rgba(255,255,255,.02)",padding:"12px 14px",borderRadius:6,border:"1px solid #2a2d3e"}}>
+                  <div style={{minWidth:160}}>
+                    <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Columna</label>
+                    <select
+                      value={columnaSeleccionada}
+                      onChange={e => {
+                        setColumnaSeleccionada(e.target.value);
+                        setFiltroMinVal("");
+                        setFiltroMaxVal("");
+                        setFiltroMinDate("");
+                        setFiltroMaxDate("");
+                        setFiltroValoresSeleccionados([]);
+                      }}
+                      style={{width:"100%"}}
+                    >
+                      <option value="">Seleccionar...</option>
+                      {columnas.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {columnaSeleccionada && (() => {
+                    const tipo = getColumnaTipo(columnaSeleccionada);
+                    if (tipo === "number-range") {
+                      return (
+                        <>
+                          <div>
+                            <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Min</label>
+                            <input
+                              type="number"
+                              value={filtroMinVal}
+                              onChange={e => setFiltroMinVal(e.target.value)}
+                              style={{width:100}}
+                            />
+                          </div>
+                          <div>
+                            <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Max</label>
+                            <input
+                              type="number"
+                              value={filtroMaxVal}
+                              onChange={e => setFiltroMaxVal(e.target.value)}
+                              style={{width:100}}
+                            />
+                          </div>
+                        </>
+                      );
+                    }
+                    if (tipo === "date-range") {
+                      return (
+                        <>
+                          <div>
+                            <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Desde</label>
+                            <input
+                              type="date"
+                              value={filtroMinDate}
+                              onChange={e => setFiltroMinDate(e.target.value)}
+                              style={{width:130}}
+                            />
+                          </div>
+                          <div>
+                            <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Hasta</label>
+                            <input
+                              type="date"
+                              value={filtroMaxDate}
+                              onChange={e => setFiltroMaxDate(e.target.value)}
+                              style={{width:130}}
+                            />
+                          </div>
+                        </>
+                      );
+                    }
+                    if (tipo === "multiselect") {
+                      const unicos = getValoresUnicos(columnaSeleccionada);
+                      return (
+                        <div style={{minWidth:200}}>
+                          <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Valores</label>
+                          <div style={{
+                            maxHeight:110,
+                            overflowY:"auto",
+                            background:"#0f1117",
+                            border:"1px solid #2a2d3e",
+                            borderRadius:6,
+                            padding:"6px 10px",
+                            display:"flex",
+                            flexDirection:"column",
+                            gap:4
+                          }}>
+                            {unicos.map(val => (
+                              <label key={val} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}>
+                                <input
+                                  type="checkbox"
+                                  checked={filtroValoresSeleccionados.includes(val)}
+                                  onChange={e => {
+                                    if (e.target.checked) {
+                                      setFiltroValoresSeleccionados([...filtroValoresSeleccionados, val]);
+                                    } else {
+                                      setFiltroValoresSeleccionados(filtroValoresSeleccionados.filter(v => v !== val));
+                                    }
+                                  }}
+                                />
+                                {val}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+
+                  {columnaSeleccionada && (
+                    <button
+                      onClick={agregarFiltro}
+                      style={{
+                        padding: "8px 14px",
+                        background: "#3498db",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 6,
+                        fontWeight: 600,
+                        fontSize: 12,
+                        cursor: "pointer"
+                      }}
+                    >
+                      + Aplicar Filtro
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* CONTROLES EXPORTACION */}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div style={{fontSize:13,color:"#8890a8"}}>
+                  Mostrando <strong>{filasFiltradas.length}</strong> de {filas.length} filas
+                </div>
+                <button
+                  onClick={exportarExcel}
+                  style={{
+                    padding: "7px 14px",
+                    background: "rgba(39,174,96,.12)",
+                    color: "#27ae60",
+                    border: "1px solid rgba(39,174,96,.3)",
+                    borderRadius: 6,
+                    fontWeight: 600,
+                    fontSize: 12,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6
+                  }}
+                >
+                  📥 Exportar a Excel
+                </button>
+              </div>
+
+              {/* GRILLA */}
+              <div style={{overflowX:"auto"}}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={{background:"rgba(52,152,219,.1)",color:"#3498db",fontWeight:600}}>ID Movimiento</th>
+                      {columnas.map(col => {
+                        if (col.toLowerCase() !== "id") {
+                          return <th key={col}>{col}</th>;
+                        }
+                        return null;
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filasFiltradas.map((row, idx) => (
+                      <tr key={idx}>
+                        <td style={{fontFamily:"'IBM Plex Mono', monospace",fontSize:11,color:"#3498db",fontWeight:600}}>{row.id || row.ID || "—"}</td>
+                        {columnas.map(col => {
+                          if (col.toLowerCase() !== "id") {
+                            const val = row[col];
+                            let renderVal = val !== null && val !== undefined ? String(val) : "—";
+                            
+                            // Formateo de números de kg
+                            if (col.toLowerCase().includes("kg") || col.toLowerCase().includes("neto") || col.toLowerCase().includes("tara") || col.toLowerCase().includes("bruto") || col.toLowerCase().includes("liquidable")) {
+                              const n = parseFloat(val);
+                              if (!isNaN(n)) renderVal = Math.round(n).toLocaleString();
+                            }
+                            // Formateo de fletes o precios
+                            if (col.toLowerCase().includes("precio") || col.toLowerCase().includes("monto") || col.toLowerCase().includes("tarifa")) {
+                              const n = parseFloat(val);
+                              if (!isNaN(n)) renderVal = `$ ${n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                            }
+                            
+                            return <td key={col} className={typeof val === "number" ? "mono" : ""}>{renderVal}</td>;
+                          }
+                          return null;
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            !cargando && sqlQuery && (
+              <div className="card" style={{padding:"30px 20px",textAlign:"center",color:"#565d7a"}}>
+                La consulta se ejecutó pero no devolvió filas. Probá ampliando los criterios de búsqueda.
+              </div>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 function App() {
   const [logueado,setLogueado]=useState(false);
   const [usuario,setUsuario]=useState("");
@@ -4995,13 +6140,14 @@ function App() {
   const menuActual = modulo==="FORMAL"?MENU_FORMAL:modulo==="INFORMAL"?MENU_INFORMAL:MENU_CONSOLIDADO;
 
   const render = () => {
-    const p = {modulo};
+    const p = {modulo, usuario};
     if (modulo === "CONSOLIDADO") {
       switch(sec){
         case "dashboard": return <DashboardConsolidado/>;
         case "stock": return <StockConsolidado/>;
         case "cc": return <CCConsolidada/>;
         case "posicion_abierta": return <PosicionAbierta modulo="CONSOLIDADO"/>;
+        case "reportes_ia": return <ReportesIA modulo="CONSOLIDADO" usuario={usuario}/>;
         default: return <DashboardConsolidado/>;
       }
     }
@@ -5016,7 +6162,8 @@ function App() {
       case "rep_fletes": return <ReporteFletes modulo={modulo}/>;
       case "rep_calidades": return <ReporteCalidades modulo={modulo}/>;
       case "posicion_abierta": return <PosicionAbierta modulo={modulo}/>;
-      case "importador_excel": return <ImportadorExcel modulo={modulo}/>;
+      case "importador_excel": return <ImportadorExcel modulo={modulo} usuario={usuario} setSec={setSec}/>;
+      case "reportes_ia": return <ReportesIA modulo={modulo} usuario={usuario}/>;
       case "configuracion": return <Configuracion/>;
       default: return <Dashboard {...p}/>;
     }

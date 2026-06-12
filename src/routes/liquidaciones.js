@@ -64,17 +64,27 @@ router.post('/', async (req, res) => {
       monto_bruto += (m.kg_liquidables || 0) * precio / 1000;
     }
 
+    // Calcular total de descuentos por servicios asociados a los movimientos y aplicado_a = tipo
+    const { rows: servRows } = await pool.query(
+      'SELECT COALESCE(SUM(monto_real), 0) as total FROM servicios_movimiento WHERE id_movimiento = ANY($1) AND aplicado_a = $2',
+      [ids_movimientos, tipo]
+    );
+    const total_descuentos_servicios = parseFloat(servRows[0].total) || 0;
+
+    // Calcular monto neto a pagar
+    const monto_neto_a_pagar = monto_bruto - total_descuentos_servicios;
+
     const { rows } = await pool.query(`
       INSERT INTO liquidaciones
         (nro_liquidacion, tipo, modalidad, tipo_liquidacion, id_contrato,
          id_contraparte, fecha_liquidacion, monto_bruto_total,
          total_descuentos_servicios, total_retenciones, monto_neto_a_pagar,
          moneda, estado)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,0,$8,$9,'EMITIDA')
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,0,$10,$11,'EMITIDA')
       RETURNING *
     `, [nro_liquidacion, tipo, modalidad, tipo_liquidacion||null,
         id_contrato, id_contraparte, fecha_liquidacion,
-        monto_bruto, moneda||'PESOS']);
+        monto_bruto, total_descuentos_servicios, monto_neto_a_pagar, moneda||'PESOS']);
 
     // Vincular movimientos a la liquidación
     for (const id_mov of ids_movimientos) {
@@ -95,10 +105,10 @@ router.post('/', async (req, res) => {
       );
     }
 
-    // Crear movimiento en cuenta corriente
-    const debeVal = tipo === 'COMPRA' ? 0 : monto_bruto;
-    const haberVal = tipo === 'COMPRA' ? monto_bruto : 0;
-    const saldoAcumulado = tipo === 'COMPRA' ? -monto_bruto : monto_bruto;
+    // Crear movimiento en cuenta corriente usando el neto
+    const debeVal = tipo === 'COMPRA' ? 0 : monto_neto_a_pagar;
+    const haberVal = tipo === 'COMPRA' ? monto_neto_a_pagar : 0;
+    const saldoAcumulado = tipo === 'COMPRA' ? -monto_neto_a_pagar : monto_neto_a_pagar;
 
     await pool.query(`
       INSERT INTO cc_contrapartes

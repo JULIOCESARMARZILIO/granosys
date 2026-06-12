@@ -51,7 +51,9 @@ router.get('/', async (req, res) => {
              cc.razon_social as contrato_compra_contraparte,
              cv.razon_social as contrato_venta_contraparte,
              c1.numero_contrato as nro_contrato_compra,
-             c2.numero_contrato as nro_contrato_venta
+             c2.numero_contrato as nro_contrato_venta,
+             COALESCE((SELECT SUM(sm.monto_real) FROM servicios_movimiento sm WHERE sm.id_movimiento = m.id AND sm.aplicado_a = 'COMPRA'), 0) as total_servicios_compra,
+             COALESCE((SELECT SUM(sm.monto_real) FROM servicios_movimiento sm WHERE sm.id_movimiento = m.id AND sm.aplicado_a = 'VENTA'), 0) as total_servicios_venta
       FROM movimientos m
       LEFT JOIN especies e ON m.id_especie = e.id
       LEFT JOIN campanas ca ON m.id_campana = ca.id
@@ -64,7 +66,15 @@ router.get('/', async (req, res) => {
     const params = [];
     if (modalidad) { params.push(modalidad); query += ` AND m.modalidad = $${params.length}`; }
     if (estado) { params.push(estado); query += ` AND m.estado = $${params.length}`; }
-    query += ' ORDER BY m.created_at DESC';
+    query += `
+      ORDER BY CASE 
+        WHEN m.estado = 'BORRADOR' THEN 1
+        WHEN m.estado = 'EN_TRANSITO' THEN 2
+        WHEN m.estado = 'DESCARGADO' THEN 3
+        WHEN m.estado = 'LIQUIDADO' THEN 4
+        ELSE 5
+      END ASC, m.created_at DESC
+    `;
 
     const { rows } = await pool.query(query, params);
     res.json(rows);
@@ -127,8 +137,12 @@ router.post('/', async (req, res) => {
       patente_chasis, patente_acoplado, km_a_recorrer,
       tarifa_catac, tarifa_flete_real, tipo_tarifa,
       peso_bruto_salida_kg, peso_tara_salida_kg, humedad_salida_pct,
-      observaciones
+      observaciones, usuario_carga, chofer_nombre, transportista_nombre,
+      chofer, transportista
     } = req.body;
+
+    const finalChofer = chofer_nombre || chofer || null;
+    const finalTransportista = transportista_nombre || transportista || null;
 
     // Dar de alta automáticamente los intervinientes de la CPE si no existen
     if (titular_cpe_cuit && titular_cpe_nombre) {
@@ -175,12 +189,12 @@ router.post('/', async (req, res) => {
         patente_chasis, patente_acoplado, km_a_recorrer,
         tarifa_catac, tarifa_flete_real, tipo_tarifa,
         peso_bruto_salida_kg, peso_tara_salida_kg, peso_neto_salida_kg,
-        humedad_salida_pct, observaciones
+        humedad_salida_pct, observaciones, usuario_carga, chofer_nombre, transportista_nombre
       ) VALUES (
         $1,$2,'EN_TRANSITO','SIN_ASIGNAR',
         $3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
         $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,
-        $37,$38,$39,$40,$41,$42,$43
+        $37,$38,$39,$40,$41,$42,$43,$44,$45,$46
       ) RETURNING *
     `, [numero_movimiento, modalidad,
         id_contrato_compra||null, id_contrato_venta||null,
@@ -198,7 +212,7 @@ router.post('/', async (req, res) => {
         patente_chasis||null, patente_acoplado||null, km_a_recorrer||null,
         tarifa_catac||null, tarifa_flete_real||null, tipo_tarifa||'LLENA',
         peso_bruto_salida_kg||null, peso_tara_salida_kg||null, peso_neto_salida,
-        humedad_salida_pct||null, observaciones||null]);
+        humedad_salida_pct||null, observaciones||null, usuario_carga||null, finalChofer, finalTransportista]);
 
     // Actualizar toneladas asignadas en contrato de compra
     if (id_contrato_compra && peso_neto_salida) {
@@ -216,6 +230,7 @@ router.post('/', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // PUT registrar llegada
 router.put('/:id/llegada', async (req, res) => {
@@ -377,6 +392,81 @@ router.put('/:id/calidad', async (req, res) => {
   }
 });
 
+// PUT actualizar movimiento completo (general/salida)
+router.put('/:id', async (req, res) => {
+  try {
+    const {
+      id_contrato_compra, id_contrato_venta,
+      nro_cpe, nro_ctg, fecha_cpe, fecha_vencimiento_cpe,
+      titular_cpe_cuit, titular_cpe_nombre,
+      remitente_comercial_productor_cuit, remitente_comercial_productor_nombre,
+      rte_comercial_venta_primaria_cuit, rte_comercial_venta_primaria_nombre,
+      destinatario_cuit, destinatario_nombre, destino_cuit, destino_nombre,
+      flete_pagador_cuit, flete_pagador_nombre,
+      id_especie, id_campana, declaracion_calidad,
+      renspa, localidad_origen, provincia_origen, latitud, longitud, descripcion_campo,
+      nro_planta_destino, localidad_destino, provincia_destino,
+      id_transportista, id_chofer,
+      patente_chasis, patente_acoplado, km_a_recorrer,
+      tarifa_catac, tarifa_flete_real, tipo_tarifa,
+      peso_bruto_salida_kg, peso_tara_salida_kg, humedad_salida_pct,
+      observaciones, chofer_nombre, transportista_nombre,
+      chofer, transportista
+    } = req.body;
+
+    const finalChofer = chofer_nombre || chofer || null;
+    const finalTransportista = transportista_nombre || transportista || null;
+
+    // Calcular kg neto salida
+    const peso_neto_salida = peso_bruto_salida_kg && peso_tara_salida_kg
+      ? parseFloat(peso_bruto_salida_kg) - parseFloat(peso_tara_salida_kg)
+      : null;
+
+    const { rows } = await pool.query(`
+      UPDATE movimientos SET
+        id_contrato_compra=$1, id_contrato_venta=$2,
+        nro_cpe=$3, nro_ctg=$4, fecha_cpe=$5, fecha_vencimiento_cpe=$6,
+        titular_cpe_cuit=$7, titular_cpe_nombre=$8,
+        remitente_comercial_productor_cuit=$9, remitente_comercial_productor_nombre=$10,
+        rte_comercial_venta_primaria_cuit=$11, rte_comercial_venta_primaria_nombre=$12,
+        destinatario_cuit=$13, destinatario_nombre=$14, destino_cuit=$15, destino_nombre=$16,
+        flete_pagador_cuit=$17, flete_pagador_nombre=$18,
+        id_especie=$19, id_campana=$20, declaracion_calidad=$21,
+        renspa=$22, localidad_origen=$23, provincia_origen=$24, latitud=$25, longitud=$26, descripcion_campo=$27,
+        nro_planta_destino=$28, localidad_destino=$29, provincia_destino=$30,
+        id_transportista=$31, id_chofer=$32,
+        patente_chasis=$33, patente_acoplado=$34, km_a_recorrer=$35,
+        tarifa_catac=$36, tarifa_flete_real=$37, tipo_tarifa=$38,
+        peso_bruto_salida_kg=$39, peso_tara_salida_kg=$40, peso_neto_salida_kg=$41,
+        humedad_salida_pct=$42, observaciones=$43, chofer_nombre=$44, transportista_nombre=$45,
+        updated_at=NOW()
+      WHERE id=$46 RETURNING *
+    `, [
+        id_contrato_compra||null, id_contrato_venta||null,
+        nro_cpe||null, nro_ctg||null, fecha_cpe||null, fecha_vencimiento_cpe||null,
+        titular_cpe_cuit||null, titular_cpe_nombre||null,
+        remitente_comercial_productor_cuit||null, remitente_comercial_productor_nombre||null,
+        rte_comercial_venta_primaria_cuit||null, rte_comercial_venta_primaria_nombre||null,
+        destinatario_cuit||null, destinatario_nombre||null,
+        destino_cuit||null, destino_nombre||null,
+        flete_pagador_cuit||null, flete_pagador_nombre||null,
+        id_especie||null, id_campana||null, declaracion_calidad||'CONFORME',
+        renspa||null, localidad_origen||null, provincia_origen||null, latitud||null, longitud||null, descripcion_campo||null,
+        nro_planta_destino||null, localidad_destino||null, provincia_destino||null,
+        id_transportista||null, id_chofer||null,
+        patente_chasis||null, patente_acoplado||null, km_a_recorrer||null,
+        tarifa_catac||null, tarifa_flete_real||null, tipo_tarifa||'LLENA',
+        peso_bruto_salida_kg||null, peso_tara_salida_kg||null, peso_neto_salida,
+        humedad_salida_pct||null, observaciones||null, finalChofer, finalTransportista,
+        req.params.id
+    ]);
+
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT asignar contrato
 router.put('/:id/asignar', async (req, res) => {
   try {
@@ -396,6 +486,34 @@ router.put('/:id/asignar', async (req, res) => {
       WHERE id=$4 RETURNING *
     `, [id_compra, id_venta, estado_liq, req.params.id]);
     res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE eliminar movimiento (por ejemplo, si está duplicado)
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Verificar si el movimiento ya fue liquidado
+    const { rows: liqs } = await pool.query('SELECT id FROM liquidacion_movimientos WHERE id_movimiento = $1', [id]);
+    if (liqs.length > 0) {
+      return res.status(400).json({ error: 'No se puede eliminar un movimiento que ya está liquidado' });
+    }
+
+    // Primero eliminar de calidad_movimiento
+    await pool.query('DELETE FROM calidad_movimiento WHERE id_movimiento = $1', [id]);
+    // Eliminar de servicios_movimiento
+    await pool.query('DELETE FROM servicios_movimiento WHERE id_movimiento = $1', [id]);
+    
+    // Eliminar de movimientos
+    const { rowCount } = await pool.query('DELETE FROM movimientos WHERE id = $1', [id]);
+    if (rowCount === 0) {
+      return res.status(404).json({ error: 'Movimiento no encontrado' });
+    }
+    
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
