@@ -2760,7 +2760,7 @@ const Movimientos = ({modulo, usuario}) => {
                 {modulo==="FORMAL"&&<FF label="Tipo Tarifa"><select value={movForm.tipo_tarifa} onChange={e=>setMovForm({...movForm, tipo_tarifa: e.target.value})}><option>LLENA</option><option>MENOS_10</option><option>MENOS_20</option></select></FF>}
                 {modulo==="FORMAL"&&<FF label="Tarifa CATAC (referencia)"><input type="number" value={movForm.tarifa_catac} onChange={e=>setMovForm({...movForm, tarifa_catac: e.target.value})}/></FF>}
                 <FF label="Tarifa Real Pactada"><input type="number" value={movForm.tarifa_flete_real} onChange={e=>setMovForm({...movForm, tarifa_flete_real: e.target.value})}/></FF>
-                {modulo==="FORMAL"&&<FF label="Fecha Partida"><input type="datetime-local" value={movForm.fecha_partida} onChange={e=>setMovForm({...movForm, fecha_partida: e.target.value})}/></FF>
+                {modulo==="FORMAL"&&<FF label="Fecha Partida"><input type="datetime-local" value={movForm.fecha_partida} onChange={e=>setMovForm({...movForm, fecha_partida: e.target.value})}/></FF>}
               </div>
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>Pesada de Salida</div>
               <div className="form-grid-2">
