@@ -3127,6 +3127,15 @@ const Liquidaciones = ({modulo}) => {
   const [tipoLiq, setTipoLiq] = useState("INCISO_A");
   const [moneda, setMoneda] = useState("PESOS");
 
+  // View/Edit states
+  const [showVerModal, setShowVerModal] = useState(false);
+  const [liqSeleccionada, setLiqSeleccionada] = useState(null);
+  const [movsLiqSeleccionada, setMovsLiqSeleccionada] = useState([]);
+  const [editDescuentos, setEditDescuentos] = useState(0);
+  const [editRetenciones, setEditRetenciones] = useState(0);
+  const [editEstado, setEditEstado] = useState("EMITIDA");
+  const [editObservaciones, setEditObservaciones] = useState("");
+
   const cargarMermas = async () => {
     try {
       const data = await api.get("/api/movimientos/mermas");
@@ -3192,6 +3201,22 @@ const Liquidaciones = ({modulo}) => {
       })
       .catch(()=>setLista(mockLiquidaciones.filter(l=>l.modalidad===modulo)));
   };
+
+  const abrirVerModal = async (id) => {
+    try {
+      const data = await api.get(`/api/liquidaciones/${id}`);
+      setLiqSeleccionada(data);
+      setMovsLiqSeleccionada(data.movimientos || []);
+      setEditDescuentos(parseFloat(data.total_descuentos_servicios) || 0);
+      setEditRetenciones(parseFloat(data.total_retenciones) || 0);
+      setEditEstado(data.estado || "EMITIDA");
+      setEditObservaciones(data.observaciones || "");
+      setShowVerModal(true);
+    } catch(err) {
+      alert("Error al cargar detalle de liquidación: " + err.message);
+    }
+  };
+
 
   useEffect(()=>{
     cargarLiquidaciones();
@@ -3358,7 +3383,7 @@ const Liquidaciones = ({modulo}) => {
             <td><span className="mono" style={{fontSize:12,color:"#e74c3c"}}>— $ {(l.descuentos+l.retenciones)?.toLocaleString()}</span></td>
             <td><span className="mono" style={{fontWeight:700,color:"#27ae60"}}>$ {l.monto_neto?.toLocaleString()}</span></td>
             <td><Badge label={l.estado} color={l.estado==="PAGADA"?"green":l.estado==="EMITIDA"?"blue":"gray"}/></td>
-            <td><Btn variant="ghost" size="sm">Ver</Btn></td>
+            <td><Btn variant="ghost" size="sm" onClick={() => abrirVerModal(l.id)}>Ver</Btn></td>
           </tr>
         ))}</tbody></table>
         {lista.length===0&&<div style={{padding:40,textAlign:"center",color:"#565d7a"}}>No hay liquidaciones en modalidad {modulo.toLowerCase()}</div>}
@@ -3552,6 +3577,210 @@ const Liquidaciones = ({modulo}) => {
             <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16,paddingTop:14,borderTop:"1px solid #2a2d3e"}}>
               <Btn variant="secondary" onClick={() => setShowNuevaModal(false)}>Cerrar</Btn>
               <Btn onClick={handleCrearLiquidacion} disabled={selectedMovs.length === 0}>Generar Liquidación</Btn>
+            </div>
+
+          </div>
+        </Modal>
+      )}
+
+      {showVerModal && liqSeleccionada && (
+        <Modal 
+          title={`Liquidación ${liqSeleccionada.nro_liquidacion}`} 
+          onClose={() => setShowVerModal(false)} 
+          width={960}
+        >
+          <div style={{display:"flex", flexDirection:"column", gap:16}}>
+            {/* Header info */}
+            <div style={{padding:"12px 14px", background:"#0f1117", border:"1px solid #2a2d3e", borderRadius:8, display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14}}>
+              <div>
+                <div style={{fontSize:11, color:"#8890a8", textTransform:"uppercase"}}>Cliente / Contraparte</div>
+                <div style={{fontSize:14, fontWeight:600, color:"#e8eaf0", marginTop:2}}>{liqSeleccionada.contraparte_nombre}</div>
+              </div>
+              <div>
+                <div style={{fontSize:11, color:"#8890a8", textTransform:"uppercase"}}>Contrato Asociado</div>
+                <div style={{fontSize:14, fontWeight:600, color:"#e8eaf0", marginTop:2}}>{liqSeleccionada.numero_contrato || "Sin contrato"}</div>
+              </div>
+              <div>
+                <div style={{fontSize:11, color:"#8890a8", textTransform:"uppercase"}}>Fecha Emisión</div>
+                <div style={{fontSize:14, fontWeight:600, color:"#e8eaf0", marginTop:2}}>{liqSeleccionada.fecha_liquidacion ? liqSeleccionada.fecha_liquidacion.split('T')[0] : ''}</div>
+              </div>
+              <div>
+                <div style={{fontSize:11, color:"#8890a8", textTransform:"uppercase"}}>Tipo / Moneda</div>
+                <div style={{marginTop:2, display:"flex", gap:6}}>
+                  <Badge label={liqSeleccionada.tipo} color={liqSeleccionada.tipo==="COMPRA"?"orange":"blue"}/>
+                  <Badge label={liqSeleccionada.moneda} color="gray"/>
+                </div>
+              </div>
+            </div>
+
+            {/* Table of associated movements */}
+            <div>
+              <div style={{fontSize:12, fontWeight:600, color:"#e8eaf0", marginBottom:8, textTransform:"uppercase", letterSpacing:".04em"}}>
+                🚚 Camiones liquidados en esta orden
+              </div>
+              <div style={{maxHeight:220, overflowY:"auto", border:"1px solid #2a2d3e", borderRadius:6}}>
+                <table style={{width:"100%", margin:0, fontSize:12}}>
+                  <thead>
+                    <tr>
+                      <th>N° Movimiento</th>
+                      <th>Patente</th>
+                      <th style={{textAlign:"right"}}>Kg Neto Llegada</th>
+                      <th style={{textAlign:"right"}}>Humedad (%)</th>
+                      <th style={{textAlign:"right"}}>Factor Calidad</th>
+                      <th style={{textAlign:"right"}}>Kg Liquidables</th>
+                      <th style={{textAlign:"right"}}>Precio Aplicado</th>
+                      <th style={{textAlign:"right"}}>Monto Bruto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movsLiqSeleccionada.map(m => {
+                      const kgLiq = parseFloat(m.kg_liquidables) || 0;
+                      const factor = parseFloat(m.factor_aplicado) || 1.0;
+                      const precio = parseFloat(m.precio_aplicado) || 0;
+                      const subtotal = kgLiq * precio / 1000;
+                      
+                      return (
+                        <tr key={m.id}>
+                          <td><span className="mono" style={{color:"#f5a623"}}>{m.numero_movimiento}</span></td>
+                          <td><span className="mono">{m.patente_chasis || "—"}</span></td>
+                          <td style={{textAlign:"right", fontFamily:"monospace"}}>{(parseFloat(m.peso_neto_llegada_kg) || 0).toLocaleString()} kg</td>
+                          <td style={{textAlign:"right", fontFamily:"monospace"}}>{m.humedad_llegada_pct ? `${m.humedad_llegada_pct}%` : "—"}</td>
+                          <td style={{textAlign:"right", fontFamily:"monospace"}}>{factor.toFixed(4)}</td>
+                          <td style={{textAlign:"right", fontFamily:"monospace", fontWeight:600}}>{Math.round(kgLiq).toLocaleString()} kg</td>
+                          <td style={{textAlign:"right", fontFamily:"monospace"}}>$ {precio.toLocaleString()} / tn</td>
+                          <td style={{textAlign:"right", fontFamily:"monospace", fontWeight:600, color:"#27ae60"}}>$ {subtotal.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Financial summary & Editable inputs */}
+            <div style={{display:"grid", gridTemplateColumns:"350px 1fr", gap:16}}>
+              <div style={{padding:"14px 16px", background:"#0f1117", borderRadius:8, border:"1px solid #2a2d3e", display:"flex", flexDirection:"column", gap:10}}>
+                <div style={{fontSize:11, color:"#8890a8", fontWeight:600, textTransform:"uppercase", borderBottom:"1px solid #1e2133", paddingBottom:4}}>Resumen Financiero</div>
+                <div style={{display:"flex", justifyContent:"space-between"}}>
+                  <span style={{color:"#8890a8", fontSize:13}}>Monto Bruto Total</span>
+                  <span className="mono" style={{fontWeight:600}}>$ {parseFloat(liqSeleccionada.monto_bruto_total || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</span>
+                </div>
+                <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+                  <span style={{color:"#e74c3c", fontSize:13}}>— Descuentos (Servicios)</span>
+                  <div style={{display:"flex", alignItems:"center", gap:4}}>
+                    <span style={{color:"#8890a8"}}>$</span>
+                    <input 
+                      type="number" 
+                      style={{width:100, padding:"3px 6px", fontSize:12, background:"#1a1d27", border:"1px solid #2a2d3e", borderRadius:4, color:"#e74c3c", textAlign:"right", fontWeight:"bold"}}
+                      value={editDescuentos} 
+                      onChange={e => setEditDescuentos(parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                </div>
+                <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+                  <span style={{color:"#e74c3c", fontSize:13}}>— Retenciones / Impuestos</span>
+                  <div style={{display:"flex", alignItems:"center", gap:4}}>
+                    <span style={{color:"#8890a8"}}>$</span>
+                    <input 
+                      type="number" 
+                      style={{width:100, padding:"3px 6px", fontSize:12, background:"#1a1d27", border:"1px solid #2a2d3e", borderRadius:4, color:"#e74c3c", textAlign:"right", fontWeight:"bold"}}
+                      value={editRetenciones} 
+                      onChange={e => setEditRetenciones(parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                </div>
+                <div style={{display:"flex", justifyContent:"space-between", borderTop:"1px solid #2a2d3e", paddingTop:10, marginTop:4}}>
+                  <span style={{fontWeight:700, fontSize:14, color:"#27ae60"}}>= Neto Final Liquidado</span>
+                  <span className="mono" style={{fontWeight:700, fontSize:16, color:"#27ae60"}}>
+                    $ {(parseFloat(liqSeleccionada.monto_bruto_total || 0) - editDescuentos - editRetenciones).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{display:"flex", flexDirection:"column", gap:12}}>
+                <div className="form-grid-2" style={{margin:0}}>
+                  <FF label="Estado de Liquidación" required>
+                    <select value={editEstado} onChange={e => setEditEstado(e.target.value)}>
+                      <option value="EMITIDA">EMITIDA (Por cobrar / pagar)</option>
+                      <option value="PAGADA">PAGADA (Completada)</option>
+                      <option value="BORRADOR">BORRADOR</option>
+                    </select>
+                  </FF>
+                </div>
+                <FF label="Observaciones / Notas" style={{flex:1}}>
+                  <textarea 
+                    style={{width:"100%", height:80, padding:"8px 10px", background:"#0f1117", border:"1px solid #2a2d3e", borderRadius:6, color:"#e8eaf0", resize:"none", fontSize:12}}
+                    value={editObservaciones} 
+                    onChange={e => setEditObservaciones(e.target.value)}
+                    placeholder="Detallar conceptos de descuentos por secada, zarandeo, retenciones de ingresos brutos, etc."
+                  />
+                </FF>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div style={{display:"flex", gap:10, justifyContent:"space-between", marginTop:10, paddingTop:14, borderTop:"1px solid #2a2d3e"}}>
+              <button
+                onClick={async () => {
+                  if (confirm(`¿Está seguro de que desea eliminar la liquidación ${liqSeleccionada.nro_liquidacion}? Esta acción liberará los camiones asociados y los dejará disponibles para volver a liquidarse.`)) {
+                    try {
+                      const res = await api.delete(`/api/liquidaciones/${liqSeleccionada.id}`);
+                      if (res && res.error) {
+                        alert("Error al eliminar: " + res.error);
+                      } else {
+                        alert("✓ Liquidación eliminada correctamente. Los camiones asociados se liberaron.");
+                        setShowVerModal(false);
+                        cargarLiquidaciones();
+                      }
+                    } catch(err) {
+                      alert("Error al eliminar: " + err.message);
+                    }
+                  }
+                }}
+                style={{
+                  background: "rgba(231,76,60,.12)",
+                  color: "#e74c3c",
+                  border: "1px solid rgba(231,76,60,.3)",
+                  borderRadius: 6,
+                  padding: "8px 16px",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all .2s"
+                }}
+                onMouseEnter={e => { e.target.style.background = "rgba(231,76,60,.2)"; }}
+                onMouseLeave={e => { e.target.style.background = "rgba(231,76,60,.12)"; }}
+              >
+                🗑️ Eliminar Liquidación
+              </button>
+
+              <div style={{display:"flex", gap:10}}>
+                <Btn variant="secondary" onClick={() => setShowVerModal(false)}>Cerrar</Btn>
+                <Btn 
+                  variant="primary"
+                  onClick={async () => {
+                    try {
+                      const res = await api.put(`/api/liquidaciones/${liqSeleccionada.id}`, {
+                        total_descuentos_servicios: editDescuentos,
+                        total_retenciones: editRetenciones,
+                        estado: editEstado,
+                        observaciones: editObservaciones
+                      });
+                      if (res && res.error) {
+                        alert("Error al guardar: " + res.error);
+                      } else {
+                        alert("✓ Cambios guardados correctamente");
+                        setShowVerModal(false);
+                        cargarLiquidaciones();
+                      }
+                    } catch(err) {
+                      alert("Error al guardar cambios: " + err.message);
+                    }
+                  }}
+                >
+                  Guardar Cambios
+                </Btn>
+              </div>
             </div>
 
           </div>

@@ -124,4 +124,129 @@ router.post('/', async (req, res) => {
   }
 });
 
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows: liq } = await pool.query(`
+      SELECT l.*, cp.razon_social as contraparte_nombre, c.numero_contrato, cp.tipo_contraparte
+      FROM liquidaciones l
+      LEFT JOIN contrapartes cp ON l.id_contraparte = cp.id
+      LEFT JOIN contratos c ON l.id_contrato = c.id
+      WHERE l.id = $1
+    `, [id]);
+    if (!liq[0]) return res.status(404).json({ error: 'Liquidación no encontrada' });
+
+    const { rows: movs } = await pool.query(`
+      SELECT lm.*, m.numero_movimiento, m.patente_chasis, m.peso_neto_llegada_kg, m.humedad_llegada_pct
+      FROM liquidacion_movimientos lm
+      JOIN movimientos m ON lm.id_movimiento = m.id
+      WHERE lm.id_liquidacion = $1
+    `, [id]);
+
+    res.json({ ...liq[0], movimientos: movs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/:id', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    const { total_descuentos_servicios, total_retenciones, estado, observaciones } = req.body;
+
+    await client.query('BEGIN');
+
+    // 1. Obtener la liquidación actual
+    const { rows: current } = await client.query('SELECT * FROM liquidaciones WHERE id = $1', [id]);
+    if (!current[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Liquidación no encontrada' });
+    }
+
+    const monto_bruto = parseFloat(current[0].monto_bruto_total);
+    const desc = parseFloat(total_descuentos_servicios) || 0;
+    const ret = parseFloat(total_retenciones) || 0;
+    const monto_neto_a_pagar = monto_bruto - desc - ret;
+
+    // 2. Actualizar liquidación
+    const { rows: updated } = await client.query(`
+      UPDATE liquidaciones
+      SET total_descuentos_servicios = $1,
+          total_retenciones = $2,
+          monto_neto_a_pagar = $3,
+          estado = $4,
+          observaciones = $5,
+          updated_at = NOW()
+      WHERE id = $6
+      RETURNING *
+    `, [desc, ret, monto_neto_a_pagar, estado || current[0].estado, observaciones, id]);
+
+    // 3. Actualizar cuenta corriente
+    const tipo = current[0].tipo;
+    const debeVal = tipo === 'COMPRA' ? 0 : monto_neto_a_pagar;
+    const haberVal = tipo === 'COMPRA' ? monto_neto_a_pagar : 0;
+    const saldoAcumulado = tipo === 'COMPRA' ? -monto_neto_a_pagar : monto_neto_a_pagar;
+
+    await client.query(`
+      UPDATE cc_contrapartes
+      SET debe = $1,
+          haber = $2,
+          saldo_acumulado = $3
+      WHERE id_liquidacion = $4
+    `, [debeVal, haberVal, saldoAcumulado, id]);
+
+    await client.query('COMMIT');
+    res.json(updated[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+router.delete('/:id', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+
+    await client.query('BEGIN');
+
+    // 1. Obtener la liquidación para verificar que existe
+    const { rows: current } = await client.query('SELECT * FROM liquidaciones WHERE id = $1', [id]);
+    if (!current[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Liquidación no encontrada' });
+    }
+
+    // 2. Restaurar estado de liquidación de los movimientos asociados
+    await client.query(`
+      UPDATE movimientos
+      SET estado_liquidacion = 'ASIGNADO',
+          updated_at = NOW()
+      WHERE id IN (
+        SELECT id_movimiento FROM liquidacion_movimientos WHERE id_liquidacion = $1
+      )
+    `, [id]);
+
+    // 3. Eliminar de cc_contrapartes
+    await client.query('DELETE FROM cc_contrapartes WHERE id_liquidacion = $1', [id]);
+
+    // 4. Eliminar de liquidacion_movimientos
+    await client.query('DELETE FROM liquidacion_movimientos WHERE id_liquidacion = $1', [id]);
+
+    // 5. Eliminar de liquidaciones
+    await client.query('DELETE FROM liquidaciones WHERE id = $1', [id]);
+
+    await client.query('COMMIT');
+    res.json({ success: true, message: "Liquidación eliminada correctamente" });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;
