@@ -617,7 +617,15 @@ const Contratos = ({modulo}) => {
   const [especies,setEspecies]=useState(ESPECIES.map((n,i)=>({id:i+1,nombre:n})));
   const [campanas,setCampanas]=useState(CAMPANAS.map((d,i)=>({id:i+1,descripcion:d})));
   const [guardando,setGuardando]=useState(false);
-  const [form,setForm]=useState({tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: ""});
+  const [form,setForm]=useState({
+    tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",
+    entrega_id_especie: 1, entrega_toneladas: "", entrega_localidad_entrega: "",
+    entrega_costo_secada_punto: "", entrega_costo_zarandeo_tn: "", entrega_costo_paritaria_tn: "", entrega_costo_fumigacion_fijo: "", entrega_humedad_max_seco: "13.5", entrega_otros_descripcion: "",
+    entrega_costo_secada_destino_punto: "", entrega_costo_zarandeo_destino_tn: "", entrega_costo_paritaria_destino_tn: "", entrega_costo_fumigacion_destino_fijo: "", entrega_otros_destino_descripcion: "", entrega_costo_otros_destino_valor: "",
+    recepcion_id_especie: 1, recepcion_toneladas: "", recepcion_localidad_entrega: "",
+    recepcion_costo_secada_punto: "", recepcion_costo_zarandeo_tn: "", recepcion_costo_paritaria_tn: "", recepcion_costo_fumigacion_fijo: "", recepcion_humedad_max_seco: "13.5", recepcion_otros_descripcion: "",
+    recepcion_costo_secada_destino_punto: "", recepcion_costo_zarandeo_destino_tn: "", recepcion_costo_paritaria_destino_tn: "", recepcion_costo_fumigacion_destino_fijo: "", recepcion_otros_destino_descripcion: "", recepcion_costo_otros_destino_valor: ""
+  });
   const [selectedContract, setSelectedContract] = useState(null);
 
   const abrirDetalleContrato = async (c) => {
@@ -635,7 +643,8 @@ const Contratos = ({modulo}) => {
   const abrirEditarContrato = async (c) => {
     try {
       const checkLiqs = await api.get(`/api/liquidaciones?modalidad=${modulo}`);
-      const hasLiq = checkLiqs.some(l => l.id_contrato === c.id);
+      const idsToCheck = c.es_canje ? [c.id_compra, c.id_venta] : [c.id];
+      const hasLiq = checkLiqs.some(l => idsToCheck.includes(l.id_contrato));
       if (hasLiq) {
         alert("⚠️ No se puede modificar este contrato porque ya tiene liquidaciones asociadas.");
         return;
@@ -644,44 +653,100 @@ const Contratos = ({modulo}) => {
       console.error(err);
     }
 
-    setForm({
-      tipo: c.tipo_contrato || "COMPRA",
-      id_especie: c.id_especie || 1,
-      id_campana: c.id_campana || 2,
-      id_contraparte: c.id_contraparte || "",
-      tipo_precio: c.tipo_precio || "PRECIO_HECHO",
-      moneda: c.moneda || "PESOS",
-      precio: c.precio_pactado || "",
-      diferencial: c.diferencial_fijacion || "",
-      tipo_diferencial: c.tipo_diferencial || "ARS",
-      referencia: c.referencia_fijacion || "MATBA_ROFEX",
-      toneladas: c.toneladas || "",
-      tipo_entrega: c.tipo_entrega || "A_RETIRAR",
-      tipo_liq: c.tipo_liq || "INCISO_A",
-      forma_pago: c.forma_pago || "TRANSFERENCIA",
-      plazo: c.plazo_pago_dias || "0",
-      precio_venta_est: c.precio_venta_estimado || "",
-      flete_est: c.flete_estimado || "",
-      destino_est: c.destino_venta_estimado || "",
-      aplica_cpe: !!c.aplica_cpe,
-      costo_cpe: c.costo_cpe_pct || "",
-      costo_financiero: c.costo_financiero_pct || "",
-      comprador_estimado_id: c.comprador_estimado_id || "",
-      costo_secada_punto: c.costo_secada_punto !== undefined ? c.costo_secada_punto : "",
-      costo_zarandeo_tn: c.costo_zarandeo_tn !== undefined ? c.costo_zarandeo_tn : "",
-      costo_paritaria_tn: c.costo_paritaria_tn !== undefined ? c.costo_paritaria_tn : "",
-      costo_fumigacion_fijo: c.costo_fumigacion_fijo !== undefined ? c.costo_fumigacion_fijo : "",
-      humedad_max_seco: c.humedad_max_seco !== undefined ? c.humedad_max_seco : "13.5",
-      otros_descripcion: c.otros_descripcion || "",
-      costo_secada_destino_punto: c.costo_secada_destino_punto !== undefined ? c.costo_secada_destino_punto : "",
-      costo_zarandeo_destino_tn: c.costo_zarandeo_destino_tn !== undefined ? c.costo_zarandeo_destino_tn : "",
-      costo_paritaria_destino_tn: c.costo_paritaria_destino_tn !== undefined ? c.costo_paritaria_destino_tn : "",
-      costo_fumigacion_destino_fijo: c.costo_fumigacion_destino_fijo !== undefined ? c.costo_fumigacion_destino_fijo : "",
-      otros_destino_descripcion: c.otros_destino_descripcion || "",
-      costo_otros_destino_valor: c.costo_otros_destino_valor !== undefined ? c.costo_otros_destino_valor : "",
-      _id: c.id,
-      _editando: true
-    });
+    if (c.es_canje) {
+      setForm({
+        tipo: "CANJE",
+        id_campana: c.id_campana || 2,
+        id_contraparte: c.id_contraparte || "",
+        fecha_contrato: c.fecha || new Date().toISOString().split("T")[0],
+        observaciones: c.observaciones || "",
+        descripcion_relacion_canje: c.descripcion_relacion_canje || "",
+        
+        // Lado de entrega (VENTA)
+        entrega_id_especie: c.venta?.id_especie || 1,
+        entrega_toneladas: c.venta?.toneladas || "",
+        entrega_localidad_entrega: c.venta?.localidad_entrega || "",
+        entrega_costo_secada_punto: c.venta?.costo_secada_punto !== undefined ? c.venta.costo_secada_punto : "",
+        entrega_costo_zarandeo_tn: c.venta?.costo_zarandeo_tn !== undefined ? c.venta.costo_zarandeo_tn : "",
+        entrega_costo_paritaria_tn: c.venta?.costo_paritaria_tn !== undefined ? c.venta.costo_paritaria_tn : "",
+        entrega_costo_fumigacion_fijo: c.venta?.costo_fumigacion_fijo !== undefined ? c.venta.costo_fumigacion_fijo : "",
+        entrega_humedad_max_seco: c.venta?.humedad_max_seco !== undefined ? c.venta.humedad_max_seco : "13.5",
+        entrega_otros_descripcion: c.venta?.otros_descripcion || "",
+        entrega_costo_secada_destino_punto: c.venta?.costo_secada_destino_punto !== undefined ? c.venta.costo_secada_destino_punto : "",
+        entrega_costo_zarandeo_destino_tn: c.venta?.costo_zarandeo_destino_tn !== undefined ? c.venta.costo_zarandeo_destino_tn : "",
+        entrega_costo_paritaria_destino_tn: c.venta?.costo_paritaria_destino_tn !== undefined ? c.venta.costo_paritaria_destino_tn : "",
+        entrega_costo_fumigacion_destino_fijo: c.venta?.costo_fumigacion_destino_fijo !== undefined ? c.venta.costo_fumigacion_destino_fijo : "",
+        entrega_otros_destino_descripcion: c.venta?.otros_destino_descripcion || "",
+        entrega_costo_otros_destino_valor: c.venta?.costo_otros_destino_valor !== undefined ? c.venta.costo_otros_destino_valor : "",
+
+        // Lado de recepcion (COMPRA)
+        recepcion_id_especie: c.compra?.id_especie || 1,
+        recepcion_toneladas: c.compra?.toneladas || "",
+        recepcion_localidad_entrega: c.compra?.localidad_entrega || "",
+        recepcion_costo_secada_punto: c.compra?.costo_secada_punto !== undefined ? c.compra.costo_secada_punto : "",
+        recepcion_costo_zarandeo_tn: c.compra?.costo_zarandeo_tn !== undefined ? c.compra.costo_zarandeo_tn : "",
+        recepcion_costo_paritaria_tn: c.compra?.costo_paritaria_tn !== undefined ? c.compra.costo_paritaria_tn : "",
+        recepcion_costo_fumigacion_fijo: c.compra?.costo_fumigacion_fijo !== undefined ? c.compra.costo_fumigacion_fijo : "",
+        recepcion_humedad_max_seco: c.compra?.humedad_max_seco !== undefined ? c.compra.humedad_max_seco : "13.5",
+        recepcion_otros_descripcion: c.compra?.otros_descripcion || "",
+        recepcion_costo_secada_destino_punto: c.compra?.costo_secada_destino_punto !== undefined ? c.compra.costo_secada_destino_punto : "",
+        recepcion_costo_zarandeo_destino_tn: c.compra?.costo_zarandeo_destino_tn !== undefined ? c.compra.costo_zarandeo_destino_tn : "",
+        recepcion_costo_paritaria_destino_tn: c.compra?.costo_paritaria_destino_tn !== undefined ? c.compra.costo_paritaria_destino_tn : "",
+        recepcion_costo_fumigacion_destino_fijo: c.compra?.costo_fumigacion_destino_fijo !== undefined ? c.compra.costo_fumigacion_destino_fijo : "",
+        recepcion_otros_destino_descripcion: c.compra?.otros_destino_descripcion || "",
+        recepcion_costo_otros_destino_valor: c.compra?.costo_otros_destino_valor !== undefined ? c.compra.costo_otros_destino_valor : "",
+
+        _id: c.id,
+        _editando: true
+      });
+    } else {
+      setForm({
+        tipo: c.tipo_contrato || "COMPRA",
+        id_especie: c.id_especie || 1,
+        id_campana: c.id_campana || 2,
+        id_contraparte: c.id_contraparte || "",
+        tipo_precio: c.tipo_precio || "PRECIO_HECHO",
+        moneda: c.moneda || "PESOS",
+        precio: c.precio_pactado || "",
+        diferencial: c.diferencial_fijacion || "",
+        tipo_diferencial: c.tipo_diferencial || "ARS",
+        referencia: c.referencia_fijacion || "MATBA_ROFEX",
+        toneladas: c.toneladas || "",
+        tipo_entrega: c.tipo_entrega || "A_RETIRAR",
+        tipo_liq: c.tipo_liq || "INCISO_A",
+        forma_pago: c.forma_pago || "TRANSFERENCIA",
+        plazo: c.plazo_pago_dias || "0",
+        precio_venta_est: c.precio_venta_estimado || "",
+        flete_est: c.flete_estimado || "",
+        destino_est: c.destino_venta_estimado || "",
+        aplica_cpe: !!c.aplica_cpe,
+        costo_cpe: c.costo_cpe_pct || "",
+        costo_financiero: c.costo_financiero_pct || "",
+        comprador_estimado_id: c.comprador_estimado_id || "",
+        costo_secada_punto: c.costo_secada_punto !== undefined ? c.costo_secada_punto : "",
+        costo_zarandeo_tn: c.costo_zarandeo_tn !== undefined ? c.costo_zarandeo_tn : "",
+        costo_paritaria_tn: c.costo_paritaria_tn !== undefined ? c.costo_paritaria_tn : "",
+        costo_fumigacion_fijo: c.costo_fumigacion_fijo !== undefined ? c.costo_fumigacion_fijo : "",
+        humedad_max_seco: c.humedad_max_seco !== undefined ? c.humedad_max_seco : "13.5",
+        otros_descripcion: c.otros_descripcion || "",
+        costo_secada_destino_punto: c.costo_secada_destino_punto !== undefined ? c.costo_secada_destino_punto : "",
+        costo_zarandeo_destino_tn: c.costo_zarandeo_destino_tn !== undefined ? c.costo_zarandeo_destino_tn : "",
+        costo_paritaria_destino_tn: c.costo_paritaria_destino_tn !== undefined ? c.costo_paritaria_destino_tn : "",
+        costo_fumigacion_destino_fijo: c.costo_fumigacion_destino_fijo !== undefined ? c.costo_fumigacion_destino_fijo : "",
+        otros_destino_descripcion: c.otros_destino_descripcion || "",
+        costo_otros_destino_valor: c.costo_otros_destino_valor !== undefined ? c.costo_otros_destino_valor : "",
+        
+        entrega_id_especie: 1, entrega_toneladas: "", entrega_localidad_entrega: "",
+        entrega_costo_secada_punto: "", entrega_costo_zarandeo_tn: "", entrega_costo_paritaria_tn: "", entrega_costo_fumigacion_fijo: "", entrega_humedad_max_seco: "13.5", entrega_otros_descripcion: "",
+        entrega_costo_secada_destino_punto: "", entrega_costo_zarandeo_destino_tn: "", entrega_costo_paritaria_destino_tn: "", entrega_costo_fumigacion_destino_fijo: "", entrega_otros_destino_descripcion: "", entrega_costo_otros_destino_valor: "",
+        recepcion_id_especie: 1, recepcion_toneladas: "", recepcion_localidad_entrega: "",
+        recepcion_costo_secada_punto: "", recepcion_costo_zarandeo_tn: "", recepcion_costo_paritaria_tn: "", recepcion_costo_fumigacion_fijo: "", recepcion_humedad_max_seco: "13.5", recepcion_otros_descripcion: "",
+        recepcion_costo_secada_destino_punto: "", recepcion_costo_zarandeo_destino_tn: "", recepcion_costo_paritaria_destino_tn: "", recepcion_costo_fumigacion_destino_fijo: "", recepcion_otros_destino_descripcion: "", recepcion_costo_otros_destino_valor: "",
+
+        _id: c.id,
+        _editando: true
+      });
+    }
     setShowForm(true);
   };
 
@@ -716,24 +781,38 @@ const Contratos = ({modulo}) => {
   const cargarContratos = async () => {
     try {
       const data = await api.get(`/api/contratos?modalidad=${modulo}&tipo=${tab}`);
-      const mapped = data.map(c => ({
-        ...c,
-        id: c.id,
-        numero: c.numero_contrato,
-        fecha: c.fecha_contrato ? c.fecha_contrato.split('T')[0] : '',
-        contraparte: c.contraparte_nombre,
-        especie: c.especie_nombre,
-        campana: c.campana_desc,
-        toneladas: parseFloat(c.cantidad_toneladas_pactadas) || 0,
-        asignadas: parseFloat(c.cantidad_toneladas_asignadas) || 0,
-        tipo_precio: c.tipo_precio,
-        precio: c.precio_pactado ? parseFloat(c.precio_pactado) : null,
-        moneda: c.moneda,
-        tipo_entrega: c.tipo_entrega,
-        estado: c.estado,
-        tipo_liq: c.tipo_liquidacion,
-        tipo: c.tipo_contrato
-      }));
+      const mapped = data.map(c => {
+        if (c.es_canje) {
+          return {
+            ...c,
+            id: c.id,
+            numero: c.numero_contrato,
+            fecha: c.fecha_contrato ? c.fecha_contrato.split('T')[0] : '',
+            contraparte: c.contraparte_nombre,
+            campana: c.campana_desc,
+            estado: c.estado,
+            tipo: "CANJE"
+          };
+        }
+        return {
+          ...c,
+          id: c.id,
+          numero: c.numero_contrato,
+          fecha: c.fecha_contrato ? c.fecha_contrato.split('T')[0] : '',
+          contraparte: c.contraparte_nombre,
+          especie: c.especie_nombre,
+          campana: c.campana_desc,
+          toneladas: parseFloat(c.cantidad_toneladas_pactadas) || 0,
+          asignadas: parseFloat(c.cantidad_toneladas_asignadas) || 0,
+          tipo_precio: c.tipo_precio,
+          precio: c.precio_pactado ? parseFloat(c.precio_pactado) : null,
+          moneda: c.moneda,
+          tipo_entrega: c.tipo_entrega,
+          estado: c.estado,
+          tipo_liq: c.tipo_liquidacion,
+          tipo: c.tipo_contrato
+        };
+      });
       setLista(mapped);
     } catch(e) {
       setLista(mockContratos.filter(c=>c.modalidad===modulo&&c.tipo===tab));
@@ -782,7 +861,19 @@ const Contratos = ({modulo}) => {
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
         <h2 style={{fontSize:18,fontWeight:700}}>Contratos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
         <Btn onClick={()=>{
-          setForm({tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",_editando:false,_id:null});
+          setForm({
+            tipo: tab === "CANJE" ? "CANJE" : tab,
+            especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",
+            entrega_id_especie: 1, entrega_toneladas: "", entrega_localidad_entrega: "",
+            entrega_costo_secada_punto: "", entrega_costo_zarandeo_tn: "", entrega_costo_paritaria_tn: "", entrega_costo_fumigacion_fijo: "", entrega_humedad_max_seco: "13.5", entrega_otros_descripcion: "",
+            entrega_costo_secada_destino_punto: "", entrega_costo_zarandeo_destino_tn: "", entrega_costo_paritaria_destino_tn: "", entrega_costo_fumigacion_destino_fijo: "", entrega_otros_destino_descripcion: "", entrega_costo_otros_destino_valor: "",
+            recepcion_id_especie: 1, recepcion_toneladas: "", recepcion_localidad_entrega: "",
+            recepcion_costo_secada_punto: "", recepcion_costo_zarandeo_tn: "", recepcion_costo_paritaria_tn: "", recepcion_costo_fumigacion_fijo: "", recepcion_humedad_max_seco: "13.5", recepcion_otros_descripcion: "",
+            recepcion_costo_secada_destino_punto: "", recepcion_costo_zarandeo_destino_tn: "", recepcion_costo_paritaria_destino_tn: "", recepcion_costo_fumigacion_destino_fijo: "", recepcion_otros_destino_descripcion: "", recepcion_costo_otros_destino_valor: "",
+            fecha_contrato: new Date().toISOString().split("T")[0],
+            observaciones: "",
+            _editando:false,_id:null
+          });
           setShowForm(true);
         }}>+ Nuevo Contrato</Btn>
       </div>
@@ -790,33 +881,95 @@ const Contratos = ({modulo}) => {
         {["COMPRA","VENTA","CANJE"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t==="COMPRA"?"Compras":t==="VENTA"?"Ventas":"Canjes"}</button>)}
       </div>
       <div className="card">
-        <table><thead><tr>
-          <th>Número</th><th>Fecha</th><th>Contraparte</th><th>Especie</th><th>Campaña</th><th>Tn Pact.</th><th>Cumplimiento</th><th>Precio</th>{modulo==="FORMAL"&&<th>Inc.</th>}<th>Estado</th><th></th>
-        </tr></thead>
-        <tbody>{lista.map(c=>(
-          <tr key={c.id}>
-            <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{c.numero}</span></td>
-            <td style={{color:"#8890a8",fontSize:12}}>{c.fecha}</td>
-            <td style={{fontWeight:500,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.contraparte}</td>
-            <td>{c.especie}</td>
-            <td><span className="mono" style={{fontSize:11}}>{c.campana}</span></td>
-            <td><span className="mono">{c.toneladas} tn</span></td>
-            <td>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <div className="progress-bar" style={{width:70}}><div className="progress-fill" style={{width:`${Math.round((c.asignadas/c.toneladas)*100)}%`}}/></div>
-                <span style={{fontSize:11,color:"#8890a8"}}>{Math.round((c.asignadas/c.toneladas)*100)}%</span>
-              </div>
-            </td>
-            <td>{c.tipo_precio==="A_FIJAR"?<Badge label="A FIJAR" color="purple"/>:<span className="mono" style={{fontSize:12}}>${c.precio?.toLocaleString()}</span>}</td>
-            {modulo==="FORMAL"&&<td>{c.tipo_liq?<Badge label={c.tipo_liq==="INCISO_A"?"Inc.A":"Inc.B"} color={c.tipo_liq==="INCISO_A"?"blue":"purple"}/>:"—"}</td>}
-            <td><Badge label={c.estado} color={estadoColor(c.estado)}/></td>
-            <td style={{display:"flex",gap:6}}>
-              <Btn variant="ghost" size="sm" onClick={() => abrirDetalleContrato(c)}>Ver</Btn>
-              <Btn variant="ghost" size="sm" onClick={() => abrirEditarContrato(c)}>Editar</Btn>
-              <Btn variant="danger" size="sm" onClick={() => eliminarContrato(c)}>✕</Btn>
-            </td>
-          </tr>
-        ))}</tbody></table>
+        <table>
+          <thead>
+            {tab === "CANJE" ? (
+              <tr>
+                <th>Número (Comp/Vent)</th>
+                <th>Fecha</th>
+                <th>Contraparte</th>
+                <th>Relación de Canje</th>
+                <th>Destinos (Ent/Rec)</th>
+                <th>Cumplimiento Entrega (Venta)</th>
+                <th>Cumplimiento Recepción (Compra)</th>
+                <th>Estado</th>
+                <th></th>
+              </tr>
+            ) : (
+              <tr>
+                <th>Número</th><th>Fecha</th><th>Contraparte</th><th>Especie</th><th>Campaña</th><th>Tn Pact.</th><th>Cumplimiento</th><th>Precio</th>{modulo==="FORMAL"&&<th>Inc.</th>}<th>Estado</th><th></th>
+              </tr>
+            )}
+          </thead>
+          <tbody>
+            {lista.map(c => {
+              if (tab === "CANJE") {
+                const pctEntrega = c.venta?.toneladas > 0 ? Math.round((c.venta.asignadas / c.venta.toneladas) * 100) : 0;
+                const pctRecepcion = c.compra?.toneladas > 0 ? Math.round((c.compra.asignadas / c.compra.toneladas) * 100) : 0;
+                return (
+                  <tr key={c.id}>
+                    <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{c.numero}</span></td>
+                    <td style={{color:"#8890a8",fontSize:12}}>{c.fecha}</td>
+                    <td style={{fontWeight:500}}>{c.contraparte}</td>
+                    <td style={{fontSize:13,color:"#e8eaf0",fontWeight:600}}>{c.descripcion_relacion_canje}</td>
+                    <td style={{fontSize:12,color:"#8890a8"}}>
+                      <div>📤 {c.venta?.localidad_entrega || "—"}</div>
+                      <div>📥 {c.compra?.localidad_entrega || "—"}</div>
+                    </td>
+                    <td>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <div className="progress-bar" style={{width:70,background:"rgba(39, 174, 96, 0.2)"}}>
+                          <div className="progress-fill" style={{width:`${Math.min(pctEntrega, 100)}%`,background:"#27ae60"}}/>
+                        </div>
+                        <span style={{fontSize:11,color:"#27ae60"}}>{pctEntrega}%</span>
+                        <span style={{fontSize:10,color:"#8890a8"}} className="mono">({c.venta?.asignadas} / {c.venta?.toneladas} tn)</span>
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <div className="progress-bar" style={{width:70,background:"rgba(52, 152, 219, 0.2)"}}>
+                          <div className="progress-fill" style={{width:`${Math.min(pctRecepcion, 100)}%`,background:"#3498db"}}/>
+                        </div>
+                        <span style={{fontSize:11,color:"#3498db"}}>{pctRecepcion}%</span>
+                        <span style={{fontSize:10,color:"#8890a8"}} className="mono">({c.compra?.asignadas} / {c.compra?.toneladas} tn)</span>
+                      </div>
+                    </td>
+                    <td><Badge label={c.estado} color={estadoColor(c.estado)}/></td>
+                    <td style={{display:"flex",gap:6}}>
+                      <Btn variant="ghost" size="sm" onClick={() => abrirDetalleContrato(c)}>Ver</Btn>
+                      <Btn variant="ghost" size="sm" onClick={() => abrirEditarContrato(c)}>Editar</Btn>
+                      <Btn variant="danger" size="sm" onClick={() => eliminarContrato(c)}>✕</Btn>
+                    </td>
+                  </tr>
+                );
+              }
+              return (
+                <tr key={c.id}>
+                  <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{c.numero}</span></td>
+                  <td style={{color:"#8890a8",fontSize:12}}>{c.fecha}</td>
+                  <td style={{fontWeight:500,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.contraparte}</td>
+                  <td>{c.especie}</td>
+                  <td><span className="mono" style={{fontSize:11}}>{c.campana}</span></td>
+                  <td><span className="mono">{c.toneladas} tn</span></td>
+                  <td>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <div className="progress-bar" style={{width:70}}><div className="progress-fill" style={{width:`${Math.round((c.asignadas/c.toneladas)*100)}%`}}/></div>
+                      <span style={{fontSize:11,color:"#8890a8"}}>{Math.round((c.asignadas/c.toneladas)*100)}%</span>
+                    </div>
+                  </td>
+                  <td>{c.tipo_precio==="A_FIJAR"?<Badge label="A FIJAR" color="purple"/>:<span className="mono" style={{fontSize:12}}>${c.precio?.toLocaleString()}</span>}</td>
+                  {modulo==="FORMAL"&&<td>{c.tipo_liq?<Badge label={c.tipo_liq==="INCISO_A"?"Inc.A":"Inc.B"} color={c.tipo_liq==="INCISO_A"?"blue":"purple"}/>:"—"}</td>}
+                  <td><Badge label={c.estado} color={estadoColor(c.estado)}/></td>
+                  <td style={{display:"flex",gap:6}}>
+                    <Btn variant="ghost" size="sm" onClick={() => abrirDetalleContrato(c)}>Ver</Btn>
+                    <Btn variant="ghost" size="sm" onClick={() => abrirEditarContrato(c)}>Editar</Btn>
+                    <Btn variant="danger" size="sm" onClick={() => eliminarContrato(c)}>✕</Btn>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
         {lista.length===0&&<div style={{padding:40,textAlign:"center",color:"#565d7a"}}>No hay contratos de {tab.toLowerCase()} en modalidad {modulo.toLowerCase()}</div>}
       </div>
       {showForm&&(
@@ -824,85 +977,199 @@ const Contratos = ({modulo}) => {
           <div style={{display:"flex",gap:8,marginBottom:18}}>
             {["COMPRA","VENTA","CANJE"].map(t=><Btn key={t} variant={form.tipo===t?"primary":"secondary"} size="sm" onClick={()=>setForm({...form,tipo:t})}>{t}</Btn>)}
           </div>
-          <div className="form-grid-2">
-            <FF label="Contraparte" required>
-              <select value={form.id_contraparte} onChange={e=>setForm({...form,id_contraparte:e.target.value})}>
-                <option value="">Seleccionar...</option>
-                {contrapartes.map(c=><option key={c.id} value={c.id}>{c.razon_social}{c.cuit?" — "+c.cuit:""}</option>)}
-              </select>
-            </FF>
-            <FF label="Fecha Contrato" required><input type="date" defaultValue={new Date().toISOString().split("T")[0]}/></FF>
-            <FF label="Especie" required>
-              <select value={form.id_especie} onChange={e=>setForm({...form,id_especie:parseInt(e.target.value)})}>
-                {especies.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
-              </select>
-            </FF>
-            <FF label="Campaña" required>
-              <select value={form.id_campana} onChange={e=>setForm({...form,id_campana:parseInt(e.target.value)})}>
-                {campanas.map(c=><option key={c.id} value={c.id}>{c.descripcion}</option>)}
-              </select>
-            </FF>
-            <FF label="Toneladas" required><input type="number" placeholder="0.000" value={form.toneladas} onChange={e=>setForm({...form,toneladas:e.target.value})}/></FF>
-            <FF label="Tipo de Precio" required>
-              <SelectorFlechas
-                opciones={[{value:"PRECIO_HECHO",label:"Precio Hecho"},{value:"A_FIJAR",label:"A Fijar"}]}
-                value={form.tipo_precio}
-                onChange={v=>setForm({...form,tipo_precio:v})}
-              />
-            </FF>
-            {form.tipo_precio==="PRECIO_HECHO"?<>
-              <FF label="Moneda">
+          {form.tipo === "CANJE" ? (
+            <div>
+              {/* Datos Comunes */}
+              <div className="form-grid-2" style={{marginBottom: 20}}>
+                <FF label="Contraparte" required>
+                  <select value={form.id_contraparte} onChange={e=>setForm({...form,id_contraparte:e.target.value})}>
+                    <option value="">Seleccionar...</option>
+                    {contrapartes.map(c=><option key={c.id} value={c.id}>{c.razon_social}{c.cuit?" — "+c.cuit:""}</option>)}
+                  </select>
+                </FF>
+                <FF label="Fecha Contrato" required>
+                  <input type="date" value={form.fecha_contrato} onChange={e=>setForm({...form,fecha_contrato:e.target.value})}/>
+                </FF>
+                <FF label="Campaña" required>
+                  <select value={form.id_campana} onChange={e=>setForm({...form,id_campana:parseInt(e.target.value)})}>
+                    {campanas.map(c=><option key={c.id} value={c.id}>{c.descripcion}</option>)}
+                  </select>
+                </FF>
+                <FF label="Observaciones">
+                  <input placeholder="Detalles u observaciones del canje..." value={form.observaciones || ""} onChange={e=>setForm({...form,observaciones:e.target.value})}/>
+                </FF>
+              </div>
+
+              {/* Doble Columna */}
+              <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24}}>
+                {/* Nosotros Entregamos (VENTA) */}
+                <div style={{padding: 16, background: "rgba(39, 174, 96, 0.05)", border: "1px solid rgba(39, 174, 96, 0.3)", borderRadius: 8}}>
+                  <div style={{fontSize: 14, fontWeight: 700, color: "#2ebd66", marginBottom: 12, display: "flex", alignItems: "center", gap: 6}}>
+                    <span>📤 Nosotros Entregamos (Venta)</span>
+                  </div>
+                  <div style={{display: "flex", flexDirection: "column", gap: 12}}>
+                    <FF label="Especie" required>
+                      <select value={form.entrega_id_especie} onChange={e=>setForm({...form,entrega_id_especie:parseInt(e.target.value)})}>
+                        {especies.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+                      </select>
+                    </FF>
+                    <FF label="Toneladas" required>
+                      <input type="number" placeholder="0.000" value={form.entrega_toneladas} onChange={e=>setForm({...form,entrega_toneladas:e.target.value})}/></FF>
+                    <FF label="Destino / Lugar de Carga">
+                      <input placeholder="Localidad de carga" value={form.entrega_localidad_entrega || ""} onChange={e=>setForm({...form,entrega_localidad_entrega:e.target.value})}/>
+                    </FF>
+                    
+                    <div style={{marginTop: 8, padding: 10, background: "#0a0c12", borderRadius: 6, border: "1px solid #1e2133"}}>
+                      <div style={{fontSize: 10, color: "#f5a623", fontWeight: 700, marginBottom: 8, textTransform: "uppercase"}}>📦 Costos Pactados (lo que cobramos)</div>
+                      <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8}}>
+                        <FF label="Secada/punto"><input type="number" step="any" placeholder="0.00" value={form.entrega_costo_secada_punto} onChange={e=>setForm({...form,entrega_costo_secada_punto:e.target.value})}/></FF>
+                        <FF label="Zarandeo/tn"><input type="number" step="any" placeholder="0.00" value={form.entrega_costo_zarandeo_tn} onChange={e=>setForm({...form,entrega_costo_zarandeo_tn:e.target.value})}/></FF>
+                        <FF label="Paritaria/tn"><input type="number" step="any" placeholder="0.00" value={form.entrega_costo_paritaria_tn} onChange={e=>setForm({...form,entrega_costo_paritaria_tn:e.target.value})}/></FF>
+                        <FF label="Fumigación"><input type="number" step="any" placeholder="0.00" value={form.entrega_costo_fumigacion_fijo} onChange={e=>setForm({...form,entrega_costo_fumigacion_fijo:e.target.value})}/></FF>
+                        <FF label="Hum. máx. %"><input type="number" step="0.1" placeholder="13.5" value={form.entrega_humedad_max_seco} onChange={e=>setForm({...form,entrega_humedad_max_seco:e.target.value})}/></FF>
+                        <FF label="Otros - Desc"><input placeholder="Detalle" value={form.entrega_otros_descripcion} onChange={e=>setForm({...form,entrega_otros_descripcion:e.target.value})}/></FF>
+                      </div>
+                    </div>
+
+                    <div style={{marginTop: 4, padding: 10, background: "#0a0c12", borderRadius: 6, border: "1px solid #1e2133"}}>
+                      <div style={{fontSize: 10, color: "#3498db", fontWeight: 700, marginBottom: 8, textTransform: "uppercase"}}>🏭 Costos en Destino (nos cobran)</div>
+                      <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8}}>
+                        <FF label="Secada/punto"><input type="number" step="any" placeholder="0.00" value={form.entrega_costo_secada_destino_punto} onChange={e=>setForm({...form,entrega_costo_secada_destino_punto:e.target.value})}/></FF>
+                        <FF label="Zarandeo/tn"><input type="number" step="any" placeholder="0.00" value={form.entrega_costo_zarandeo_destino_tn} onChange={e=>setForm({...form,entrega_costo_zarandeo_destino_tn:e.target.value})}/></FF>
+                        <FF label="Paritaria/tn"><input type="number" step="any" placeholder="0.00" value={form.entrega_costo_paritaria_destino_tn} onChange={e=>setForm({...form,entrega_costo_paritaria_destino_tn:e.target.value})}/></FF>
+                        <FF label="Fumigación"><input type="number" step="any" placeholder="0.00" value={form.entrega_costo_fumigacion_destino_fijo} onChange={e=>setForm({...form,entrega_costo_fumigacion_destino_fijo:e.target.value})}/></FF>
+                        <FF label="Otros - Desc"><input placeholder="Detalle" value={form.entrega_otros_destino_descripcion} onChange={e=>setForm({...form,entrega_otros_destino_descripcion:e.target.value})}/></FF>
+                        <FF label="Otros - Valor"><input type="number" step="any" placeholder="0.00" value={form.entrega_costo_otros_destino_valor} onChange={e=>setForm({...form,entrega_costo_otros_destino_valor:e.target.value})}/></FF>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Nosotros Recibimos (COMPRA) */}
+                <div style={{padding: 16, background: "rgba(52, 152, 219, 0.05)", border: "1px solid rgba(52, 152, 219, 0.3)", borderRadius: 8}}>
+                  <div style={{fontSize: 14, fontWeight: 700, color: "#3498db", marginBottom: 12, display: "flex", alignItems: "center", gap: 6}}>
+                    <span>📥 Nosotros Recibimos (Compra)</span>
+                  </div>
+                  <div style={{display: "flex", flexDirection: "column", gap: 12}}>
+                    <FF label="Especie" required>
+                      <select value={form.recepcion_id_especie} onChange={e=>setForm({...form,recepcion_id_especie:parseInt(e.target.value)})}>
+                        {especies.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+                      </select>
+                    </FF>
+                    <FF label="Toneladas" required>
+                      <input type="number" placeholder="0.000" value={form.recepcion_toneladas} onChange={e=>setForm({...form,recepcion_toneladas:e.target.value})}/></FF>
+                    <FF label="Destino / Lugar de Descarga">
+                      <input placeholder="Localidad de descarga" value={form.recepcion_localidad_entrega || ""} onChange={e=>setForm({...form,recepcion_localidad_entrega:e.target.value})}/>
+                    </FF>
+                    
+                    <div style={{marginTop: 8, padding: 10, background: "#0a0c12", borderRadius: 6, border: "1px solid #1e2133"}}>
+                      <div style={{fontSize: 10, color: "#f5a623", fontWeight: 700, marginBottom: 8, textTransform: "uppercase"}}>📦 Costos Pactados (lo que cobramos)</div>
+                      <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8}}>
+                        <FF label="Secada/punto"><input type="number" step="any" placeholder="0.00" value={form.recepcion_costo_secada_punto} onChange={e=>setForm({...form,recepcion_costo_secada_punto:e.target.value})}/></FF>
+                        <FF label="Zarandeo/tn"><input type="number" step="any" placeholder="0.00" value={form.recepcion_costo_zarandeo_tn} onChange={e=>setForm({...form,recepcion_costo_zarandeo_tn:e.target.value})}/></FF>
+                        <FF label="Paritaria/tn"><input type="number" step="any" placeholder="0.00" value={form.recepcion_costo_paritaria_tn} onChange={e=>setForm({...form,recepcion_costo_paritaria_tn:e.target.value})}/></FF>
+                        <FF label="Fumigación"><input type="number" step="any" placeholder="0.00" value={form.recepcion_costo_fumigacion_fijo} onChange={e=>setForm({...form,recepcion_costo_fumigacion_fijo:e.target.value})}/></FF>
+                        <FF label="Hum. máx. %"><input type="number" step="0.1" placeholder="13.5" value={form.recepcion_humedad_max_seco} onChange={e=>setForm({...form,recepcion_humedad_max_seco:e.target.value})}/></FF>
+                        <FF label="Otros - Desc"><input placeholder="Detalle" value={form.recepcion_otros_descripcion} onChange={e=>setForm({...form,recepcion_otros_descripcion:e.target.value})}/></FF>
+                      </div>
+                    </div>
+
+                    <div style={{marginTop: 4, padding: 10, background: "#0a0c12", borderRadius: 6, border: "1px solid #1e2133"}}>
+                      <div style={{fontSize: 10, color: "#3498db", fontWeight: 700, marginBottom: 8, textTransform: "uppercase"}}>🏭 Costos en Destino (nos cobran)</div>
+                      <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8}}>
+                        <FF label="Secada/punto"><input type="number" step="any" placeholder="0.00" value={form.recepcion_costo_secada_destino_punto} onChange={e=>setForm({...form,recepcion_costo_secada_destino_punto:e.target.value})}/></FF>
+                        <FF label="Zarandeo/tn"><input type="number" step="any" placeholder="0.00" value={form.recepcion_costo_zarandeo_destino_tn} onChange={e=>setForm({...form,recepcion_costo_zarandeo_destino_tn:e.target.value})}/></FF>
+                        <FF label="Paritaria/tn"><input type="number" step="any" placeholder="0.00" value={form.recepcion_costo_paritaria_destino_tn} onChange={e=>setForm({...form,recepcion_costo_paritaria_destino_tn:e.target.value})}/></FF>
+                        <FF label="Fumigación"><input type="number" step="any" placeholder="0.00" value={form.recepcion_costo_fumigacion_destino_fijo} onChange={e=>setForm({...form,recepcion_costo_fumigacion_destino_fijo:e.target.value})}/></FF>
+                        <FF label="Otros - Desc"><input placeholder="Detalle" value={form.recepcion_otros_destino_descripcion} onChange={e=>setForm({...form,recepcion_otros_destino_descripcion:e.target.value})}/></FF>
+                        <FF label="Otros - Valor"><input type="number" step="any" placeholder="0.00" value={form.recepcion_costo_otros_destino_valor} onChange={e=>setForm({...form,recepcion_costo_otros_destino_valor:e.target.value})}/></FF>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="form-grid-2">
+              <FF label="Contraparte" required>
+                <select value={form.id_contraparte} onChange={e=>setForm({...form,id_contraparte:e.target.value})}>
+                  <option value="">Seleccionar...</option>
+                  {contrapartes.map(c=><option key={c.id} value={c.id}>{c.razon_social}{c.cuit?" — "+c.cuit:""}</option>)}
+                </select>
+              </FF>
+              <FF label="Fecha Contrato" required><input type="date" value={form.fecha_contrato} onChange={e=>setForm({...form,fecha_contrato:e.target.value})}/></FF>
+              <FF label="Especie" required>
+                <select value={form.id_especie} onChange={e=>setForm({...form,id_especie:parseInt(e.target.value)})}>
+                  {especies.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+                </select>
+              </FF>
+              <FF label="Campaña" required>
+                <select value={form.id_campana} onChange={e=>setForm({...form,id_campana:parseInt(e.target.value)})}>
+                  {campanas.map(c=><option key={c.id} value={c.id}>{c.descripcion}</option>)}
+                </select>
+              </FF>
+              <FF label="Toneladas" required><input type="number" placeholder="0.000" value={form.toneladas} onChange={e=>setForm({...form,toneladas:e.target.value})}/></FF>
+              <FF label="Tipo de Precio" required>
                 <SelectorFlechas
-                  opciones={[{value:"PESOS",label:"Pesos $"},{value:"DOLARES",label:"Dólares USD"},{value:"DOLARES_BILLETE",label:"Dólares Billete"}]}
-                  value={form.moneda}
-                  onChange={v=>setForm({...form,moneda:v})}
+                  opciones={[{value:"PRECIO_HECHO",label:"Precio Hecho"},{value:"A_FIJAR",label:"A Fijar"}]}
+                  value={form.tipo_precio}
+                  onChange={v=>setForm({...form,tipo_precio:v})}
                 />
               </FF>
-              <FF label="Precio" required><input type="number" placeholder="0.00" value={form.precio} onChange={e=>setForm({...form,precio:e.target.value})}/></FF>
-            </>:<>
-              <FF label="Referencia"><select value={form.referencia} onChange={e=>setForm({...form,referencia:e.target.value})}><option value="MATBA_ROFEX">MATBA-ROFEX</option><option value="CAMARA">Cámara Arbitral</option></select></FF>
-              <FF label="Diferencial">
-                <div style={{display:"flex",gap:8}}>
-                  <input type="number" placeholder="-10" value={form.diferencial} onChange={e=>setForm({...form,diferencial:e.target.value})} style={{flex:1}}/>
-                  <select value={form.tipo_diferencial} onChange={e=>setForm({...form,tipo_diferencial:e.target.value})} style={{width:90}}><option value="USD">USD</option><option value="ARS">ARS</option><option value="LLENO">Lleno</option></select>
-                </div>
+              {form.tipo_precio==="PRECIO_HECHO"?<>
+                <FF label="Moneda">
+                  <SelectorFlechas
+                    opciones={[{value:"PESOS",label:"Pesos $"},{value:"DOLARES",label:"Dólares USD"},{value:"DOLARES_BILLETE",label:"Dólares Billete"}]}
+                    value={form.moneda}
+                    onChange={v=>setForm({...form,moneda:v})}
+                  />
+                </FF>
+                <FF label="Precio" required><input type="number" placeholder="0.00" value={form.precio} onChange={e=>setForm({...form,precio:e.target.value})}/></FF>
+              </>:<>
+                <FF label="Referencia"><select value={form.referencia} onChange={e=>setForm({...form,referencia:e.target.value})}><option value="MATBA_ROFEX">MATBA-ROFEX</option><option value="CAMARA">Cámara Arbitral</option></select></FF>
+                <FF label="Diferencial">
+                  <div style={{display:"flex",gap:8}}>
+                    <input type="number" placeholder="-10" value={form.diferencial} onChange={e=>setForm({...form,diferencial:e.target.value})} style={{flex:1}}/>
+                    <select value={form.tipo_diferencial} onChange={e=>setForm({...form,tipo_diferencial:e.target.value})} style={{width:90}}><option value="USD">USD</option><option value="ARS">ARS</option><option value="LLENO">Lleno</option></select>
+                  </div>
+                </FF>
+              </>}
+              <FF label="Tipo de Entrega">
+                <SelectorFlechas
+                  opciones={[{value:"A_RETIRAR",label:"A Retirar"},{value:"PUESTO_DESTINO",label:"Puesto en Destino"}]}
+                  value={form.tipo_entrega}
+                  onChange={v=>setForm({...form,tipo_entrega:v})}
+                />
               </FF>
-            </>}
-            <FF label="Tipo de Entrega">
-              <SelectorFlechas
-                opciones={[{value:"A_RETIRAR",label:"A Retirar"},{value:"PUESTO_DESTINO",label:"Puesto en Destino"}]}
-                value={form.tipo_entrega}
-                onChange={v=>setForm({...form,tipo_entrega:v})}
-              />
-            </FF>
-            {form.tipo_entrega==="PUESTO_DESTINO"&&(
-              <FF label="Destino Pactado">
-                <input placeholder="Localidad / Planta de entrega" value={form.localidad_entrega||""} onChange={e=>setForm({...form,localidad_entrega:e.target.value})}/>
+              {form.tipo_entrega==="PUESTO_DESTINO"&&(
+                <FF label="Destino Pactado">
+                  <input placeholder="Localidad / Planta de entrega" value={form.localidad_entrega||""} onChange={e=>setForm({...form,localidad_entrega:e.target.value})}/>
+                </FF>
+              )}
+              {modulo==="FORMAL"&&<FF label="Tipo Liquidación">
+                <SelectorFlechas
+                  opciones={[{value:"INCISO_A",label:"Inciso A — Compraventa"},{value:"INCISO_B",label:"Inciso B — Consignación"}]}
+                  value={form.tipo_liq}
+                  onChange={v=>setForm({...form,tipo_liq:v})}
+                />
+              </FF>}
+              <FF label="Entrega Desde"><input type="date"/></FF>
+              <FF label="Entrega Hasta"><input type="date"/></FF>
+              <FF label="Forma de Pago">
+                <SelectorFlechas
+                  opciones={[
+                    {value:"TRANSFERENCIA",label:"Transferencia"},
+                    {value:"CHEQUE_PROPIO",label:"Cheque Propio"},
+                    {value:"CHEQUE_TERCEROS",label:"Cheque Terceros"},
+                    {value:"EFECTIVO",label:"Efectivo"},
+                  ]}
+                  value={form.forma_pago}
+                  onChange={v=>setForm({...form,forma_pago:v})}
+                />
               </FF>
-            )}
-            {modulo==="FORMAL"&&<FF label="Tipo Liquidación">
-              <SelectorFlechas
-                opciones={[{value:"INCISO_A",label:"Inciso A — Compraventa"},{value:"INCISO_B",label:"Inciso B — Consignación"}]}
-                value={form.tipo_liq}
-                onChange={v=>setForm({...form,tipo_liq:v})}
-              />
-            </FF>}
-            <FF label="Entrega Desde"><input type="date"/></FF>
-            <FF label="Entrega Hasta"><input type="date"/></FF>
-            <FF label="Forma de Pago">
-              <SelectorFlechas
-                opciones={[
-                  {value:"TRANSFERENCIA",label:"Transferencia"},
-                  {value:"CHEQUE_PROPIO",label:"Cheque Propio"},
-                  {value:"CHEQUE_TERCEROS",label:"Cheque Terceros"},
-                  {value:"EFECTIVO",label:"Efectivo"},
-                ]}
-                value={form.forma_pago}
-                onChange={v=>setForm({...form,forma_pago:v})}
-              />
-            </FF>
-            <FF label="Plazo de Pago (días)"><input type="number" value={form.plazo} onChange={e=>setForm({...form,plazo:e.target.value})}/></FF>
-          </div>
+              <FF label="Plazo de Pago (días)"><input type="number" value={form.plazo} onChange={e=>setForm({...form,plazo:e.target.value})}/></FF>
+            </div>
+          )}
           <div style={{marginTop:8,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e"}}>
             <div style={{fontSize:11,color:"#8890a8",marginBottom:10,fontWeight:600,textTransform:"uppercase",letterSpacing:".06em"}}>📊 Presupuesto del Negocio</div>
             <div className="form-grid-3">
@@ -1061,26 +1328,115 @@ const Contratos = ({modulo}) => {
       )}
 
       {selectedContract && (
-        <Modal title={`Detalle del Contrato ${selectedContract.numero}`} onClose={() => setSelectedContract(null)} width={800}>
-          <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 20px", marginBottom: 20}}>
-            <div><strong>Número de Contrato:</strong> <span className="mono" style={{color:"#f5a623"}}>{selectedContract.numero}</span></div>
-            <div><strong>Tipo:</strong> {selectedContract.tipo_contrato}</div>
-            <div><strong>Contraparte:</strong> {selectedContract.contraparte}</div>
-            <div><strong>Fecha:</strong> {selectedContract.fecha}</div>
-            <div><strong>Especie:</strong> {selectedContract.especie}</div>
-            <div><strong>Campaña:</strong> {selectedContract.campana}</div>
-            <div><strong>Toneladas Pactadas:</strong> {selectedContract.toneladas} tn</div>
-            <div><strong>Toneladas Asignadas:</strong> {selectedContract.asignadas} tn</div>
-            <div><strong>Tipo de Precio:</strong> {selectedContract.tipo_precio === "A_FIJAR" ? "A Fijar" : "Precio Hecho"}</div>
-            {selectedContract.tipo_precio !== "A_FIJAR" ? (
-              <div><strong>Precio:</strong> ${selectedContract.precio?.toLocaleString()} ({selectedContract.moneda})</div>
-            ) : (
-              <div><strong>Referencia:</strong> {selectedContract.referencia_fijacion} | Diferencial: {selectedContract.diferencial_fijacion} {selectedContract.tipo_diferencial}</div>
-            )}
-            <div><strong>Tipo de Entrega:</strong> {selectedContract.tipo_entrega}</div>
-            <div><strong>Forma de Pago:</strong> {selectedContract.forma_pago} (Plazo: {selectedContract.plazo_pago_dias} días)</div>
-            <div><strong>Estado:</strong> {selectedContract.estado}</div>
-          </div>
+        <Modal title={selectedContract.es_canje ? `Detalle de Canje ${selectedContract.numero}` : `Detalle del Contrato ${selectedContract.numero}`} onClose={() => setSelectedContract(null)} width={selectedContract.es_canje ? 1000 : 800}>
+          {selectedContract.es_canje ? (
+            <div>
+              {/* Información Común */}
+              <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 20px", marginBottom: 20, paddingBottom: 12, borderBottom: "1px solid #2a2d3e"}}>
+                <div><strong>Contraparte:</strong> {selectedContract.contraparte}</div>
+                <div><strong>Campaña:</strong> {selectedContract.campana}</div>
+                <div><strong>Fecha:</strong> {selectedContract.fecha}</div>
+                <div><strong>Estado:</strong> {selectedContract.estado}</div>
+                <div style={{gridColumn: "span 2"}}><strong>Relación:</strong> <span style={{color: "#e8eaf0", fontWeight: 600}}>{selectedContract.descripcion_relacion_canje}</span></div>
+                {selectedContract.observaciones && <div style={{gridColumn: "span 2"}}><strong>Observaciones:</strong> {selectedContract.observaciones}</div>}
+              </div>
+
+              {/* Ambos Lados */}
+              <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 20}}>
+                {/* Entregamos (VENTA) */}
+                <div style={{padding: 14, background: "rgba(39, 174, 96, 0.03)", border: "1px solid rgba(39, 174, 96, 0.2)", borderRadius: 6}}>
+                  <div style={{color: "#27ae60", fontWeight: 700, marginBottom: 10, fontSize: 13}}>📤 Nosotros Entregamos (Venta)</div>
+                  <div style={{display: "flex", flexDirection: "column", gap: 6, fontSize: 13}}>
+                    <div><strong>Número de Contrato:</strong> <span className="mono" style={{color:"#f5a623"}}>{selectedContract.venta?.numero}</span></div>
+                    <div><strong>Especie:</strong> {selectedContract.venta?.especie}</div>
+                    <div><strong>Toneladas Pactadas:</strong> {selectedContract.venta?.toneladas} tn</div>
+                    <div><strong>Toneladas Asignadas:</strong> {selectedContract.venta?.asignadas} tn</div>
+                    <div><strong>Destino Pactado:</strong> {selectedContract.venta?.localidad_entrega || "—"}</div>
+                    
+                    {/* Costos */}
+                    <div style={{marginTop: 8, padding: 8, background: "#0a0c12", borderRadius: 4}}>
+                      <div style={{fontSize: 11, color: "#f5a623", fontWeight: 700, marginBottom: 4}}>Servicios Cobrados:</div>
+                      <div style={{fontSize: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 8px"}}>
+                        <div>Secada/punto: ${selectedContract.venta?.costo_secada_punto}</div>
+                        <div>Zarandeo/tn: ${selectedContract.venta?.costo_zarandeo_tn}</div>
+                        <div>Paritaria/tn: ${selectedContract.venta?.costo_paritaria_tn}</div>
+                        <div>Fumigación: ${selectedContract.venta?.costo_fumigacion_fijo}</div>
+                        <div>Hum. máx: {selectedContract.venta?.humedad_max_seco}%</div>
+                        {selectedContract.venta?.otros_descripcion && <div style={{gridColumn: "span 2"}}>{selectedContract.venta.otros_descripcion}</div>}
+                      </div>
+                    </div>
+                    
+                    <div style={{marginTop: 4, padding: 8, background: "#0a0c12", borderRadius: 4}}>
+                      <div style={{fontSize: 11, color: "#3498db", fontWeight: 700, marginBottom: 4}}>Costos en Destino:</div>
+                      <div style={{fontSize: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 8px"}}>
+                        <div>Secada/punto: ${selectedContract.venta?.costo_secada_destino_punto}</div>
+                        <div>Zarandeo/tn: ${selectedContract.venta?.costo_zarandeo_destino_tn}</div>
+                        <div>Paritaria/tn: ${selectedContract.venta?.costo_paritaria_destino_tn}</div>
+                        <div>Fumigación: ${selectedContract.venta?.costo_fumigacion_destino_fijo}</div>
+                        {selectedContract.venta?.otros_destino_descripcion && <div style={{gridColumn: "span 2"}}>{selectedContract.venta.otros_destino_descripcion}: ${selectedContract.venta.costo_otros_destino_valor}</div>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Recibimos (COMPRA) */}
+                <div style={{padding: 14, background: "rgba(52, 152, 219, 0.03)", border: "1px solid rgba(52, 152, 219, 0.2)", borderRadius: 6}}>
+                  <div style={{color: "#3498db", fontWeight: 700, marginBottom: 10, fontSize: 13}}>📥 Nosotros Recibimos (Compra)</div>
+                  <div style={{display: "flex", flexDirection: "column", gap: 6, fontSize: 13}}>
+                    <div><strong>Número de Contrato:</strong> <span className="mono" style={{color:"#f5a623"}}>{selectedContract.compra?.numero}</span></div>
+                    <div><strong>Especie:</strong> {selectedContract.compra?.especie}</div>
+                    <div><strong>Toneladas Pactadas:</strong> {selectedContract.compra?.toneladas} tn</div>
+                    <div><strong>Toneladas Asignadas:</strong> {selectedContract.compra?.asignadas} tn</div>
+                    <div><strong>Destino Pactado:</strong> {selectedContract.compra?.localidad_entrega || "—"}</div>
+                    
+                    {/* Costos */}
+                    <div style={{marginTop: 8, padding: 8, background: "#0a0c12", borderRadius: 4}}>
+                      <div style={{fontSize: 11, color: "#f5a623", fontWeight: 700, marginBottom: 4}}>Servicios Cobrados:</div>
+                      <div style={{fontSize: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 8px"}}>
+                        <div>Secada/punto: ${selectedContract.compra?.costo_secada_punto}</div>
+                        <div>Zarandeo/tn: ${selectedContract.compra?.costo_zarandeo_tn}</div>
+                        <div>Paritaria/tn: ${selectedContract.compra?.costo_paritaria_tn}</div>
+                        <div>Fumigación: ${selectedContract.compra?.costo_fumigacion_fijo}</div>
+                        <div>Hum. máx: {selectedContract.compra?.humedad_max_seco}%</div>
+                        {selectedContract.compra?.otros_descripcion && <div style={{gridColumn: "span 2"}}>{selectedContract.compra.otros_descripcion}</div>}
+                      </div>
+                    </div>
+
+                    <div style={{marginTop: 4, padding: 8, background: "#0a0c12", borderRadius: 4}}>
+                      <div style={{fontSize: 11, color: "#3498db", fontWeight: 700, marginBottom: 4}}>Costos en Destino:</div>
+                      <div style={{fontSize: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 8px"}}>
+                        <div>Secada/punto: ${selectedContract.compra?.costo_secada_destino_punto}</div>
+                        <div>Zarandeo/tn: ${selectedContract.compra?.costo_zarandeo_destino_tn}</div>
+                        <div>Paritaria/tn: ${selectedContract.compra?.costo_paritaria_destino_tn}</div>
+                        <div>Fumigación: ${selectedContract.compra?.costo_fumigacion_destino_fijo}</div>
+                        {selectedContract.compra?.otros_destino_descripcion && <div style={{gridColumn: "span 2"}}>{selectedContract.compra.otros_destino_descripcion}: ${selectedContract.compra.costo_otros_destino_valor}</div>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 20px", marginBottom: 20}}>
+              <div><strong>Número de Contrato:</strong> <span className="mono" style={{color:"#f5a623"}}>{selectedContract.numero}</span></div>
+              <div><strong>Tipo:</strong> {selectedContract.tipo_contrato}</div>
+              <div><strong>Contraparte:</strong> {selectedContract.contraparte}</div>
+              <div><strong>Fecha:</strong> {selectedContract.fecha}</div>
+              <div><strong>Especie:</strong> {selectedContract.especie}</div>
+              <div><strong>Campaña:</strong> {selectedContract.campana}</div>
+              <div><strong>Toneladas Pactadas:</strong> {selectedContract.toneladas} tn</div>
+              <div><strong>Toneladas Asignadas:</strong> {selectedContract.asignadas} tn</div>
+              <div><strong>Tipo de Precio:</strong> {selectedContract.tipo_precio === "A_FIJAR" ? "A Fijar" : "Precio Hecho"}</div>
+              {selectedContract.tipo_precio !== "A_FIJAR" ? (
+                <div><strong>Precio:</strong> ${selectedContract.precio?.toLocaleString()} ({selectedContract.moneda})</div>
+              ) : (
+                <div><strong>Referencia:</strong> {selectedContract.referencia_fijacion} | Diferencial: {selectedContract.diferencial_fijacion} {selectedContract.tipo_diferencial}</div>
+              )}
+              <div><strong>Tipo de Entrega:</strong> {selectedContract.tipo_entrega}</div>
+              <div><strong>Forma de Pago:</strong> {selectedContract.forma_pago} (Plazo: {selectedContract.plazo_pago_dias} días)</div>
+              <div><strong>Estado:</strong> {selectedContract.estado}</div>
+            </div>
+          )}
           
           <div style={{fontSize: 12, color: "#f5a623", fontWeight: 700, borderBottom: "1px solid #2a2d3e", paddingBottom: 6, marginBottom: 10, marginTop: 14}}>
             🚚 CAMIONES / MOVIMIENTOS ASOCIADOS
@@ -1092,6 +1448,7 @@ const Contratos = ({modulo}) => {
                   <tr>
                     <th>N° Mov</th>
                     <th>Fecha</th>
+                    <th>Especie</th>
                     <th>Kg Salida</th>
                     <th>Kg Llegada</th>
                     <th>Estado</th>
@@ -1102,6 +1459,7 @@ const Contratos = ({modulo}) => {
                     <tr key={m.id}>
                       <td><span className="mono" style={{color: "#f5a623"}}>{m.numero_movimiento}</span></td>
                       <td>{m.created_at ? new Date(m.created_at).toLocaleDateString() : ""}</td>
+                      <td>{m.especie_nombre || "—"}</td>
                       <td><span className="mono">{m.peso_neto_salida_kg?.toLocaleString()} kg</span></td>
                       <td><span className="mono">{m.peso_neto_llegada_kg?.toLocaleString() || "🚚 En tránsito"} kg</span></td>
                       <td>{m.estado}</td>
@@ -1425,7 +1783,7 @@ const Movimientos = ({modulo, usuario}) => {
 
   const cargarContratos = async () => {
     try {
-      const data = await api.get(`/api/contratos?modulo=${modulo}`); // Corregido el parámetro de query
+      const data = await api.get(`/api/contratos?modalidad=${modulo}`); // Corregido el parámetro de query
       const mapped = data.map(c => ({
         id: c.id,
         numero: c.numero_contrato,
@@ -1441,7 +1799,8 @@ const Movimientos = ({modulo, usuario}) => {
         tipo_entrega: c.tipo_entrega,
         estado: c.estado,
         tipo_liq: c.tipo_liquidacion,
-        tipo: c.tipo_contrato
+        tipo: c.tipo_contrato,
+        es_canje: !!c.es_canje
       }));
       setContratosReal(mapped);
     } catch(e) {
@@ -2672,7 +3031,7 @@ const Movimientos = ({modulo, usuario}) => {
                   >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
                     {contratos.filter(c=>c.tipo==="COMPRA").map(c=>(
-                      <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString()}</option>
+                      <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString())}</option>
                     ))}
                   </select>
                 </FF>
@@ -2686,7 +3045,7 @@ const Movimientos = ({modulo, usuario}) => {
                   >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
                     {contratos.filter(c=>c.tipo==="VENTA").map(c=>(
-                      <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString()}</option>
+                      <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString())}</option>
                     ))}
                   </select>
                 </FF>

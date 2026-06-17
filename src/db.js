@@ -492,7 +492,10 @@ async function initDB() {
       { name: "costo_paritaria_destino_tn", type: "DECIMAL(14,4) DEFAULT 0" },
       { name: "costo_fumigacion_destino_fijo", type: "DECIMAL(14,4) DEFAULT 0" },
       { name: "otros_destino_descripcion", type: "VARCHAR(200)" },
-      { name: "costo_otros_destino_valor", type: "DECIMAL(14,4) DEFAULT 0" }
+      { name: "costo_otros_destino_valor", type: "DECIMAL(14,4) DEFAULT 0" },
+      { name: "es_canje", type: "BOOLEAN DEFAULT FALSE" },
+      { name: "id_contrato_canje_relacionado", type: "INTEGER REFERENCES contratos(id)" },
+      { name: "descripcion_relacion_canje", type: "VARCHAR(200)" }
     ];
     for (const col of columnsContratos) {
       try {
