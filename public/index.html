@@ -3241,7 +3241,7 @@ const RenderServiciosSeccion = ({ movs, servicios, setServicios, editDescuentos,
     return movs.reduce((sum, m) => {
       const hum = parseFloat(m.humedad_llegada_pct || m.humedad_llegada || 0);
       if (hum > maxHumedad) {
-        const puntos = hum - maxHumedad;
+        const puntos = Math.ceil(parseFloat((hum - maxHumedad).toFixed(1)));
         const kg = getPesoNetoLlegada(m);
         return sum + (kg / 1000) * puntos * costoPunto;
       }
