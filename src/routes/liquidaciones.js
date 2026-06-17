@@ -143,7 +143,13 @@ router.get('/:id', async (req, res) => {
       WHERE lm.id_liquidacion = $1
     `, [id]);
 
-    res.json({ ...liq[0], movimientos: movs });
+    const { rows: pagosCount } = await pool.query(
+      "SELECT COUNT(*) as count FROM cc_contrapartes WHERE id_liquidacion = $1 AND tipo_movimiento IN ('PAGO', 'COBRO', 'ADELANTO')",
+      [id]
+    );
+    const tiene_pagos = parseInt(pagosCount[0].count) > 0;
+
+    res.json({ ...liq[0], movimientos: movs, tiene_pagos });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -219,6 +225,17 @@ router.delete('/:id', async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Liquidación no encontrada' });
     }
+
+    // 1.5. Verificar si hay pagos, cobros o adelantos asociados a esta liquidación en Cuenta Corriente
+    const { rows: pagos } = await client.query(
+      "SELECT id FROM cc_contrapartes WHERE id_liquidacion = $1 AND tipo_movimiento IN ('PAGO', 'COBRO', 'ADELANTO')",
+      [id]
+    );
+    if (pagos.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: "No se puede eliminar la liquidación porque ya cuenta con cobros, pagos o adelantos imputados en la cuenta corriente." });
+    }
+
 
     // 2. Restaurar estado de liquidación de los movimientos asociados
     await client.query(`

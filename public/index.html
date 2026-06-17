@@ -3720,39 +3720,45 @@ const Liquidaciones = ({modulo}) => {
 
             {/* Modal Actions */}
             <div style={{display:"flex", gap:10, justifyContent:"space-between", marginTop:10, paddingTop:14, borderTop:"1px solid #2a2d3e"}}>
-              <button
-                onClick={async () => {
-                  if (confirm(`¿Está seguro de que desea eliminar la liquidación ${liqSeleccionada.nro_liquidacion}? Esta acción liberará los camiones asociados y los dejará disponibles para volver a liquidarse.`)) {
-                    try {
-                      const res = await api.delete(`/api/liquidaciones/${liqSeleccionada.id}`);
-                      if (res && res.error) {
-                        alert("Error al eliminar: " + res.error);
-                      } else {
-                        alert("✓ Liquidación eliminada correctamente. Los camiones asociados se liberaron.");
-                        setShowVerModal(false);
-                        cargarLiquidaciones();
+              {liqSeleccionada.tiene_pagos ? (
+                <div style={{color:"#e74c3c", fontSize:12, display:"flex", alignItems:"center", gap:6, padding:"8px 12px", background:"rgba(231,76,60,.08)", border:"1px solid rgba(231,76,60,.2)", borderRadius:6}}>
+                  🔒 No se puede eliminar: tiene pagos asignados en Cuenta Corriente.
+                </div>
+              ) : (
+                <button
+                  onClick={async () => {
+                    if (confirm(`¿Está seguro de que desea eliminar la liquidación ${liqSeleccionada.nro_liquidacion}? Esta acción liberará los camiones asociados y los dejará disponibles para volver a liquidarse.`)) {
+                      try {
+                        const res = await api.delete(`/api/liquidaciones/${liqSeleccionada.id}`);
+                        if (res && res.error) {
+                          alert("Error al eliminar: " + res.error);
+                        } else {
+                          alert("✓ Liquidación eliminada correctamente. Los camiones asociados se liberaron.");
+                          setShowVerModal(false);
+                          cargarLiquidaciones();
+                        }
+                      } catch(err) {
+                        alert("Error al eliminar: " + err.message);
                       }
-                    } catch(err) {
-                      alert("Error al eliminar: " + err.message);
                     }
-                  }
-                }}
-                style={{
-                  background: "rgba(231,76,60,.12)",
-                  color: "#e74c3c",
-                  border: "1px solid rgba(231,76,60,.3)",
-                  borderRadius: 6,
-                  padding: "8px 16px",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  transition: "all .2s"
-                }}
-                onMouseEnter={e => { e.target.style.background = "rgba(231,76,60,.2)"; }}
-                onMouseLeave={e => { e.target.style.background = "rgba(231,76,60,.12)"; }}
-              >
-                🗑️ Eliminar Liquidación
-              </button>
+                  }}
+                  style={{
+                    background: "rgba(231,76,60,.12)",
+                    color: "#e74c3c",
+                    border: "1px solid rgba(231,76,60,.3)",
+                    borderRadius: 6,
+                    padding: "8px 16px",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    transition: "all .2s"
+                  }}
+                  onMouseEnter={e => { e.target.style.background = "rgba(231,76,60,.2)"; }}
+                  onMouseLeave={e => { e.target.style.background = "rgba(231,76,60,.12)"; }}
+                >
+                  🗑️ Eliminar Liquidación
+                </button>
+              )}
 
               <div style={{display:"flex", gap:10}}>
                 <Btn variant="secondary" onClick={() => setShowVerModal(false)}>Cerrar</Btn>
@@ -3793,10 +3799,120 @@ const Liquidaciones = ({modulo}) => {
 const CuentaCorriente = ({modulo}) => {
   const [tab,setTab]=useState("productores");
   const [ccResumen,setCCResumen]=useState([]);
-  useEffect(()=>{
+  
+  const [selectedClient, setSelectedClient] = useState(null);
+  const [ccMovimientos, setCcMovimientos] = useState([]);
+  const [openLiquidaciones, setOpenLiquidaciones] = useState([]);
+  const [showDetalleModal, setShowDetalleModal] = useState(false);
+  
+  // Form para registrar pago
+  const [showRegPagoModal, setShowRegPagoModal] = useState(false);
+  const [pagoFecha, setPagoFecha] = useState(new Date().toISOString().split('T')[0]);
+  const [pagoTipo, setPagoTipo] = useState("PAGO"); // PAGO, COBRO, ADELANTO
+  const [pagoConcepto, setPagoConcepto] = useState("");
+  const [pagoMonto, setPagoMonto] = useState("");
+  const [pagoIdLiq, setPagoIdLiq] = useState("");
+
+  const [assigningMovId, setAssigningMovId] = useState(null);
+  const [selectedLiqIdForAssign, setSelectedLiqIdForAssign] = useState("");
+
+  const cargarCCResumen = () => {
     api.get("/api/cc/resumen")
       .then(data=>setCCResumen(data))
       .catch(()=>{});
+  };
+
+  const abrirDetalle = async (client) => {
+    try {
+      setSelectedClient(client);
+      
+      // 1. Cargar movimientos de cta cte
+      const movs = await api.get(`/api/cc/contrapartes/${client.id}`);
+      setCcMovimientos(movs);
+      
+      // 2. Cargar liquidaciones abiertas para imputación
+      const liqs = await api.get(`/api/liquidaciones?modalidad=${modulo}`);
+      const filteredLiqs = liqs.filter(l => l.id_contraparte === client.id && l.estado !== 'PAGADA');
+      setOpenLiquidaciones(filteredLiqs);
+      
+      // Default de tipo pago según la contraparte
+      const tipoCliente = client.tipo || client.tipo_contraparte;
+      if (tipoCliente === 'COMPRADOR') {
+        setPagoTipo("COBRO");
+      } else {
+        setPagoTipo("PAGO");
+      }
+      
+      setPagoConcepto("");
+      setPagoMonto("");
+      setPagoIdLiq("");
+      setShowDetalleModal(true);
+    } catch (err) {
+      alert("Error al cargar detalles de cuenta corriente: " + err.message);
+    }
+  };
+
+  const ejecutarAsignacion = async (movId, liqId) => {
+    if (!liqId) {
+      alert("Por favor, seleccione una liquidación");
+      return;
+    }
+    try {
+      const res = await api.put(`/api/cc/movimientos/${movId}/asignar`, { id_liquidacion: parseInt(liqId) });
+      if (res && res.error) {
+        alert("Error al asignar: " + res.error);
+      } else {
+        alert("✓ Pago/cobro asignado correctamente");
+        setAssigningMovId(null);
+        // Recargar detalle y resumen
+        if (selectedClient) {
+          abrirDetalle(selectedClient);
+        }
+        cargarCCResumen();
+      }
+    } catch(err) {
+      alert("Error al asignar: " + err.message);
+    }
+  };
+
+  const ejecutarRegistroPago = async () => {
+    if (!pagoMonto || parseFloat(pagoMonto) <= 0) {
+      alert("Por favor, ingrese un monto válido mayor a 0");
+      return;
+    }
+    if (!pagoConcepto.trim()) {
+      alert("Por favor, ingrese un concepto para el movimiento");
+      return;
+    }
+    try {
+      const body = {
+        id_contraparte: selectedClient.id,
+        fecha: pagoFecha,
+        tipo_movimiento: pagoTipo,
+        concepto: pagoConcepto,
+        monto: parseFloat(pagoMonto),
+        modalidad: modulo,
+        id_liquidacion: pagoIdLiq ? parseInt(pagoIdLiq) : null
+      };
+      const res = await api.post("/api/cc/movimientos", body);
+      if (res && res.error) {
+        alert("Error al registrar: " + res.error);
+      } else {
+        alert("✓ Movimiento financiero registrado correctamente");
+        setShowRegPagoModal(false);
+        // Recargar detalle y resumen
+        if (selectedClient) {
+          abrirDetalle(selectedClient);
+        }
+        cargarCCResumen();
+      }
+    } catch(err) {
+      alert("Error al registrar: " + err.message);
+    }
+  };
+
+  useEffect(()=>{
+    cargarCCResumen();
   },[modulo]);
 
   const ccProd = ccResumen.filter(c=>c.tipo_contraparte==="PRODUCTOR"||c.tipo_contraparte==="AMBOS").length>0
@@ -3833,7 +3949,7 @@ const CuentaCorriente = ({modulo}) => {
               <td><span className="mono" style={{fontWeight:700,color:c.saldo<0?"#e74c3c":c.saldo===0?"#8890a8":"#27ae60"}}>{c.saldo===0?"Sin saldo":c.saldo<0?`A PAGAR $ ${Math.abs(c.saldo).toLocaleString()}`:`A COBRAR $ ${c.saldo.toLocaleString()}`}</span></td>
               <td style={{textAlign:"center"}}><Badge label={`${c.pendiente} pend.`} color={c.pendiente>0?"orange":"green"}/></td>
               <td style={{color:"#8890a8"}}>{c.ultimo}</td>
-              <td><Btn variant="ghost" size="sm">Ver Detalle</Btn></td>
+              <td><Btn variant="ghost" size="sm" onClick={() => abrirDetalle(c)}>Ver Detalle</Btn></td>
             </tr>
           )):ccTrans.map(t=>(
             <tr key={t.id}>
@@ -3846,6 +3962,288 @@ const CuentaCorriente = ({modulo}) => {
           ))}
         </tbody></table>
       </div>
+
+      {showDetalleModal && selectedClient && (
+        <Modal
+          title={`Detalle de Cuenta Corriente - ${selectedClient.nombre}`}
+          onClose={() => setShowDetalleModal(false)}
+          width={900}
+        >
+          <div style={{display:"flex", flexDirection:"column", gap:16}}>
+            {/* Alertas */}
+            {(() => {
+              const totalSaldo = ccMovimientos.reduce((acc, m) => acc + (parseFloat(m.debe) - parseFloat(m.haber)), 0);
+              const tieneSinAsignar = ccMovimientos.some(m => ['PAGO', 'COBRO', 'ADELANTO'].includes(m.tipo_movimiento) && !m.id_liquidacion);
+              return (
+                <>
+                  {totalSaldo < 0 && (
+                    <div style={{
+                      color: "#e74c3c",
+                      background: "rgba(231,76,60,.08)",
+                      border: "1px solid rgba(231,76,60,.2)",
+                      borderRadius: 8,
+                      padding: "12px 14px",
+                      fontWeight: 500,
+                      fontSize: 13
+                    }}>
+                      ⚠️ Alerta: El cliente cuenta con saldo a su favor en la cuenta corriente (pendiente de pago).
+                    </div>
+                  )}
+                  {tieneSinAsignar && (
+                    <div style={{
+                      color: "#f39c12",
+                      background: "rgba(243,156,18,.08)",
+                      border: "1px solid rgba(243,156,18,.2)",
+                      borderRadius: 8,
+                      padding: "12px 14px",
+                      fontWeight: 500,
+                      fontSize: 13
+                    }}>
+                      ⚠️ Alerta: Existen pagos o adelantos financieros sin asignar a liquidaciones para este cliente.
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+
+            {/* Header / Resumen */}
+            <div style={{
+              padding: "12px 14px",
+              background: "#0f1117",
+              border: "1px solid #2a2d3e",
+              borderRadius: 8,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center"
+            }}>
+              <div>
+                <div style={{fontSize: 11, color: "#8890a8", textTransform: "uppercase"}}>Cliente / Contraparte</div>
+                <div style={{fontSize: 14, fontWeight: 600, color: "#e8eaf0", marginTop: 2}}>{selectedClient.nombre}</div>
+              </div>
+              <div>
+                <div style={{fontSize: 11, color: "#8890a8", textTransform: "uppercase"}}>Tipo</div>
+                <div style={{marginTop: 2}}>
+                  <Badge label={selectedClient.tipo} color={selectedClient.tipo === "PRODUCTOR" ? "orange" : "blue"} />
+                </div>
+              </div>
+              <div>
+                <div style={{fontSize: 11, color: "#8890a8", textTransform: "uppercase"}}>Saldo Neto Actual</div>
+                <div style={{marginTop: 2}}>
+                  {(() => {
+                    const totalSaldo = ccMovimientos.reduce((acc, m) => acc + (parseFloat(m.debe) - parseFloat(m.haber)), 0);
+                    return (
+                      <span className="mono" style={{
+                        fontWeight: 700,
+                        fontSize: 15,
+                        color: totalSaldo < 0 ? "#e74c3c" : totalSaldo === 0 ? "#8890a8" : "#27ae60"
+                      }}>
+                        {totalSaldo === 0 ? "Sin saldo" : totalSaldo < 0 ? `A PAGAR $ ${Math.abs(totalSaldo).toLocaleString()}` : `A COBRAR $ ${totalSaldo.toLocaleString()}`}
+                      </span>
+                    );
+                  })()}
+                </div>
+              </div>
+              <div>
+                <Btn variant="primary" size="sm" onClick={() => setShowRegPagoModal(true)}>
+                  💸 Registrar Movimiento Financiero
+                </Btn>
+              </div>
+            </div>
+
+            {/* Tabla de Movimientos */}
+            <div>
+              <div style={{fontSize:12, fontWeight:600, color:"#e8eaf0", marginBottom:8, textTransform:"uppercase", letterSpacing:".04em"}}>
+                📊 Historial de cuenta corriente
+              </div>
+              <div style={{maxHeight: 350, overflowY: "auto", border: "1px solid #2a2d3e", borderRadius: 6}}>
+                <table style={{width: "100%", margin: 0, fontSize: 12}}>
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Tipo</th>
+                      <th>Concepto</th>
+                      <th style={{textAlign: "right"}}>Debe</th>
+                      <th style={{textAlign: "right"}}>Haber</th>
+                      <th style={{textAlign: "center"}}>Imputación</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ccMovimientos.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" style={{textAlign: "center", color: "#8890a8", padding: 20}}>
+                          No hay movimientos registrados para este cliente.
+                        </td>
+                      </tr>
+                    ) : (
+                      ccMovimientos.map(m => {
+                        const esFinanciero = ['PAGO', 'COBRO', 'ADELANTO'].includes(m.tipo_movimiento);
+                        const estaAsignado = !!m.id_liquidacion;
+                        return (
+                          <tr key={m.id}>
+                            <td><span className="mono">{m.fecha ? m.fecha.split('T')[0] : '—'}</span></td>
+                            <td>
+                              <Badge
+                                label={m.tipo_movimiento}
+                                color={
+                                  m.tipo_movimiento === 'LIQUIDACION' ? 'purple' :
+                                  m.tipo_movimiento === 'PAGO' ? 'green' :
+                                  m.tipo_movimiento === 'COBRO' ? 'blue' : 'orange'
+                                }
+                              />
+                            </td>
+                            <td>{m.concepto}</td>
+                            <td style={{textAlign: "right", fontFamily: "monospace", color: parseFloat(m.debe) > 0 ? "#e8eaf0" : "#565d7a"}}>
+                              {parseFloat(m.debe) > 0 ? `$ ${parseFloat(m.debe).toLocaleString()}` : '—'}
+                            </td>
+                            <td style={{textAlign: "right", fontFamily: "monospace", color: parseFloat(m.haber) > 0 ? "#e8eaf0" : "#565d7a"}}>
+                              {parseFloat(m.haber) > 0 ? `$ ${parseFloat(m.haber).toLocaleString()}` : '—'}
+                            </td>
+                            <td style={{textAlign: "center"}}>
+                              {m.tipo_movimiento === 'LIQUIDACION' ? (
+                                <Badge label={m.nro_liquidacion} color="purple" />
+                              ) : estaAsignado ? (
+                                <Badge label={`Imputado a ${m.nro_liquidacion}`} color="green" />
+                              ) : (
+                                <div style={{display: "flex", flexDirection: "column", alignItems: "center", gap: 4}}>
+                                  {assigningMovId === m.id ? (
+                                    <div style={{display: "flex", gap: 4, alignItems: "center"}}>
+                                      <select
+                                        value={selectedLiqIdForAssign}
+                                        onChange={e => setSelectedLiqIdForAssign(e.target.value)}
+                                        style={{padding: "2px 4px", fontSize: 11, background: "#0f1117", border: "1px solid #2a2d3e", borderRadius: 4, color: "#e8eaf0"}}
+                                      >
+                                        <option value="">-- Asignar a --</option>
+                                        {openLiquidaciones.map(liq => (
+                                          <option key={liq.id} value={liq.id}>
+                                            {liq.nro_liquidacion} (${parseFloat(liq.monto_neto_a_pagar).toLocaleString()})
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <button
+                                        onClick={() => ejecutarAsignacion(m.id, selectedLiqIdForAssign)}
+                                        style={{background: "#27ae60", color: "#fff", border: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontSize: 11, fontWeight: "bold"}}
+                                      >
+                                        ✓
+                                      </button>
+                                      <button
+                                        onClick={() => setAssigningMovId(null)}
+                                        style={{background: "#e74c3c", color: "#fff", border: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontSize: 11, fontWeight: "bold"}}
+                                      >
+                                        ✗
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div style={{display: "flex", gap: 4, alignItems: "center"}}>
+                                      <Badge label="Sin Asignar" color="orange" />
+                                      {openLiquidaciones.length > 0 && (
+                                        <Btn
+                                          variant="ghost"
+                                          size="xs"
+                                          onClick={() => {
+                                            setAssigningMovId(m.id);
+                                            setSelectedLiqIdForAssign("");
+                                          }}
+                                        >
+                                          Asignar ahora
+                                        </Btn>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Acciones */}
+            <div style={{display: "flex", justifyContent: "flex-end", marginTop: 10, paddingTop: 14, borderTop: "1px solid #2a2d3e"}}>
+              <Btn variant="secondary" onClick={() => setShowDetalleModal(false)}>Cerrar</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {showRegPagoModal && selectedClient && (
+        <Modal
+          title={`Registrar Movimiento Financiero - ${selectedClient.nombre}`}
+          onClose={() => setShowRegPagoModal(false)}
+          width={500}
+        >
+          <div style={{display: "flex", flexDirection: "column", gap: 16}}>
+            <div className="form-grid-2" style={{margin: 0}}>
+              <FF label="Fecha" required>
+                <input
+                  type="date"
+                  value={pagoFecha}
+                  onChange={e => setPagoFecha(e.target.value)}
+                />
+              </FF>
+              <FF label="Tipo de Movimiento" required>
+                <select
+                  value={pagoTipo}
+                  onChange={e => {
+                    setPagoTipo(e.target.value);
+                    if (e.target.value === 'ADELANTO') {
+                      setPagoIdLiq("");
+                    }
+                  }}
+                >
+                  <option value="PAGO">PAGO (Egreso de fondos)</option>
+                  <option value="COBRO">COBRO (Ingreso de fondos)</option>
+                  <option value="ADELANTO">ADELANTO (Sin imputación inicial)</option>
+                </select>
+              </FF>
+            </div>
+
+            <div className="form-grid-2" style={{margin: 0}}>
+              <FF label="Monto ($)" required>
+                <input
+                  type="number"
+                  placeholder="0.00"
+                  value={pagoMonto}
+                  onChange={e => setPagoMonto(e.target.value)}
+                />
+              </FF>
+              <FF label="Concepto / Detalle" required>
+                <input
+                  type="text"
+                  placeholder="Ej. Cheque Nro 10234, Transferencia, etc."
+                  value={pagoConcepto}
+                  onChange={e => setPagoConcepto(e.target.value)}
+                />
+              </FF>
+            </div>
+
+            {pagoTipo !== 'ADELANTO' && (
+              <FF label="Imputar a Liquidación Pendiente (Opcional)">
+                <select
+                  value={pagoIdLiq}
+                  onChange={e => setPagoIdLiq(e.target.value)}
+                >
+                  <option value="">-- Dejar sin asignar (Adelanto) --</option>
+                  {openLiquidaciones.map(liq => (
+                    <option key={liq.id} value={liq.id}>
+                      {liq.nro_liquidacion} (${parseFloat(liq.monto_neto_a_pagar).toLocaleString()})
+                    </option>
+                  ))}
+                </select>
+              </FF>
+            )}
+
+            {/* Acciones */}
+            <div style={{display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10, paddingTop: 14, borderTop: "1px solid #2a2d3e"}}>
+              <Btn variant="secondary" onClick={() => setShowRegPagoModal(false)}>Cancelar</Btn>
+              <Btn variant="primary" onClick={ejecutarRegistroPago}>Registrar Movimiento</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

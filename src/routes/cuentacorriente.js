@@ -114,4 +114,81 @@ router.get('/consolidado', async (req, res) => {
   }
 });
 
+
+router.post('/movimientos', async (req, res) => {
+  try {
+    const { id_contraparte, id_contrato, id_liquidacion, fecha, tipo_movimiento, concepto, monto, modalidad } = req.body;
+    
+    if (!id_contraparte || !fecha || !tipo_movimiento || !monto || !modalidad) {
+      return res.status(400).json({ error: "Faltan campos obligatorios" });
+    }
+
+    const valorMonto = parseFloat(monto);
+    if (isNaN(valorMonto) || valorMonto <= 0) {
+      return res.status(400).json({ error: "El monto debe ser un número positivo" });
+    }
+
+    let debe = 0;
+    let haber = 0;
+    
+    if (tipo_movimiento === 'PAGO' || tipo_movimiento === 'ADELANTO') {
+      debe = valorMonto;
+    } else if (tipo_movimiento === 'COBRO') {
+      haber = valorMonto;
+    } else {
+      return res.status(400).json({ error: "Tipo de movimiento no válido. Debe ser PAGO, COBRO o ADELANTO" });
+    }
+
+    const saldo_acumulado = debe - haber;
+
+    const { rows } = await pool.query(`
+      INSERT INTO cc_contrapartes
+        (id_contraparte, id_contrato, id_liquidacion, fecha, tipo_movimiento,
+         concepto, debe, haber, saldo_acumulado, modalidad, estado)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'ABIERTO')
+      RETURNING *
+    `, [id_contraparte, id_contrato || null, id_liquidacion || null, fecha, tipo_movimiento,
+        concepto, debe, haber, saldo_acumulado, modalidad]);
+
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/movimientos/:id/asignar', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { id_liquidacion } = req.body;
+
+    if (!id_liquidacion) {
+      return res.status(400).json({ error: "Debe especificar la liquidación a la cual asignar el pago" });
+    }
+
+    // Verificar que la liquidación exista
+    const { rows: liq } = await pool.query("SELECT id, nro_liquidacion FROM liquidaciones WHERE id = $1", [id_liquidacion]);
+    if (liq.length === 0) {
+      return res.status(404).json({ error: "Liquidación no encontrada" });
+    }
+
+    // Actualizar el movimiento de cuenta corriente
+    const { rows } = await pool.query(`
+      UPDATE cc_contrapartes
+      SET id_liquidacion = $1,
+          concepto = CONCAT(concepto, ' (Imputado a ', $2::text, ')')
+      WHERE id = $3
+      RETURNING *
+    `, [id_liquidacion, liq[0].nro_liquidacion, id]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Movimiento de cuenta corriente no encontrado" });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
+
