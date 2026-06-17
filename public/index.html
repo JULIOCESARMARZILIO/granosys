@@ -617,7 +617,7 @@ const Contratos = ({modulo}) => {
   const [especies,setEspecies]=useState(ESPECIES.map((n,i)=>({id:i+1,nombre:n})));
   const [campanas,setCampanas]=useState(CAMPANAS.map((d,i)=>({id:i+1,descripcion:d})));
   const [guardando,setGuardando]=useState(false);
-  const [form,setForm]=useState({tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:""});
+  const [form,setForm]=useState({tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: ""});
   const [selectedContract, setSelectedContract] = useState(null);
 
   const abrirDetalleContrato = async (c) => {
@@ -667,6 +667,18 @@ const Contratos = ({modulo}) => {
       costo_cpe: c.costo_cpe_pct || "",
       costo_financiero: c.costo_financiero_pct || "",
       comprador_estimado_id: c.comprador_estimado_id || "",
+      costo_secada_punto: c.costo_secada_punto !== undefined ? c.costo_secada_punto : "",
+      costo_zarandeo_tn: c.costo_zarandeo_tn !== undefined ? c.costo_zarandeo_tn : "",
+      costo_paritaria_tn: c.costo_paritaria_tn !== undefined ? c.costo_paritaria_tn : "",
+      costo_fumigacion_fijo: c.costo_fumigacion_fijo !== undefined ? c.costo_fumigacion_fijo : "",
+      humedad_max_seco: c.humedad_max_seco !== undefined ? c.humedad_max_seco : "13.5",
+      otros_descripcion: c.otros_descripcion || "",
+      costo_secada_destino_punto: c.costo_secada_destino_punto !== undefined ? c.costo_secada_destino_punto : "",
+      costo_zarandeo_destino_tn: c.costo_zarandeo_destino_tn !== undefined ? c.costo_zarandeo_destino_tn : "",
+      costo_paritaria_destino_tn: c.costo_paritaria_destino_tn !== undefined ? c.costo_paritaria_destino_tn : "",
+      costo_fumigacion_destino_fijo: c.costo_fumigacion_destino_fijo !== undefined ? c.costo_fumigacion_destino_fijo : "",
+      otros_destino_descripcion: c.otros_destino_descripcion || "",
+      costo_otros_destino_valor: c.costo_otros_destino_valor !== undefined ? c.costo_otros_destino_valor : "",
       _id: c.id,
       _editando: true
     });
@@ -770,7 +782,7 @@ const Contratos = ({modulo}) => {
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
         <h2 style={{fontSize:18,fontWeight:700}}>Contratos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
         <Btn onClick={()=>{
-          setForm({tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",_editando:false,_id:null});
+          setForm({tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",_editando:false,_id:null});
           setShowForm(true);
         }}>+ Nuevo Contrato</Btn>
       </div>
@@ -969,23 +981,23 @@ const Contratos = ({modulo}) => {
           <div style={{marginTop:8,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e"}}>
             <div style={{fontSize:11,color:"#f5a623",marginBottom:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>📦 Costos Pactados con el Productor (lo que le cobramos)</div>
             <div className="form-grid-3">
-              <FF label="Secada ($ por punto)"><input type="number" placeholder="0.00"/></FF>
-              <FF label="Zarandeo ($ por tn)"><input type="number" placeholder="0.00"/></FF>
-              <FF label="Paritaria ($ por tn)"><input type="number" placeholder="0.00"/></FF>
-              <FF label="Fumigación ($ fijo)"><input type="number" placeholder="0.00"/></FF>
-              <FF label="Humedad máx. seco (%)"><input type="number" step="0.1" placeholder="13.5"/></FF>
-              <FF label="Otros — Descripción"><input placeholder="Descripción del servicio"/></FF>
+              <FF label="Secada ($ por punto)"><input type="number" step="any" placeholder="0.00" value={form.costo_secada_punto} onChange={e=>setForm({...form,costo_secada_punto:e.target.value})}/></FF>
+              <FF label="Zarandeo ($ por tn)"><input type="number" step="any" placeholder="0.00" value={form.costo_zarandeo_tn} onChange={e=>setForm({...form,costo_zarandeo_tn:e.target.value})}/></FF>
+              <FF label="Paritaria ($ por tn)"><input type="number" step="any" placeholder="0.00" value={form.costo_paritaria_tn} onChange={e=>setForm({...form,costo_paritaria_tn:e.target.value})}/></FF>
+              <FF label="Fumigación ($ fijo)"><input type="number" step="any" placeholder="0.00" value={form.costo_fumigacion_fijo} onChange={e=>setForm({...form,costo_fumigacion_fijo:e.target.value})}/></FF>
+              <FF label="Humedad máx. seco (%)"><input type="number" step="0.1" placeholder="13.5" value={form.humedad_max_seco} onChange={e=>setForm({...form,humedad_max_seco:e.target.value})}/></FF>
+              <FF label="Otros — Descripción"><input placeholder="Descripción del servicio" value={form.otros_descripcion} onChange={e=>setForm({...form,otros_descripcion:e.target.value})}/></FF>
             </div>
           </div>
           <div style={{marginTop:8,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e"}}>
             <div style={{fontSize:11,color:"#3498db",marginBottom:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>🏭 Costos que nos Cobran en Destino</div>
             <div className="form-grid-3">
-              <FF label="Secada ($ por punto)"><input type="number" placeholder="0.00"/></FF>
-              <FF label="Zarandeo ($ por tn)"><input type="number" placeholder="0.00"/></FF>
-              <FF label="Paritaria ($ por tn)"><input type="number" placeholder="0.00"/></FF>
-              <FF label="Fumigación ($ fijo)"><input type="number" placeholder="0.00"/></FF>
-              <FF label="Otros — Descripción"><input placeholder="Descripción del servicio"/></FF>
-              <FF label="Otros — Valor"><input type="number" placeholder="0.00"/></FF>
+              <FF label="Secada ($ por punto)"><input type="number" step="any" placeholder="0.00" value={form.costo_secada_destino_punto} onChange={e=>setForm({...form,costo_secada_destino_punto:e.target.value})}/></FF>
+              <FF label="Zarandeo ($ por tn)"><input type="number" step="any" placeholder="0.00" value={form.costo_zarandeo_destino_tn} onChange={e=>setForm({...form,costo_zarandeo_destino_tn:e.target.value})}/></FF>
+              <FF label="Paritaria ($ por tn)"><input type="number" step="any" placeholder="0.00" value={form.costo_paritaria_destino_tn} onChange={e=>setForm({...form,costo_paritaria_destino_tn:e.target.value})}/></FF>
+              <FF label="Fumigación ($ fijo)"><input type="number" step="any" placeholder="0.00" value={form.costo_fumigacion_destino_fijo} onChange={e=>setForm({...form,costo_fumigacion_destino_fijo:e.target.value})}/></FF>
+              <FF label="Otros — Descripción"><input placeholder="Descripción del servicio" value={form.otros_destino_descripcion} onChange={e=>setForm({...form,otros_destino_descripcion:e.target.value})}/></FF>
+              <FF label="Otros — Valor"><input type="number" step="any" placeholder="0.00" value={form.costo_otros_destino_valor} onChange={e=>setForm({...form,costo_otros_destino_valor:e.target.value})}/></FF>
             </div>
           </div>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}>
@@ -1016,6 +1028,18 @@ const Contratos = ({modulo}) => {
                   precio_venta_estimado: form.precio_venta_est?parseFloat(form.precio_venta_est):null,
                   destino_venta_estimado: form.destino_est||null,
                   flete_estimado: form.flete_est?parseFloat(form.flete_est):null,
+                  costo_secada_punto: form.costo_secada_punto ? parseFloat(form.costo_secada_punto) : 0,
+                  costo_zarandeo_tn: form.costo_zarandeo_tn ? parseFloat(form.costo_zarandeo_tn) : 0,
+                  costo_paritaria_tn: form.costo_paritaria_tn ? parseFloat(form.costo_paritaria_tn) : 0,
+                  costo_fumigacion_fijo: form.costo_fumigacion_fijo ? parseFloat(form.costo_fumigacion_fijo) : 0,
+                  humedad_max_seco: form.humedad_max_seco ? parseFloat(form.humedad_max_seco) : 13.5,
+                  otros_descripcion: form.otros_descripcion || null,
+                  costo_secada_destino_punto: form.costo_secada_destino_punto ? parseFloat(form.costo_secada_destino_punto) : 0,
+                  costo_zarandeo_destino_tn: form.costo_zarandeo_destino_tn ? parseFloat(form.costo_zarandeo_destino_tn) : 0,
+                  costo_paritaria_destino_tn: form.costo_paritaria_destino_tn ? parseFloat(form.costo_paritaria_destino_tn) : 0,
+                  costo_fumigacion_destino_fijo: form.costo_fumigacion_destino_fijo ? parseFloat(form.costo_fumigacion_destino_fijo) : 0,
+                  otros_destino_descripcion: form.otros_destino_descripcion || null,
+                  costo_otros_destino_valor: form.costo_otros_destino_valor ? parseFloat(form.costo_otros_destino_valor) : 0
                 };
                 if (form._editando && form._id) {
                   await api.put(`/api/contratos/${form._id}`, payload);
@@ -3125,20 +3149,74 @@ const Movimientos = ({modulo, usuario}) => {
 const getPesoNetoLlegada = (m) => parseFloat(m.peso_neto_llegada_kg || m.peso_neto_llegada || 0);
 const calcularTotalKgDescargados = (movs) => movs.reduce((acc, m) => acc + getPesoNetoLlegada(m), 0);
 
-const RenderServiciosSeccion = ({ movs, servicios, setServicios, editDescuentos, setEditDescuentos, contractFlete }) => {
+const RenderServiciosSeccion = ({ movs, servicios, setServicios, editDescuentos, setEditDescuentos, contractFlete, contractPacts }) => {
   const [srvName, setSrvName] = useState("");
   const [srvCosto, setSrvCosto] = useState("");
+
+  // Rates states
+  const [fleteRate, setFleteRate] = useState(0);
+  const [secadaRate, setSecadaRate] = useState(0);
+  const [humedadMaxRate, setHumedadMaxRate] = useState(13.5);
+  const [zarandeoRate, setZarandeoRate] = useState(0);
+  const [paritariaRate, setParitariaRate] = useState(0);
+  const [fumigacionRate, setFumigacionRate] = useState(0);
+  const [otrosDesc, setOtrosDesc] = useState("");
+  const [otrosRate, setOtrosRate] = useState(0);
+  const [showRatesEditor, setShowRatesEditor] = useState(false);
 
   const totalKg = calcularTotalKgDescargados(movs);
   const totalTn = totalKg / 1000;
 
-  const agregarServicio = (name, costo) => {
+  useEffect(() => {
+    setFleteRate(contractFlete || 0);
+    if (contractPacts) {
+      setSecadaRate(parseFloat(contractPacts.costo_secada_punto) || 0);
+      setHumedadMaxRate(parseFloat(contractPacts.humedad_max_seco) || 13.5);
+      setZarandeoRate(parseFloat(contractPacts.costo_zarandeo_tn) || 0);
+      setParitariaRate(parseFloat(contractPacts.costo_paritaria_tn) || 0);
+      setFumigacionRate(parseFloat(contractPacts.costo_fumigacion_fijo) || 0);
+      setOtrosDesc(contractPacts.otros_descripcion || "");
+      setOtrosRate(parseFloat(contractPacts.costo_otros_valor || contractPacts.costo_otros_destino_valor) || 0);
+    } else {
+      setSecadaRate(0);
+      setHumedadMaxRate(13.5);
+      setZarandeoRate(0);
+      setParitariaRate(0);
+      setFumigacionRate(0);
+      setOtrosDesc("");
+      setOtrosRate(0);
+    }
+  }, [contractFlete, contractPacts]);
+
+  const cargarTarifasOrigen = () => {
+    if (!contractPacts) return;
+    setSecadaRate(parseFloat(contractPacts.costo_secada_punto) || 0);
+    setHumedadMaxRate(parseFloat(contractPacts.humedad_max_seco) || 13.5);
+    setZarandeoRate(parseFloat(contractPacts.costo_zarandeo_tn) || 0);
+    setParitariaRate(parseFloat(contractPacts.costo_paritaria_tn) || 0);
+    setFumigacionRate(parseFloat(contractPacts.costo_fumigacion_fijo) || 0);
+    setOtrosDesc(contractPacts.otros_descripcion || "");
+    setOtrosRate(0);
+  };
+
+  const cargarTarifasDestino = () => {
+    if (!contractPacts) return;
+    setSecadaRate(parseFloat(contractPacts.costo_secada_destino_punto) || 0);
+    setHumedadMaxRate(parseFloat(contractPacts.humedad_max_seco) || 13.5);
+    setZarandeoRate(parseFloat(contractPacts.costo_zarandeo_destino_tn) || 0);
+    setParitariaRate(parseFloat(contractPacts.costo_paritaria_destino_tn) || 0);
+    setFumigacionRate(parseFloat(contractPacts.costo_fumigacion_destino_fijo) || 0);
+    setOtrosDesc(contractPacts.otros_destino_descripcion || "");
+    setOtrosRate(parseFloat(contractPacts.costo_otros_destino_valor) || 0);
+  };
+
+  const agregarServicio = (name, costo, customTotal = null) => {
     const costoVal = parseFloat(costo);
-    if (!name || isNaN(costoVal) || costoVal <= 0) {
-      alert("Por favor, ingrese un nombre y costo por tonelada válidos");
+    if (!name || isNaN(costoVal) || costoVal < 0) {
+      alert("Por favor, ingrese un nombre y costo válidos");
       return;
     }
-    const total = totalTn * costoVal;
+    const total = customTotal !== null ? customTotal : (totalTn * costoVal);
     const nuevo = { name, costoPorTon: costoVal, total };
     const nuevos = [...servicios, nuevo];
     setServicios(nuevos);
@@ -3157,6 +3235,98 @@ const RenderServiciosSeccion = ({ movs, servicios, setServicios, editDescuentos,
     const totalDesc = nuevos.reduce((sum, s) => sum + s.total, 0);
     setEditDescuentos(Math.round(totalDesc * 100) / 100);
   };
+
+  const calcularSecadaTotal = (movs, maxHumedad, costoPunto) => {
+    if (costoPunto <= 0 || maxHumedad <= 0) return 0;
+    return movs.reduce((sum, m) => {
+      const hum = parseFloat(m.humedad_llegada_pct || m.humedad_llegada || 0);
+      if (hum > maxHumedad) {
+        const puntos = hum - maxHumedad;
+        const kg = getPesoNetoLlegada(m);
+        return sum + (kg / 1000) * puntos * costoPunto;
+      }
+      return sum;
+    }, 0);
+  };
+
+  const cargarCostosPactados = () => {
+    const nuevos = [...servicios];
+    
+    // 1. Flete
+    if (fleteRate > 0 && !nuevos.some(s => s.name === "Flete Pactado")) {
+      nuevos.push({
+        name: "Flete Pactado",
+        costoPorTon: fleteRate,
+        total: totalTn * fleteRate
+      });
+    }
+    
+    // 2. Secada
+    if (secadaRate > 0 && !nuevos.some(s => s.name.startsWith("Secada"))) {
+      const secadaTotal = calcularSecadaTotal(movs, humedadMaxRate, secadaRate);
+      if (secadaTotal > 0) {
+        nuevos.push({
+          name: `Secada (Pactada - Max ${humedadMaxRate}%)`,
+          costoPorTon: secadaRate,
+          total: secadaTotal
+        });
+      }
+    }
+    
+    // 3. Zarandeo
+    if (zarandeoRate > 0 && !nuevos.some(s => s.name === "Zarandeo (Pactado)")) {
+      nuevos.push({
+        name: "Zarandeo (Pactado)",
+        costoPorTon: zarandeoRate,
+        total: totalTn * zarandeoRate
+      });
+    }
+    
+    // 4. Paritaria
+    if (paritariaRate > 0 && !nuevos.some(s => s.name === "Paritaria (Pactada)")) {
+      nuevos.push({
+        name: "Paritaria (Pactada)",
+        costoPorTon: paritariaRate,
+        total: totalTn * paritariaRate
+      });
+    }
+    
+    // 5. Fumigación
+    if (fumigacionRate > 0 && !nuevos.some(s => s.name === "Fumigación (Pactada)")) {
+      nuevos.push({
+        name: "Fumigación (Pactada)",
+        costoPorTon: fumigacionRate,
+        total: fumigacionRate
+      });
+    }
+
+    // 6. Otros
+    if (otrosRate > 0 && !nuevos.some(s => s.name.startsWith("Otros") || (otrosDesc && s.name.startsWith(otrosDesc)))) {
+      const desc = otrosDesc || "Otros Servicios";
+      nuevos.push({
+        name: `${desc} (Pactado)`,
+        costoPorTon: otrosRate,
+        total: otrosRate
+      });
+    }
+
+    setServicios(nuevos);
+    const totalDesc = nuevos.reduce((sum, s) => sum + s.total, 0);
+    setEditDescuentos(Math.round(totalDesc * 100) / 100);
+  };
+
+  const hasPacts = fleteRate > 0 || secadaRate > 0 || zarandeoRate > 0 || paritariaRate > 0 || fumigacionRate > 0 || otrosRate > 0 ||
+                   (contractPacts && (
+                     contractPacts.costo_secada_punto > 0 ||
+                     contractPacts.costo_zarandeo_tn > 0 ||
+                     contractPacts.costo_paritaria_tn > 0 ||
+                     contractPacts.costo_fumigacion_fijo > 0 ||
+                     contractPacts.costo_otros_destino_valor > 0 ||
+                     contractPacts.costo_secada_destino_punto > 0 ||
+                     contractPacts.costo_zarandeo_destino_tn > 0 ||
+                     contractPacts.costo_paritaria_destino_tn > 0 ||
+                     contractPacts.costo_fumigacion_destino_fijo > 0
+                   ));
 
   return (
     <div style={{
@@ -3180,6 +3350,70 @@ const RenderServiciosSeccion = ({ movs, servicios, setServicios, editDescuentos,
         🛠️ Descuentos por Servicios (Calculado sobre Kilos Descargados: {Math.round(totalKg).toLocaleString()} kg / {totalTn.toFixed(3)} tn)
       </div>
 
+      {/* Editor/Visualizador de Tarifas */}
+      <div style={{display: "flex", flexDirection: "column", gap: 8, borderBottom: "1px solid #1e2133", paddingBottom: 10}}>
+        <div style={{display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+          <span style={{fontSize: 12, fontWeight: 600, color: "#f5a623"}}>🔧 Tarifas de Servicios Aplicables (por cambio de destino u otros)</span>
+          <Btn variant="ghost" size="xs" onClick={() => setShowRatesEditor(!showRatesEditor)} style={{height: 24, fontSize: 11}}>
+            {showRatesEditor ? "Ocultar Editor" : "Ver / Modificar Tarifas"}
+          </Btn>
+        </div>
+        
+        {showRatesEditor && (
+          <div style={{
+            padding: 12,
+            background: "#0c0d12",
+            border: "1px solid #2a2d3e",
+            borderRadius: 6,
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+            marginTop: 4
+          }}>
+            {contractPacts && (
+              <div style={{display: "flex", gap: 10}}>
+                <Btn variant="ghost" size="xs" onClick={cargarTarifasOrigen} style={{borderColor: "rgba(245,166,35,.4)", color: "#f5a623"}}>
+                  ↺ Cargar Pactos Origen (Productor)
+                </Btn>
+                <Btn variant="ghost" size="xs" onClick={cargarTarifasDestino} style={{borderColor: "rgba(52,152,219,.4)", color: "#3498db"}}>
+                  ↺ Cargar Pactos Destino (Comprador)
+                </Btn>
+              </div>
+            )}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4, 1fr)",
+              gap: 10
+            }}>
+              <FF label="Flete ($ / tn)">
+                <input type="number" step="any" value={fleteRate} onChange={e => setFleteRate(parseFloat(e.target.value) || 0)}/>
+              </FF>
+              <FF label="Secada ($ / punto)">
+                <input type="number" step="any" value={secadaRate} onChange={e => setSecadaRate(parseFloat(e.target.value) || 0)}/>
+              </FF>
+              <FF label="Humedad Máx (%)">
+                <input type="number" step="0.1" value={humedadMaxRate} onChange={e => setHumedadMaxRate(parseFloat(e.target.value) || 13.5)}/>
+              </FF>
+              <FF label="Zarandeo ($ / tn)">
+                <input type="number" step="any" value={zarandeoRate} onChange={e => setZarandeoRate(parseFloat(e.target.value) || 0)}/>
+              </FF>
+              <FF label="Paritaria ($ / tn)">
+                <input type="number" step="any" value={paritariaRate} onChange={e => setParitariaRate(parseFloat(e.target.value) || 0)}/>
+              </FF>
+              <FF label="Fumigación ($ fijo)">
+                <input type="number" step="any" value={fumigacionRate} onChange={e => setFumigacionRate(parseFloat(e.target.value) || 0)}/>
+              </FF>
+              <FF label="Otros: Desc.">
+                <input type="text" value={otrosDesc} onChange={e => setOtrosDesc(e.target.value)}/>
+              </FF>
+              <FF label="Otros: Costo ($ fijo)">
+                <input type="number" step="any" value={otrosRate} onChange={e => setOtrosRate(parseFloat(e.target.value) || 0)}/>
+              </FF>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Agregar Gasto Form */}
       <div style={{display: "flex", gap: 10, alignItems: "flex-end"}}>
         <FF label="Servicio / Gasto" style={{margin: 0, flex: 2}}>
@@ -3189,6 +3423,7 @@ const RenderServiciosSeccion = ({ movs, servicios, setServicios, editDescuentos,
             <option value="Zarandeo">Zarandeo</option>
             <option value="Flete">Flete</option>
             <option value="Comisión">Comisión</option>
+            <option value="Fumigación">Fumigación</option>
             <option value="Otros">Otros</option>
           </select>
         </FF>
@@ -3201,7 +3436,7 @@ const RenderServiciosSeccion = ({ movs, servicios, setServicios, editDescuentos,
             />
           </FF>
         )}
-        <FF label="Costo por Ton ($)" style={{margin: 0, flex: 1}}>
+        <FF label="Costo ($ por tn / punto / fijo)" style={{margin: 0, flex: 1}}>
           <input 
             type="number" 
             placeholder="0.00" 
@@ -3211,23 +3446,34 @@ const RenderServiciosSeccion = ({ movs, servicios, setServicios, editDescuentos,
         </FF>
         <Btn 
           variant="secondary" 
-          onClick={() => agregarServicio(srvName, srvCosto)}
+          onClick={() => {
+            if (srvName === "Secada") {
+              const costo = parseFloat(srvCosto);
+              const totalSecada = calcularSecadaTotal(movs, humedadMaxRate, costo);
+              agregarServicio(`Secada (Max ${humedadMaxRate}%)`, costo, totalSecada);
+            } else if (srvName === "Fumigación") {
+              const costo = parseFloat(srvCosto);
+              agregarServicio(srvName, costo, costo); // fixed
+            } else {
+              agregarServicio(srvName, srvCosto);
+            }
+          }}
           style={{height: 38}}
         >
           + Agregar
         </Btn>
       </div>
 
-      {/* Cargar Flete del Contrato si aplica */}
-      {contractFlete > 0 && (
+      {/* Cargar Costos Pactados del Contrato si aplica */}
+      {hasPacts && (
         <div style={{display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(39,174,96,.08)", border: "1px solid rgba(39,174,96,.2)", borderRadius: 6, padding: "8px 10px"}}>
-          <span style={{fontSize: 12, color: "#27ae60"}}>El contrato tiene un flete pactado de <strong>$ {contractFlete.toLocaleString()} / tn</strong>.</span>
+          <span style={{fontSize: 12, color: "#27ae60"}}>El contrato tiene costos pactados cargados (flete, secada, zarandeo, etc.).</span>
           <Btn 
             variant="ghost" 
             size="xs" 
-            onClick={() => agregarServicio("Flete Pactado", contractFlete)}
+            onClick={cargarCostosPactados}
           >
-            ✓ Cargar Flete
+            ✓ Cargar Costos Pactados
           </Btn>
         </div>
       )}
@@ -3238,7 +3484,7 @@ const RenderServiciosSeccion = ({ movs, servicios, setServicios, editDescuentos,
           <thead>
             <tr>
               <th>Concepto</th>
-              <th style={{textAlign: "right"}}>Costo / Tn</th>
+              <th style={{textAlign: "right"}}>Costo Pactado</th>
               <th style={{textAlign: "right"}}>Total Calculado</th>
               <th style={{width: 40}}></th>
             </tr>
@@ -3417,7 +3663,19 @@ const Liquidaciones = ({modulo}) => {
         estado: c.estado,
         tipo_liq: c.tipo_liquidacion,
         tipo_contrato: c.tipo_contrato,
-        flete_estimado: c.flete_estimado ? parseFloat(c.flete_estimado) : 0
+        flete_estimado: c.flete_estimado ? parseFloat(c.flete_estimado) : 0,
+        costo_secada_punto: c.costo_secada_punto ? parseFloat(c.costo_secada_punto) : 0,
+        costo_zarandeo_tn: c.costo_zarandeo_tn ? parseFloat(c.costo_zarandeo_tn) : 0,
+        costo_paritaria_tn: c.costo_paritaria_tn ? parseFloat(c.costo_paritaria_tn) : 0,
+        costo_fumigacion_fijo: c.costo_fumigacion_fijo ? parseFloat(c.costo_fumigacion_fijo) : 0,
+        humedad_max_seco: c.humedad_max_seco ? parseFloat(c.humedad_max_seco) : 13.5,
+        otros_descripcion: c.otros_descripcion || '',
+        costo_secada_destino_punto: c.costo_secada_destino_punto ? parseFloat(c.costo_secada_destino_punto) : 0,
+        costo_zarandeo_destino_tn: c.costo_zarandeo_destino_tn ? parseFloat(c.costo_zarandeo_destino_tn) : 0,
+        costo_paritaria_destino_tn: c.costo_paritaria_destino_tn ? parseFloat(c.costo_paritaria_destino_tn) : 0,
+        costo_fumigacion_destino_fijo: c.costo_fumigacion_destino_fijo ? parseFloat(c.costo_fumigacion_destino_fijo) : 0,
+        otros_destino_descripcion: c.otros_destino_descripcion || '',
+        costo_otros_destino_valor: c.costo_otros_destino_valor ? parseFloat(c.costo_otros_destino_valor) : 0
       })));
       setMovimientos(movs.map(m => ({
         id: m.id,
@@ -3739,6 +3997,7 @@ const Liquidaciones = ({modulo}) => {
                 editDescuentos={editDescuentos}
                 setEditDescuentos={setEditDescuentos}
                 contractFlete={contratoSeleccionado?.flete_estimado || 0}
+                contractPacts={contratoSeleccionado}
               />
             )}
 
@@ -3865,6 +4124,7 @@ const Liquidaciones = ({modulo}) => {
               editDescuentos={editDescuentos}
               setEditDescuentos={setEditDescuentos}
               contractFlete={liqSeleccionada.flete_estimado || 0}
+              contractPacts={liqSeleccionada}
             />
 
             {/* Financial summary & Editable inputs */}

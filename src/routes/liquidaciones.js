@@ -133,7 +133,11 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { rows: liq } = await pool.query(`
-      SELECT l.*, cp.razon_social as contraparte_nombre, c.numero_contrato, cp.tipo_contraparte, c.flete_estimado
+      SELECT l.*, cp.razon_social as contraparte_nombre, c.numero_contrato, cp.tipo_contraparte, 
+             c.flete_estimado, c.costo_secada_punto, c.costo_zarandeo_tn, c.costo_paritaria_tn, 
+             c.costo_fumigacion_fijo, c.humedad_max_seco, c.otros_descripcion,
+             c.costo_secada_destino_punto, c.costo_zarandeo_destino_tn, c.costo_paritaria_destino_tn,
+             c.costo_fumigacion_destino_fijo, c.otros_destino_descripcion, c.costo_otros_destino_valor
       FROM liquidaciones l
       LEFT JOIN contrapartes cp ON l.id_contraparte = cp.id
       LEFT JOIN contratos c ON l.id_contrato = c.id

@@ -67,7 +67,11 @@ router.post('/', async (req, res) => {
       diferencial_fijacion, tipo_diferencial, tipo_entrega,
       localidad_entrega, provincia_entrega, flete_estimado,
       forma_pago, plazo_pago_dias, condicion_pago,
-      precio_venta_estimado, destino_venta_estimado, observaciones
+      precio_venta_estimado, destino_venta_estimado, observaciones,
+      costo_secada_punto, costo_zarandeo_tn, costo_paritaria_tn, costo_fumigacion_fijo,
+      humedad_max_seco, otros_descripcion,
+      costo_secada_destino_punto, costo_zarandeo_destino_tn, costo_paritaria_destino_tn,
+      costo_fumigacion_destino_fijo, otros_destino_descripcion, costo_otros_destino_valor
     } = req.body;
 
     // Generar número de contrato
@@ -92,11 +96,17 @@ router.post('/', async (req, res) => {
         precio_venta_estimado, destino_venta_estimado,
         localidad_entrega_pactada, comprador_estimado_id,
         aplica_cpe, costo_cpe_pct, costo_financiero_pct,
+        costo_secada_punto, costo_zarandeo_tn, costo_paritaria_tn, costo_fumigacion_fijo,
+        humedad_max_seco, otros_descripcion,
+        costo_secada_destino_punto, costo_zarandeo_destino_tn, costo_paritaria_destino_tn,
+        costo_fumigacion_destino_fijo, otros_destino_descripcion, costo_otros_destino_valor,
         observaciones, estado
       ) VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
         $16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,
-        $28,$29,$30,$31,$32,'CONFIRMADO'
+        $28,$29,$30,$31,
+        $32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,
+        $44,'CONFIRMADO'
       ) RETURNING *
     `, [numero_contrato, tipo_contrato, modalidad, tipo_liquidacion,
         fecha_contrato, fecha_entrega_desde||null, fecha_entrega_hasta||null,
@@ -111,6 +121,10 @@ router.post('/', async (req, res) => {
         req.body.aplica_cpe||false,
         req.body.costo_cpe_pct||null,
         req.body.costo_financiero_pct||null,
+        costo_secada_punto||0, costo_zarandeo_tn||0, costo_paritaria_tn||0, costo_fumigacion_fijo||0,
+        humedad_max_seco||13.5, otros_descripcion||null,
+        costo_secada_destino_punto||0, costo_zarandeo_destino_tn||0, costo_paritaria_destino_tn||0,
+        costo_fumigacion_destino_fijo||0, otros_destino_descripcion||null, costo_otros_destino_valor||0,
         observaciones]);
 
     res.status(201).json(rows[0]);
@@ -159,7 +173,11 @@ router.put('/:id', async (req, res) => {
       forma_pago, plazo_pago_dias, condicion_pago,
       precio_venta_estimado, destino_venta_estimado, observaciones,
       aplica_cpe, costo_cpe_pct, costo_financiero_pct,
-      comprador_estimado_id
+      comprador_estimado_id,
+      costo_secada_punto, costo_zarandeo_tn, costo_paritaria_tn, costo_fumigacion_fijo,
+      humedad_max_seco, otros_descripcion,
+      costo_secada_destino_punto, costo_zarandeo_destino_tn, costo_paritaria_destino_tn,
+      costo_fumigacion_destino_fijo, otros_destino_descripcion, costo_otros_destino_valor
     } = req.body;
 
     // Actualizar contrato
@@ -195,8 +213,20 @@ router.put('/:id', async (req, res) => {
         costo_cpe_pct = $28,
         costo_financiero_pct = $29,
         comprador_estimado_id = $30,
+        costo_secada_punto = $31,
+        costo_zarandeo_tn = $32,
+        costo_paritaria_tn = $33,
+        costo_fumigacion_fijo = $34,
+        humedad_max_seco = $35,
+        otros_descripcion = $36,
+        costo_secada_destino_punto = $37,
+        costo_zarandeo_destino_tn = $38,
+        costo_paritaria_destino_tn = $39,
+        costo_fumigacion_destino_fijo = $40,
+        otros_destino_descripcion = $41,
+        costo_otros_destino_valor = $42,
         updated_at = NOW()
-      WHERE id = $31 RETURNING *
+      WHERE id = $43 RETURNING *
     `, [
       tipo_contrato, modalidad, tipo_liquidacion, fecha_contrato,
       fecha_entrega_desde, fecha_entrega_hasta, id_contraparte,
@@ -207,7 +237,12 @@ router.put('/:id', async (req, res) => {
       forma_pago, plazo_pago_dias, condicion_pago,
       precio_venta_estimado, destino_venta_estimado, observaciones,
       aplica_cpe, costo_cpe_pct, costo_financiero_pct,
-      comprador_estimado_id, id
+      comprador_estimado_id,
+      costo_secada_punto, costo_zarandeo_tn, costo_paritaria_tn, costo_fumigacion_fijo,
+      humedad_max_seco, otros_descripcion,
+      costo_secada_destino_punto, costo_zarandeo_destino_tn, costo_paritaria_destino_tn,
+      costo_fumigacion_destino_fijo, otros_destino_descripcion, costo_otros_destino_valor,
+      id
     ]);
 
     if (!rows[0]) {

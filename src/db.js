@@ -150,6 +150,18 @@ async function initDB() {
         comision_porcentaje DECIMAL(6,4),
         precio_venta_estimado DECIMAL(14,4),
         destino_venta_estimado VARCHAR(200),
+        costo_secada_punto DECIMAL(14,4) DEFAULT 0,
+        costo_zarandeo_tn DECIMAL(14,4) DEFAULT 0,
+        costo_paritaria_tn DECIMAL(14,4) DEFAULT 0,
+        costo_fumigacion_fijo DECIMAL(14,4) DEFAULT 0,
+        humedad_max_seco DECIMAL(8,2) DEFAULT 13.5,
+        otros_descripcion VARCHAR(200),
+        costo_secada_destino_punto DECIMAL(14,4) DEFAULT 0,
+        costo_zarandeo_destino_tn DECIMAL(14,4) DEFAULT 0,
+        costo_paritaria_destino_tn DECIMAL(14,4) DEFAULT 0,
+        costo_fumigacion_destino_fijo DECIMAL(14,4) DEFAULT 0,
+        otros_destino_descripcion VARCHAR(200),
+        costo_otros_destino_valor DECIMAL(14,4) DEFAULT 0,
         estado VARCHAR(20) DEFAULT 'BORRADOR',
         activo BOOLEAN DEFAULT TRUE,
         observaciones TEXT,
@@ -466,6 +478,29 @@ async function initDB() {
         AND m.peso_neto_llegada_kg IS NOT NULL
         AND (m.factor_aplicado IS NULL OR m.factor_aplicado = 1.0)
     `);
+
+    // Migración de columnas de costos de contratos
+    const columnsContratos = [
+      { name: "costo_secada_punto", type: "DECIMAL(14,4) DEFAULT 0" },
+      { name: "costo_zarandeo_tn", type: "DECIMAL(14,4) DEFAULT 0" },
+      { name: "costo_paritaria_tn", type: "DECIMAL(14,4) DEFAULT 0" },
+      { name: "costo_fumigacion_fijo", type: "DECIMAL(14,4) DEFAULT 0" },
+      { name: "humedad_max_seco", type: "DECIMAL(8,2) DEFAULT 13.5" },
+      { name: "otros_descripcion", type: "VARCHAR(200)" },
+      { name: "costo_secada_destino_punto", type: "DECIMAL(14,4) DEFAULT 0" },
+      { name: "costo_zarandeo_destino_tn", type: "DECIMAL(14,4) DEFAULT 0" },
+      { name: "costo_paritaria_destino_tn", type: "DECIMAL(14,4) DEFAULT 0" },
+      { name: "costo_fumigacion_destino_fijo", type: "DECIMAL(14,4) DEFAULT 0" },
+      { name: "otros_destino_descripcion", type: "VARCHAR(200)" },
+      { name: "costo_otros_destino_valor", type: "DECIMAL(14,4) DEFAULT 0" }
+    ];
+    for (const col of columnsContratos) {
+      try {
+        await client.query(`ALTER TABLE contratos ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
+      } catch (err) {
+        console.error(`Error al crear columna ${col.name}:`, err.message);
+      }
+    }
 
     console.log('Base de datos inicializada correctamente');
   } finally {
