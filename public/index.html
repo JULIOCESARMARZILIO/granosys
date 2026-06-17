@@ -4296,6 +4296,86 @@ const CuentaCorriente = ({modulo}) => {
   const [assigningMovId, setAssigningMovId] = useState(null);
   const [selectedLiqIdForAssign, setSelectedLiqIdForAssign] = useState("");
 
+  // States y handlers para ver liquidación desde Cuenta Corriente
+  const [showVerModalCc, setShowVerModalCc] = useState(false);
+  const [liqSeleccionadaCc, setLiqSeleccionadaCc] = useState(null);
+  const [movsLiqSeleccionadaCc, setMovsLiqSeleccionadaCc] = useState([]);
+  const [serviciosAgregadosCc, setServiciosAgregadosCc] = useState([]);
+  const [editDescuentosCc, setEditDescuentosCc] = useState(0);
+  const [editRetencionesCc, setEditRetencionesCc] = useState(0);
+  const [editEstadoCc, setEditEstadoCc] = useState("EMITIDA");
+  const [editObservacionesCc, setEditObservacionesCc] = useState("");
+
+  const abrirVerModalCc = async (liqId) => {
+    try {
+      const data = await api.get(`/api/liquidaciones/${liqId}`);
+      if (!data) return;
+      setLiqSeleccionadaCc(data);
+      setMovsLiqSeleccionadaCc(data.movimientos || []);
+      setEditDescuentosCc(parseFloat(data.total_descuentos_servicios) || 0);
+      setEditRetencionesCc(parseFloat(data.total_retenciones) || 0);
+      setEditEstadoCc(data.estado || "EMITIDA");
+      setEditObservacionesCc(data.observaciones || "");
+      setServiciosAgregadosCc([]);
+      setShowVerModalCc(true);
+    } catch(err) {
+      alert("Error al cargar detalle de liquidación: " + err.message);
+    }
+  };
+
+  const handleGuardarCc = async () => {
+    try {
+      let finalObservaciones = editObservacionesCc;
+      if (serviciosAgregadosCc.length > 0) {
+        const serviciosText = serviciosAgregadosCc.map(s => `${s.name}: $ ${s.costoPorTon.toLocaleString()} / tn ($ ${s.total.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})})`).join(', ');
+        if (finalObservaciones.includes("Detalle Gastos:")) {
+          finalObservaciones = finalObservaciones.replace(/Detalle Gastos:.*$/, "Detalle Gastos: " + serviciosText);
+        } else {
+          finalObservaciones = (finalObservaciones ? finalObservaciones + "\n" : "") + "Detalle Gastos: " + serviciosText;
+        }
+      }
+
+      const res = await api.put(`/api/liquidaciones/${liqSeleccionadaCc.id}`, {
+        total_descuentos_servicios: editDescuentosCc,
+        total_retenciones: editRetencionesCc,
+        estado: editEstadoCc,
+        observaciones: finalObservaciones
+      });
+      if (res && res.error) {
+        alert("Error al guardar: " + res.error);
+      } else {
+        alert("✓ Cambios guardados correctamente");
+        setShowVerModalCc(false);
+        if (selectedClient) {
+          abrirDetalle(selectedClient);
+        }
+        cargarCCResumen();
+      }
+    } catch(err) {
+      alert("Error al guardar cambios: " + err.message);
+    }
+  };
+
+  const handleEliminarCc = async () => {
+    if (confirm(`¿Está seguro de que desea eliminar la liquidación ${liqSeleccionadaCc.nro_liquidacion}? Esta acción liberará los camiones asociados y los dejará disponibles para volver a liquidarse.`)) {
+      try {
+        const res = await api.delete(`/api/liquidaciones/${liqSeleccionadaCc.id}`);
+        if (res && res.error) {
+          alert("Error al eliminar: " + res.error);
+        } else {
+          alert("✓ Liquidación eliminada correctamente. Los camiones asociados se liberaron.");
+          setShowVerModalCc(false);
+          if (selectedClient) {
+            abrirDetalle(selectedClient);
+          }
+          cargarCCResumen();
+        }
+      } catch(err) {
+        alert("Error al eliminar: " + err.message);
+      }
+    }
+  };
+
   const cargarCCResumen = () => {
     api.get("/api/cc/resumen")
       .then(data=>setCCResumen(data))
@@ -4571,11 +4651,25 @@ const CuentaCorriente = ({modulo}) => {
                                 }
                               />
                             </td>
-                            <td>{m.concepto}</td>
-                            <td style={{textAlign: "right", fontFamily: "monospace", color: parseFloat(m.debe) > 0 ? "#e8eaf0" : "#565d7a"}}>
+                            <td
+                              onDoubleClick={() => m.id_liquidacion && abrirVerModalCc(m.id_liquidacion)}
+                              title={m.id_liquidacion ? "Doble clic para ver detalle de liquidación" : undefined}
+                              style={{cursor: m.id_liquidacion ? "pointer" : "default"}}
+                            >
+                              {m.concepto}
+                            </td>
+                            <td 
+                              onDoubleClick={() => m.id_liquidacion && abrirVerModalCc(m.id_liquidacion)}
+                              title={m.id_liquidacion ? "Doble clic para ver detalle de liquidación" : undefined}
+                              style={{textAlign: "right", fontFamily: "monospace", color: parseFloat(m.debe) > 0 ? "#e8eaf0" : "#565d7a", cursor: m.id_liquidacion ? "pointer" : "default"}}
+                            >
                               {parseFloat(m.debe) > 0 ? `$ ${parseFloat(m.debe).toLocaleString()}` : '—'}
                             </td>
-                            <td style={{textAlign: "right", fontFamily: "monospace", color: parseFloat(m.haber) > 0 ? "#e8eaf0" : "#565d7a"}}>
+                            <td 
+                              onDoubleClick={() => m.id_liquidacion && abrirVerModalCc(m.id_liquidacion)}
+                              title={m.id_liquidacion ? "Doble clic para ver detalle de liquidación" : undefined}
+                              style={{textAlign: "right", fontFamily: "monospace", color: parseFloat(m.haber) > 0 ? "#e8eaf0" : "#565d7a", cursor: m.id_liquidacion ? "pointer" : "default"}}
+                            >
                               {parseFloat(m.haber) > 0 ? `$ ${parseFloat(m.haber).toLocaleString()}` : '—'}
                             </td>
                             <td style={{textAlign: "center"}}>
@@ -4721,6 +4815,189 @@ const CuentaCorriente = ({modulo}) => {
               <Btn variant="secondary" onClick={() => setShowRegPagoModal(false)}>Cancelar</Btn>
               <Btn variant="primary" onClick={ejecutarRegistroPago}>Registrar Movimiento</Btn>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {showVerModalCc && liqSeleccionadaCc && (
+        <Modal 
+          title={`Detalle de Liquidación ${liqSeleccionadaCc.nro_liquidacion}`} 
+          onClose={() => setShowVerModalCc(false)} 
+          width={960}
+        >
+          <div style={{display:"flex", flexDirection:"column", gap:16}}>
+            {/* Header info */}
+            <div style={{padding:"12px 14px", background:"#0f1117", border:"1px solid #2a2d3e", borderRadius:8, display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14}}>
+              <div>
+                <div style={{fontSize:11, color:"#8890a8", textTransform:"uppercase"}}>Cliente / Contraparte</div>
+                <div style={{fontSize:14, fontWeight:600, color:"#e8eaf0", marginTop:2}}>{liqSeleccionadaCc.contraparte_nombre}</div>
+              </div>
+              <div>
+                <div style={{fontSize:11, color:"#8890a8", textTransform:"uppercase"}}>Contrato Asociado</div>
+                <div style={{fontSize:14, fontWeight:600, color:"#e8eaf0", marginTop:2}}>{liqSeleccionadaCc.numero_contrato || "Sin contrato"}</div>
+              </div>
+              <div>
+                <div style={{fontSize:11, color:"#8890a8", textTransform:"uppercase"}}>Fecha Emisión</div>
+                <div style={{fontSize:14, fontWeight:600, color:"#e8eaf0", marginTop:2}}>{liqSeleccionadaCc.fecha_liquidacion ? liqSeleccionadaCc.fecha_liquidacion.split('T')[0] : ''}</div>
+              </div>
+              <div>
+                <div style={{fontSize:11, color:"#8890a8", textTransform:"uppercase"}}>Tipo / Moneda</div>
+                <div style={{marginTop:2, display:"flex", gap:6}}>
+                  <Badge label={liqSeleccionadaCc.tipo} color={liqSeleccionadaCc.tipo==="COMPRA"?"orange":"blue"}/>
+                  <Badge label={liqSeleccionadaCc.moneda} color="gray"/>
+                </div>
+              </div>
+            </div>
+
+            {/* Table of associated movements */}
+            <div>
+              <div style={{fontSize:12, fontWeight:600, color:"#e8eaf0", marginBottom:8, textTransform:"uppercase", letterSpacing:".04em"}}>
+                🚚 Camiones liquidados en esta orden
+              </div>
+              <div style={{maxHeight:220, overflowY:"auto", border:"1px solid #2a2d3e", borderRadius:6}}>
+                <table style={{width:"100%", margin:0, fontSize:12}}>
+                  <thead>
+                    <tr>
+                      <th>N° Movimiento</th>
+                      <th>Patente</th>
+                      <th style={{textAlign:"right"}}>Kg Neto Llegada</th>
+                      <th style={{textAlign:"right"}}>Humedad (%)</th>
+                      <th style={{textAlign:"right"}}>Factor Calidad</th>
+                      <th style={{textAlign:"right"}}>Kg Liquidables</th>
+                      <th style={{textAlign:"right"}}>Precio Aplicado</th>
+                      <th style={{textAlign:"right"}}>Monto Bruto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movsLiqSeleccionadaCc.map(m => {
+                      const kgLiq = parseFloat(m.kg_liquidables) || 0;
+                      const factor = parseFloat(m.factor_aplicado) || 1.0;
+                      const precio = parseFloat(m.precio_aplicado) || 0;
+                      const subtotal = kgLiq * precio / 1000;
+                      
+                      return (
+                        <tr key={m.id}>
+                          <td><span className="mono" style={{color:"#f5a623"}}>{m.numero_movimiento}</span></td>
+                          <td><span className="mono">{m.patente_chasis || "—"}</span></td>
+                          <td style={{textAlign:"right", fontFamily:"monospace"}}>{(parseFloat(m.peso_neto_llegada_kg) || 0).toLocaleString()} kg</td>
+                          <td style={{textAlign:"right", fontFamily:"monospace"}}>{m.humedad_llegada_pct ? `${m.humedad_llegada_pct}%` : "—"}</td>
+                          <td style={{textAlign:"right", fontFamily:"monospace"}}>{factor.toFixed(4)}</td>
+                          <td style={{textAlign:"right", fontFamily:"monospace", fontWeight:600}}>{Math.round(kgLiq).toLocaleString()} kg</td>
+                          <td style={{textAlign:"right", fontFamily:"monospace"}}>$ {precio.toLocaleString()} / tn</td>
+                          <td style={{textAlign:"right", fontFamily:"monospace", fontWeight:600, color:"#27ae60"}}>$ {subtotal.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Servicios Adder Seccion */}
+            <RenderServiciosSeccion
+              movs={movsLiqSeleccionadaCc}
+              servicios={serviciosAgregadosCc}
+              setServicios={setServiciosAgregadosCc}
+              editDescuentos={editDescuentosCc}
+              setEditDescuentos={setEditDescuentosCc}
+              contractFlete={liqSeleccionadaCc.flete_estimado || 0}
+              contractPacts={liqSeleccionadaCc}
+            />
+
+            {/* Financial summary & Editable inputs */}
+            <div style={{display:"grid", gridTemplateColumns:"350px 1fr", gap:16}}>
+              <div style={{padding:"14px 16px", background:"#0f1117", borderRadius:8, border:"1px solid #2a2d3e", display:"flex", flexDirection:"column", gap:10}}>
+                <div style={{fontSize:11, color:"#8890a8", fontWeight:600, textTransform:"uppercase", borderBottom:"1px solid #1e2133", paddingBottom:4}}>Resumen Financiero</div>
+                <div style={{display:"flex", justifyContent:"space-between"}}>
+                  <span style={{color:"#8890a8", fontSize:13}}>Monto Bruto Total</span>
+                  <span className="mono" style={{fontWeight:600}}>$ {parseFloat(liqSeleccionadaCc.monto_bruto_total || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</span>
+                </div>
+                <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+                  <span style={{color:"#e74c3c", fontSize:13}}>— Descuentos (Servicios)</span>
+                  <div style={{display:"flex", alignItems:"center", gap:4}}>
+                    <span style={{color:"#8890a8"}}>$</span>
+                    <input 
+                      type="number" 
+                      style={{width:100, padding:"3px 6px", fontSize:12, background:"#1a1d27", border:"1px solid #2a2d3e", borderRadius:4, color:"#e74c3c", textAlign:"right", fontWeight:"bold"}}
+                      value={editDescuentosCc} 
+                      onChange={e => setEditDescuentosCc(parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                </div>
+                <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+                  <span style={{color:"#e74c3c", fontSize:13}}>— Retenciones / Impuestos</span>
+                  <div style={{display:"flex", alignItems:"center", gap:4}}>
+                    <span style={{color:"#8890a8"}}>$</span>
+                    <input 
+                      type="number" 
+                      style={{width:100, padding:"3px 6px", fontSize:12, background:"#1a1d27", border:"1px solid #2a2d3e", borderRadius:4, color:"#e74c3c", textAlign:"right", fontWeight:"bold"}}
+                      value={editRetencionesCc} 
+                      onChange={e => setEditRetencionesCc(parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                </div>
+                <div style={{display:"flex", justifyContent:"space-between", borderTop:"1px solid #2a2d3e", paddingTop:10, marginTop:4}}>
+                  <span style={{fontWeight:700, fontSize:14, color:"#27ae60"}}>= Neto Final Liquidado</span>
+                  <span className="mono" style={{fontWeight:700, fontSize:16, color:"#27ae60"}}>
+                    $ {(parseFloat(liqSeleccionadaCc.monto_bruto_total || 0) - editDescuentosCc - editRetencionesCc).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{display:"flex", flexDirection:"column", gap:12}}>
+                <div className="form-grid-2" style={{margin:0}}>
+                  <FF label="Estado de Liquidación" required>
+                    <select value={editEstadoCc} onChange={e => setEditEstadoCc(e.target.value)}>
+                      <option value="EMITIDA">EMITIDA (Por cobrar / pagar)</option>
+                      <option value="PAGADA">PAGADA (Completada)</option>
+                      <option value="BORRADOR">BORRADOR</option>
+                    </select>
+                  </FF>
+                </div>
+                <FF label="Observaciones / Notas" style={{flex:1}}>
+                  <textarea 
+                    style={{width:"100%", height:80, padding:"8px 10px", background:"#0f1117", border:"1px solid #2a2d3e", borderRadius:6, color:"#e8eaf0", resize:"none", fontSize:12}}
+                    value={editObservacionesCc} 
+                    onChange={e => setEditObservacionesCc(e.target.value)}
+                    placeholder="Detallar conceptos de descuentos por secada, zarandeo, retenciones de ingresos brutos, etc."
+                  />
+                </FF>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div style={{display:"flex", gap:10, justifyContent:"space-between", marginTop:10, paddingTop:14, borderTop:"1px solid #2a2d3e"}}>
+              {liqSeleccionadaCc.tiene_pagos ? (
+                <div style={{color:"#e74c3c", fontSize:12, display:"flex", alignItems:"center", gap:6, padding:"8px 12px", background:"rgba(231,76,60,.08)", border:"1px solid rgba(231,76,60,.2)", borderRadius:6}}>
+                  🔒 No se puede eliminar: tiene pagos asignados en Cuenta Corriente.
+                </div>
+              ) : (
+                <button
+                  onClick={handleEliminarCc}
+                  style={{
+                    background: "rgba(231,76,60,.12)",
+                    color: "#e74c3c",
+                    border: "1px solid rgba(231,76,60,.3)",
+                    borderRadius: 6,
+                    padding: "8px 16px",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    transition: "all .2s"
+                  }}
+                  onMouseEnter={e => { e.target.style.background = "rgba(231,76,60,.2)"; }}
+                  onMouseLeave={e => { e.target.style.background = "rgba(231,76,60,.12)"; }}
+                >
+                  🗑️ Eliminar Liquidación
+                </button>
+              )}
+
+              <div style={{display:"flex", gap:10}}>
+                <Btn variant="secondary" onClick={() => setShowVerModalCc(false)}>Cerrar</Btn>
+                <Btn variant="primary" onClick={handleGuardarCc}>Guardar Cambios</Btn>
+              </div>
+            </div>
+
           </div>
         </Modal>
       )}
