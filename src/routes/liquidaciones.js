@@ -28,7 +28,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { tipo, modalidad, tipo_liquidacion, id_contrato, id_contraparte,
-            fecha_liquidacion, ids_movimientos, moneda } = req.body;
+            fecha_liquidacion, ids_movimientos, moneda, total_descuentos_servicios, observaciones } = req.body;
 
     // Verificar que ningún movimiento ya esté liquidado
     const { rows: yaLiq } = await pool.query(
@@ -65,26 +65,31 @@ router.post('/', async (req, res) => {
     }
 
     // Calcular total de descuentos por servicios asociados a los movimientos y aplicado_a = tipo
-    const { rows: servRows } = await pool.query(
-      'SELECT COALESCE(SUM(monto_real), 0) as total FROM servicios_movimiento WHERE id_movimiento = ANY($1) AND aplicado_a = $2',
-      [ids_movimientos, tipo]
-    );
-    const total_descuentos_servicios = parseFloat(servRows[0].total) || 0;
+    let final_descuentos_servicios = 0;
+    if (total_descuentos_servicios !== undefined) {
+      final_descuentos_servicios = parseFloat(total_descuentos_servicios) || 0;
+    } else {
+      const { rows: servRows } = await pool.query(
+        'SELECT COALESCE(SUM(monto_real), 0) as total FROM servicios_movimiento WHERE id_movimiento = ANY($1) AND aplicado_a = $2',
+        [ids_movimientos, tipo]
+      );
+      final_descuentos_servicios = parseFloat(servRows[0].total) || 0;
+    }
 
     // Calcular monto neto a pagar
-    const monto_neto_a_pagar = monto_bruto - total_descuentos_servicios;
+    const monto_neto_a_pagar = monto_bruto - final_descuentos_servicios;
 
     const { rows } = await pool.query(`
       INSERT INTO liquidaciones
         (nro_liquidacion, tipo, modalidad, tipo_liquidacion, id_contrato,
          id_contraparte, fecha_liquidacion, monto_bruto_total,
          total_descuentos_servicios, total_retenciones, monto_neto_a_pagar,
-         moneda, estado)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,0,$10,$11,'EMITIDA')
+         moneda, observaciones, estado)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,0,$10,$11,$12,'EMITIDA')
       RETURNING *
     `, [nro_liquidacion, tipo, modalidad, tipo_liquidacion||null,
         id_contrato, id_contraparte, fecha_liquidacion,
-        monto_bruto, total_descuentos_servicios, monto_neto_a_pagar, moneda||'PESOS']);
+        monto_bruto, final_descuentos_servicios, monto_neto_a_pagar, moneda||'PESOS', observaciones || null]);
 
     // Vincular movimientos a la liquidación
     for (const id_mov of ids_movimientos) {
@@ -128,7 +133,7 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { rows: liq } = await pool.query(`
-      SELECT l.*, cp.razon_social as contraparte_nombre, c.numero_contrato, cp.tipo_contraparte
+      SELECT l.*, cp.razon_social as contraparte_nombre, c.numero_contrato, cp.tipo_contraparte, c.flete_estimado
       FROM liquidaciones l
       LEFT JOIN contrapartes cp ON l.id_contraparte = cp.id
       LEFT JOIN contratos c ON l.id_contrato = c.id

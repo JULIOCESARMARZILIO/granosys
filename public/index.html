@@ -112,6 +112,18 @@ const api = {
       console.error("API PUT error:", path, e);
       return null;
     }
+  },
+  delete: async (path) => {
+    try {
+      const r = await fetch(`${API_URL}${path}`, {
+        method: "DELETE"
+      });
+      if (!r.ok) throw new Error(await r.text());
+      return await r.json();
+    } catch(e) {
+      console.error("API DELETE error:", path, e);
+      return null;
+    }
   }
 };
 
@@ -3110,6 +3122,150 @@ const Movimientos = ({modulo, usuario}) => {
 };
 
 // ── LIQUIDACIONES ──
+const getPesoNetoLlegada = (m) => parseFloat(m.peso_neto_llegada_kg || m.peso_neto_llegada || 0);
+const calcularTotalKgDescargados = (movs) => movs.reduce((acc, m) => acc + getPesoNetoLlegada(m), 0);
+
+const RenderServiciosSeccion = ({ movs, servicios, setServicios, editDescuentos, setEditDescuentos, contractFlete }) => {
+  const [srvName, setSrvName] = useState("");
+  const [srvCosto, setSrvCosto] = useState("");
+
+  const totalKg = calcularTotalKgDescargados(movs);
+  const totalTn = totalKg / 1000;
+
+  const agregarServicio = (name, costo) => {
+    const costoVal = parseFloat(costo);
+    if (!name || isNaN(costoVal) || costoVal <= 0) {
+      alert("Por favor, ingrese un nombre y costo por tonelada válidos");
+      return;
+    }
+    const total = totalTn * costoVal;
+    const nuevo = { name, costoPorTon: costoVal, total };
+    const nuevos = [...servicios, nuevo];
+    setServicios(nuevos);
+    
+    // Actualizar total descuentos
+    const totalDesc = nuevos.reduce((sum, s) => sum + s.total, 0);
+    setEditDescuentos(Math.round(totalDesc * 100) / 100);
+    
+    setSrvName("");
+    setSrvCosto("");
+  };
+
+  const eliminarServicio = (index) => {
+    const nuevos = servicios.filter((_, i) => i !== index);
+    setServicios(nuevos);
+    const totalDesc = nuevos.reduce((sum, s) => sum + s.total, 0);
+    setEditDescuentos(Math.round(totalDesc * 100) / 100);
+  };
+
+  return (
+    <div style={{
+      padding: "14px 16px",
+      background: "#0f1117",
+      borderRadius: 8,
+      border: "1px solid #2a2d3e",
+      display: "flex",
+      flexDirection: "column",
+      gap: 12,
+      marginTop: 8
+    }}>
+      <div style={{
+        fontSize: 11,
+        color: "#8890a8",
+        fontWeight: 600,
+        textTransform: "uppercase",
+        borderBottom: "1px solid #1e2133",
+        paddingBottom: 4
+      }}>
+        🛠️ Descuentos por Servicios (Calculado sobre Kilos Descargados: {Math.round(totalKg).toLocaleString()} kg / {totalTn.toFixed(3)} tn)
+      </div>
+
+      {/* Agregar Gasto Form */}
+      <div style={{display: "flex", gap: 10, alignItems: "flex-end"}}>
+        <FF label="Servicio / Gasto" style={{margin: 0, flex: 2}}>
+          <select value={srvName} onChange={e => setSrvName(e.target.value)}>
+            <option value="">-- Seleccionar servicio --</option>
+            <option value="Secada">Secada</option>
+            <option value="Zarandeo">Zarandeo</option>
+            <option value="Flete">Flete</option>
+            <option value="Comisión">Comisión</option>
+            <option value="Otros">Otros</option>
+          </select>
+        </FF>
+        {srvName === "Otros" && (
+          <FF label="Especificar Gasto" style={{margin: 0, flex: 2}}>
+            <input 
+              type="text" 
+              placeholder="Ej. Almacenaje" 
+              onChange={e => setSrvName(e.target.value)}
+            />
+          </FF>
+        )}
+        <FF label="Costo por Ton ($)" style={{margin: 0, flex: 1}}>
+          <input 
+            type="number" 
+            placeholder="0.00" 
+            value={srvCosto} 
+            onChange={e => setSrvCosto(e.target.value)}
+          />
+        </FF>
+        <Btn 
+          variant="secondary" 
+          onClick={() => agregarServicio(srvName, srvCosto)}
+          style={{height: 38}}
+        >
+          + Agregar
+        </Btn>
+      </div>
+
+      {/* Cargar Flete del Contrato si aplica */}
+      {contractFlete > 0 && (
+        <div style={{display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(39,174,96,.08)", border: "1px solid rgba(39,174,96,.2)", borderRadius: 6, padding: "8px 10px"}}>
+          <span style={{fontSize: 12, color: "#27ae60"}}>El contrato tiene un flete pactado de <strong>$ {contractFlete.toLocaleString()} / tn</strong>.</span>
+          <Btn 
+            variant="ghost" 
+            size="xs" 
+            onClick={() => agregarServicio("Flete Pactado", contractFlete)}
+          >
+            ✓ Cargar Flete
+          </Btn>
+        </div>
+      )}
+
+      {/* List of Added Services */}
+      {servicios.length > 0 && (
+        <table style={{width: "100%", fontSize: 12, margin: 0}}>
+          <thead>
+            <tr>
+              <th>Concepto</th>
+              <th style={{textAlign: "right"}}>Costo / Tn</th>
+              <th style={{textAlign: "right"}}>Total Calculado</th>
+              <th style={{width: 40}}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {servicios.map((s, idx) => (
+              <tr key={idx}>
+                <td>{s.name}</td>
+                <td style={{textAlign: "right", fontFamily: "monospace"}}>$ {s.costoPorTon.toLocaleString()}</td>
+                <td style={{textAlign: "right", fontFamily: "monospace", color: "#e74c3c"}}>$ {s.total.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                <td style={{textAlign: "center"}}>
+                  <button 
+                    onClick={() => eliminarServicio(idx)} 
+                    style={{background: "none", border: "none", color: "#e74c3c", cursor: "pointer", fontSize: 14}}
+                  >
+                    🗑️
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+};
+
 const Liquidaciones = ({modulo}) => {
   const [lista,setLista]=useState([]);
   const [showNuevaModal, setShowNuevaModal] = useState(false);
@@ -3132,6 +3288,9 @@ const Liquidaciones = ({modulo}) => {
   const [liqSeleccionada, setLiqSeleccionada] = useState(null);
   const [movsLiqSeleccionada, setMovsLiqSeleccionada] = useState([]);
   const [editDescuentos, setEditDescuentos] = useState(0);
+  const [selectedServicioName, setSelectedServicioName] = useState("");
+  const [servicioCostoPorTon, setServicioCostoPorTon] = useState("");
+  const [serviciosAgregados, setServiciosAgregados] = useState([]);
   const [editRetenciones, setEditRetenciones] = useState(0);
   const [editEstado, setEditEstado] = useState("EMITIDA");
   const [editObservaciones, setEditObservaciones] = useState("");
@@ -3211,6 +3370,11 @@ const Liquidaciones = ({modulo}) => {
       setEditRetenciones(parseFloat(data.total_retenciones) || 0);
       setEditEstado(data.estado || "EMITIDA");
       setEditObservaciones(data.observaciones || "");
+      
+      setServiciosAgregados([]);
+      setSelectedServicioName("");
+      setServicioCostoPorTon("");
+      
       setShowVerModal(true);
     } catch(err) {
       alert("Error al cargar detalle de liquidación: " + err.message);
@@ -3252,7 +3416,8 @@ const Liquidaciones = ({modulo}) => {
         tipo_entrega: c.tipo_entrega,
         estado: c.estado,
         tipo_liq: c.tipo_liquidacion,
-        tipo_contrato: c.tipo_contrato
+        tipo_contrato: c.tipo_contrato,
+        flete_estimado: c.flete_estimado ? parseFloat(c.flete_estimado) : 0
       })));
       setMovimientos(movs.map(m => ({
         id: m.id,
@@ -3286,6 +3451,9 @@ const Liquidaciones = ({modulo}) => {
       setFechaLiq(new Date().toISOString().split('T')[0]);
       setTipoLiq("INCISO_A");
       setMoneda("PESOS");
+      setServiciosAgregados([]);
+      setEditDescuentos(0);
+      setEditObservaciones("");
       
       setShowNuevaModal(true);
     } catch (err) {
@@ -3298,6 +3466,13 @@ const Liquidaciones = ({modulo}) => {
     if (!idContrato) return alert("Seleccioná un contrato");
     if (selectedMovs.length === 0) return alert("Seleccioná al menos un camión para liquidar");
 
+    // Generar observaciones con el detalle de servicios si los hay
+    let finalObservaciones = editObservaciones;
+    if (serviciosAgregados.length > 0) {
+      const serviciosText = serviciosAgregados.map(s => `${s.name}: $ ${s.costoPorTon.toLocaleString()} / tn ($ ${s.total.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})})`).join(', ');
+      finalObservaciones = (editObservaciones ? editObservaciones + "\n" : "") + "Detalle Gastos: " + serviciosText;
+    }
+
     try {
       await api.post("/api/liquidaciones", {
         tipo: tipo,
@@ -3307,7 +3482,9 @@ const Liquidaciones = ({modulo}) => {
         id_contraparte: parseInt(idContraparte),
         fecha_liquidacion: fechaLiq,
         ids_movimientos: selectedMovs,
-        moneda: moneda
+        moneda: moneda,
+        total_descuentos_servicios: editDescuentos,
+        observaciones: finalObservaciones
       });
       alert("✓ Liquidación creada exitosamente");
       setShowNuevaModal(false);
@@ -3554,6 +3731,17 @@ const Liquidaciones = ({modulo}) => {
               </div>
             )}
 
+            {selectedMovs.length > 0 && (
+              <RenderServiciosSeccion
+                movs={movimientos.filter(m => selectedMovs.includes(m.id))}
+                servicios={serviciosAgregados}
+                setServicios={setServiciosAgregados}
+                editDescuentos={editDescuentos}
+                setEditDescuentos={setEditDescuentos}
+                contractFlete={contratoSeleccionado?.flete_estimado || 0}
+              />
+            )}
+
             {selectedMovs.length > 0 && contratoSeleccionado && (
               <div style={{padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",marginTop:8}}>
                 <div style={{fontSize:11,color:"#8890a8",marginBottom:8,fontWeight:600,textTransform:"uppercase"}}>Resumen Parcial de Liquidación</div>
@@ -3567,8 +3755,20 @@ const Liquidaciones = ({modulo}) => {
                 </div>
                 <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1e2133"}}>
                   <span style={{color:"#8890a8",fontSize:13}}>Monto Bruto Estimado</span>
-                  <span className="mono" style={{fontWeight:700,fontSize:16,color:"#27ae60"}}>
+                  <span className="mono" style={{fontWeight:600,color:"#e8eaf0"}}>
                     {moneda === "PESOS" ? "$" : "USD"} {montoBrutoCalculado.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+                  </span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1e2133"}}>
+                  <span style={{color:"#e74c3c",fontSize:13}}>— Descuentos (Servicios)</span>
+                  <span className="mono" style={{fontWeight:600,color:"#e74c3c"}}>
+                    - {moneda === "PESOS" ? "$" : "USD"} {editDescuentos.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+                  </span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1e2133"}}>
+                  <span style={{fontWeight:700,fontSize:14,color:"#27ae60"}}>= Neto Final Estimado</span>
+                  <span className="mono" style={{fontWeight:700,fontSize:16,color:"#27ae60"}}>
+                    {moneda === "PESOS" ? "$" : "USD"} {(montoBrutoCalculado - editDescuentos).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
                   </span>
                 </div>
               </div>
@@ -3656,6 +3856,16 @@ const Liquidaciones = ({modulo}) => {
                 </table>
               </div>
             </div>
+
+            {/* Servicios Adder Seccion */}
+            <RenderServiciosSeccion
+              movs={movsLiqSeleccionada}
+              servicios={serviciosAgregados}
+              setServicios={setServiciosAgregados}
+              editDescuentos={editDescuentos}
+              setEditDescuentos={setEditDescuentos}
+              contractFlete={liqSeleccionada.flete_estimado || 0}
+            />
 
             {/* Financial summary & Editable inputs */}
             <div style={{display:"grid", gridTemplateColumns:"350px 1fr", gap:16}}>
@@ -3766,11 +3976,21 @@ const Liquidaciones = ({modulo}) => {
                   variant="primary"
                   onClick={async () => {
                     try {
+                      let finalObservaciones = editObservaciones;
+                      if (serviciosAgregados.length > 0) {
+                        const serviciosText = serviciosAgregados.map(s => `${s.name}: $ ${s.costoPorTon.toLocaleString()} / tn ($ ${s.total.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})})`).join(', ');
+                        if (finalObservaciones.includes("Detalle Gastos:")) {
+                          finalObservaciones = finalObservaciones.replace(/Detalle Gastos:.*$/, "Detalle Gastos: " + serviciosText);
+                        } else {
+                          finalObservaciones = (finalObservaciones ? finalObservaciones + "\n" : "") + "Detalle Gastos: " + serviciosText;
+                        }
+                      }
+
                       const res = await api.put(`/api/liquidaciones/${liqSeleccionada.id}`, {
                         total_descuentos_servicios: editDescuentos,
                         total_retenciones: editRetenciones,
                         estado: editEstado,
-                        observaciones: editObservaciones
+                        observaciones: finalObservaciones
                       });
                       if (res && res.error) {
                         alert("Error al guardar: " + res.error);
