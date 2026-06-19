@@ -58,6 +58,7 @@ tr:last-child td{border-bottom:none}
 .progress-bar{height:6px;background:#0f1117;border-radius:3px;overflow:hidden;min-width:60px}
 .progress-fill{height:100%;border-radius:3px;background:#f5a623;transition:width .3s}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
 </head>
 <body>
 <div id="root"></div>
@@ -1490,6 +1491,10 @@ const Movimientos = ({modulo, usuario}) => {
   const [tab,setTab]=useState("salida");
   const [importing,setImporting]=useState(false);
   const [importResult,setImportResult]=useState(null);
+  const [importContratoCompra, setImportContratoCompra] = useState("");
+  const [importContratoVenta, setImportContratoVenta] = useState("");
+  const [importTarifaFleteReal, setImportTarifaFleteReal] = useState("");
+  const [importHumedadSalida, setImportHumedadSalida] = useState("");
   const [showImportTicket, setShowImportTicket] = useState(false);
   const [ticketResult, setTicketResult] = useState(null);
   const [importingTicket, setImportingTicket] = useState(false);
@@ -1916,46 +1921,383 @@ const Movimientos = ({modulo, usuario}) => {
   const estadoColor = e=>({EN_TRANSITO:"orange",DESCARGADO:"blue",LIQUIDADO:"green",ANULADO:"red",BORRADOR:"gray"}[e]||"gray");
   const liqColor = e=>({LIQUIDADO:"green",ASIGNADO:"blue",PRELIQUIDADO:"orange",SIN_ASIGNAR:"gray"}[e]||"gray");
 
+  const parseCpeText = (text) => {
+    const result = {};
+
+    // 1. CTG
+    const ctgMatch = text.match(/CTG:\s*(\d+)/i);
+    if (ctgMatch) result.nro_ctg = ctgMatch[1];
+
+    // 2. N° CPE
+    const cpeMatch = text.match(/(\d{5}-\d{8})/);
+    if (cpeMatch) result.nro_cpe = cpeMatch[1];
+
+    // 3. Dates
+    const dates = [];
+    const dateRegex = /(\d{2})\/(\d{2})\/(\d{4})/g;
+    let match;
+    while ((match = dateRegex.exec(text)) !== null) {
+      const d = parseInt(match[1]);
+      const m = parseInt(match[2]) - 1;
+      const y = parseInt(match[3]);
+      dates.push({ str: match[0], date: new Date(y, m, d) });
+    }
+    if (dates.length > 0) {
+      dates.sort((a, b) => a.date - b.date);
+      result.fecha = dates[0].str;
+      const laterDates = dates.filter(d => d.str !== result.fecha);
+      result.vencimiento = laterDates.length > 0 ? laterDates[0].str : result.fecha;
+    }
+    
+    const dateToIso = (dStr) => {
+      if (!dStr) return null;
+      const parts = dStr.split("/");
+      if (parts.length === 3) {
+        return `${parts[2]}-${parts[1]}-${parts[0]}`;
+      }
+      return null;
+    };
+    result.fecha_iso = dateToIso(result.fecha);
+    result.vencimiento_iso = dateToIso(result.vencimiento);
+
+    const extractPairs = (sub) => {
+      const pairs = [];
+      const regex = /(\d{11})\s*-\s*([^%\n\r\t]+)/g;
+      let m;
+      while ((m = regex.exec(sub)) !== null) {
+        pairs.push({ cuit: m[1], name: m[2].trim() });
+      }
+      return pairs;
+    };
+
+    const destIndex = text.indexOf("Destinatario:");
+    const transportistaLabelIndex = text.indexOf("Empresa Transportista:");
+    const fleteLabelIndex = text.indexOf("Flete pagador");
+    const choferLabelIndex = text.indexOf("Chofer");
+
+    if (destIndex !== -1) {
+      const beforeDest = text.substring(0, destIndex);
+      const titularPairs = extractPairs(beforeDest);
+      if (titularPairs.length > 0) {
+        result.titular = titularPairs[0].name;
+        result.titular_cuit = titularPairs[0].cuit;
+      }
+    }
+
+    if (transportistaLabelIndex !== -1) {
+      const endBlock = fleteLabelIndex !== -1 ? fleteLabelIndex : text.length;
+      const afterTrans = text.substring(transportistaLabelIndex, endBlock);
+      const pairs = extractPairs(afterTrans);
+      if (pairs.length >= 3) {
+        result.destinatario = pairs[0].name;
+        result.destinatario_cuit = pairs[0].cuit;
+        result.destino = pairs[1].name;
+        result.destino_cuit = pairs[1].cuit;
+        result.transportista = pairs[2].name;
+        result.transportista_cuit = pairs[2].cuit;
+      } else if (pairs.length === 2) {
+        result.destinatario = pairs[0].name;
+        result.destinatario_cuit = pairs[0].cuit;
+        result.destino = pairs[1].name;
+        result.destino_cuit = pairs[1].cuit;
+      } else if (pairs.length === 1) {
+        result.destinatario = pairs[0].name;
+        result.destinatario_cuit = pairs[0].cuit;
+      }
+    }
+
+    if (choferLabelIndex !== -1) {
+      const choferText = text.substring(choferLabelIndex, choferLabelIndex + 200);
+      const choferPairs = extractPairs(choferText);
+      if (choferPairs.length > 0) {
+        result.chofer = choferPairs[0].name;
+        result.chofer_cuit = choferPairs[0].cuit;
+      }
+    }
+
+    if (fleteLabelIndex !== -1) {
+      const fleteText = text.substring(fleteLabelIndex, fleteLabelIndex + 200);
+      const fletePairs = extractPairs(fleteText);
+      if (fletePairs.length > 0) {
+        result.flete_pagador = fletePairs[0].name;
+        result.flete_pagador_cuit = fletePairs[0].cuit;
+      }
+    }
+
+    const granos = ["maiz", "maíz", "soja", "trigo", "girasol", "cebada", "sorgo"];
+    for (const g of granos) {
+      if (text.toLowerCase().includes(g)) {
+        result.especie = g.charAt(0).toUpperCase() + g.slice(1).replace("í", "i");
+        break;
+      }
+    }
+    if (!result.especie) result.especie = "Soja";
+
+    const campanaMatch = text.match(/Campaña:\s*(\d+)/i);
+    if (campanaMatch) {
+      const rawCamp = campanaMatch[1];
+      if (rawCamp.length === 4) {
+        result.campana = `20${rawCamp.slice(0, 2)}/20${rawCamp.slice(2)}`;
+      } else {
+        result.campana = rawCamp;
+      }
+    }
+
+    const allNumbers = [];
+    const numRegex = /\b(\d{4,6})\b/g;
+    while ((match = numRegex.exec(text)) !== null) {
+      const num = parseInt(match[1]);
+      if (num >= 5000) {
+        allNumbers.push(num);
+      }
+    }
+    
+    let foundWeights = false;
+    for (let i = 0; i < allNumbers.length; i++) {
+      for (let j = 0; j < allNumbers.length; j++) {
+        if (i === j) continue;
+        const diff = allNumbers[i] - allNumbers[j];
+        if (allNumbers.includes(diff) && diff > 0) {
+          result.peso_bruto = allNumbers[i];
+          result.peso_tara = allNumbers[j];
+          result.peso_neto = diff;
+          foundWeights = true;
+          break;
+        }
+      }
+      if (foundWeights) break;
+    }
+
+    const patentRegex = /\b([A-Z]{3}\d{3}|[A-Z]{2}\d{3}[A-Z]{2})\b/gi;
+    const patents = [];
+    while ((match = patentRegex.exec(text)) !== null) {
+      patents.push(match[1].toUpperCase());
+    }
+    if (patents.length >= 2) {
+      result.chasis = patents[0];
+      result.acoplado = patents[1];
+    } else {
+      const dominiosMatch = text.match(/Dominios:\s*([A-Z0-9]+)\s*-\s*([A-Z0-9]+)/i);
+      if (dominiosMatch) {
+        result.chasis = dominiosMatch[1].trim().toUpperCase();
+        result.acoplado = dominiosMatch[2].trim().toUpperCase();
+      }
+    }
+
+    const kmsMatch = text.match(/Kms\.\s*a\s*recorrer:\s*(\d+)/i);
+    if (kmsMatch) {
+      result.km = parseInt(kmsMatch[1]);
+    } else {
+      const lineMatch = text.match(/\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}(?::\d{2})?\s+(\d+)/);
+      if (lineMatch) result.km = parseInt(lineMatch[1]);
+    }
+
+    const procedenciaIndex = text.indexOf("C - PROCEDENCIA");
+    const destinoMercaderiaIndex = text.indexOf("D - DESTINO DE LA MERCADERÍA");
+    if (procedenciaIndex !== -1 && destinoMercaderiaIndex !== -1) {
+      const chunk = text.substring(procedenciaIndex, destinoMercaderiaIndex);
+      const lines = chunk.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const valueLines = lines.filter(l => 
+        !l.includes("C - PROCEDENCIA") &&
+        !l.includes("N° Planta") &&
+        !l.includes("Localidad") &&
+        !l.includes("Es un campo") &&
+        !l.includes("Latitud")
+      );
+      if (valueLines.length >= 2) {
+        const firstLine = valueLines[0];
+        const plantaMatch = firstLine.match(/^(\d+)\s+(.+)$/);
+        if (plantaMatch) {
+          result.origen_planta = plantaMatch[1];
+          result.origen_direccion = plantaMatch[2];
+        }
+        
+        const secondLine = valueLines[1];
+        const provs = ["BUENOS AIRES", "CORDOBA", "CÓRDOBA", "SANTA FE", "ENTRE RIOS", "ENTRE RÍOS", "SANTIAGO DEL ESTERO", "CHACO", "LA PAMPA", "SALTA", "TUCUMAN", "TUCUMÁN"];
+        let foundProv = "";
+        for (const p of provs) {
+          if (secondLine.toUpperCase().includes(p)) {
+            foundProv = p;
+            break;
+          }
+        }
+        if (foundProv) {
+          result.origen_prov = foundProv;
+          result.origen_loc = secondLine.replace(new RegExp(foundProv, "gi"), "").trim();
+        } else {
+          const lastSpace = secondLine.lastIndexOf(" ");
+          if (lastSpace !== -1) {
+            result.origen_loc = secondLine.substring(0, lastSpace).trim();
+            result.origen_prov = secondLine.substring(lastSpace + 1).trim();
+          } else {
+            result.origen_loc = secondLine;
+            result.origen_prov = "";
+          }
+        }
+      }
+    }
+
+    const destinoIndex = text.indexOf("D - DESTINO DE LA MERCADERÍA");
+    const datosTransporteIndex = text.indexOf("E - DATOS DEL TRANSPORTE");
+    if (destinoIndex !== -1 && datosTransporteIndex !== -1) {
+      const chunk = text.substring(destinoIndex, datosTransporteIndex);
+      const lines = chunk.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const valueLines = lines.filter(l => 
+        !l.includes("D - DESTINO") &&
+        !l.includes("N° Planta") &&
+        !l.includes("Localidad") &&
+        !l.includes("Dirección") &&
+        !l.includes("Es un campo")
+      );
+      
+      let plantaDirLine = "";
+      let otherLines = [];
+      for (const l of valueLines) {
+        if (/^\d+\s+/.test(l)) {
+          plantaDirLine = l;
+        } else {
+          otherLines.push(l);
+        }
+      }
+      
+      if (plantaDirLine) {
+        const match = plantaDirLine.match(/^(\d+)\s+(.+)$/);
+        if (match) {
+          result.nro_planta = match[1];
+          result.destino_direccion = match[2];
+        }
+      }
+      
+      const provs = ["BUENOS AIRES", "CORDOBA", "CÓRDOBA", "SANTA FE", "ENTRE RIOS", "ENTRE RÍOS", "SANTIAGO DEL ESTERO", "CHACO", "LA PAMPA", "SALTA", "TUCUMAN", "TUCUMÁN"];
+      let prov = "";
+      let loc = "";
+      
+      for (const l of otherLines) {
+        let isProv = false;
+        for (const p of provs) {
+          if (l.toUpperCase().includes(p)) {
+            prov = p;
+            isProv = true;
+            const remainder = l.replace(new RegExp(p, "gi"), "").trim();
+            if (remainder) loc = remainder;
+            break;
+          }
+        }
+        if (!isProv) {
+          if (!loc) loc = l;
+          else loc = loc + " " + l;
+        }
+      }
+      
+      result.destino_prov = prov;
+      result.destino_loc = loc;
+    }
+
+    // Fallbacks
+    if (!result.rte_primaria) {
+      result.rte_primaria = result.titular;
+      result.rte_primaria_cuit = result.titular_cuit;
+    }
+    if (!result.renspa) {
+      result.renspa = result.origen_loc ? result.origen_loc.toLowerCase() : "";
+    }
+    if (result.tarifa === undefined) {
+      result.tarifa = 0;
+    }
+
+    return result;
+  };
+
   const handleFile = (file) => {
     if (!file) return;
+    
+    // DEMO FALLBACK
+    if (file.name === "CPE_DEMO.pdf") {
+      setImporting(true);
+      setTimeout(() => {
+        setImporting(false);
+        const randomCpe = "00000-" + String(Math.floor(10000000 + Math.random() * 90000000)).slice(0, 8);
+        const randomCtg = String(Math.floor(10000000000 + Math.random() * 90000000000));
+        
+        const demoResult = {
+          nro_cpe: randomCpe,
+          nro_ctg: randomCtg,
+          fecha: "16/02/2026",
+          fecha_iso: "2026-02-16",
+          vencimiento: "19/02/2026",
+          vencimiento_iso: "2026-02-19",
+          titular: "INVERSIONES DEL SALADO S.A.",
+          titular_cuit: "30710183992",
+          rte_primaria: "ENRIQUE TOYA E HIJOS S A",
+          rte_primaria_cuit: "30532041690",
+          destinatario: "BUNGE ARGENTINA S.A.",
+          destinatario_cuit: "30700869918",
+          destino: "RENOVA S.A.",
+          destino_cuit: "30709590894",
+          transportista: "LOGISTICA CENTRO S.R.L.",
+          transportista_cuit: "30710206194",
+          chofer: "ZAMORA PABLO LEANDRO",
+          chofer_cuit: "20265045880",
+          especie: "Soja",
+          campana: "2424",
+          declaracion: "CONFORME",
+          peso_bruto: 52380,
+          peso_tara: 17400,
+          peso_neto: 34980,
+          origen_loc: "GRAMILLA",
+          origen_prov: "SGO. DEL ESTERO",
+          renspa: "gramilla",
+          destino_loc: "TIMBUES JOSE MARIA",
+          destino_prov: "SANTA FE",
+          nro_planta: "518477",
+          chasis: "AA496YI",
+          acoplado: "AD846IU",
+          km: 760,
+          tarifa: 411,
+        };
+        
+        setImportResult(demoResult);
+        setImportContratoCompra("");
+        setImportContratoVenta("");
+        setImportTarifaFleteReal(demoResult.tarifa || "");
+        setImportHumedadSalida("13.2");
+      }, 1000);
+      return;
+    }
+
     if (!file.name.toLowerCase().endsWith('.pdf')) {
       alert("Por favor, selecciona un archivo PDF válido.");
       return;
     }
+    
     setImporting(true);
-    setTimeout(()=>{
-      setImporting(false);
-      const randomCpe = "00000-" + String(Math.floor(10000000 + Math.random() * 90000000)).slice(0, 8);
-      const randomCtg = String(Math.floor(10000000000 + Math.random() * 90000000000));
-      setImportResult({
-        nro_cpe: randomCpe,
-        nro_ctg: randomCtg,
-        fecha: "16/02/2026",
-        vencimiento: "19/02/2026",
-        titular: "INVERSIONES DEL SALADO S.A.",
-        rte_primaria: "ENRIQUE TOYA E HIJOS S A",
-        destinatario: "BUNGE ARGENTINA S.A.",
-        destino: "RENOVA S.A.",
-        transportista: "LOGISTICA CENTRO S.R.L.",
-        chofer: "ZAMORA PABLO LEANDRO",
-        especie: "Soja",
-        campana: "2424",
-        declaracion: "CONFORME",
-        peso_bruto: 52380,
-        peso_tara: 17400,
-        peso_neto: 34980,
-        origen_loc: "GRAMILLA",
-        origen_prov: "SGO. DEL ESTERO",
-        renspa: "gramilla",
-        destino_loc: "TIMBUES JOSE MARIA",
-        destino_prov: "SANTA FE",
-        nro_planta: "518477",
-        chasis: "AA496YI",
-        acoplado: "AD846IU",
-        km: 760,
-        tarifa: 411,
-      });
-    },2000);
+    const reader = new FileReader();
+    reader.onload = async function() {
+      try {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+        const typedarray = new Uint8Array(this.result);
+        const pdf = await window.pdfjsLib.getDocument(typedarray).promise;
+        let fullText = "";
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items.map(item => item.str).join("\n");
+          fullText += pageText + "\n";
+        }
+        
+        const parsed = parseCpeText(fullText);
+        setImportResult(parsed);
+        setImportContratoCompra("");
+        setImportContratoVenta("");
+        setImportTarifaFleteReal(parsed.tarifa || "");
+        setImportHumedadSalida("13.2");
+      } catch (err) {
+        alert("Error al procesar el archivo PDF: " + err.message);
+      } finally {
+        setImporting(false);
+      }
+    };
+    reader.readAsArrayBuffer(file);
   };
 
   const handleImport = () => {
@@ -2580,35 +2922,61 @@ const Movimientos = ({modulo, usuario}) => {
                 ))}
               </div>
               <div className="form-grid-2" style={{marginBottom:14}}>
-                <FF label="Asignar a Contrato de Compra"><select><option value="">Sin asignar</option>{contratos.filter(c=>c.tipo==="COMPRA").map(c=><option key={c.id}>{c.numero} — {c.especie}</option>)}</select></FF>
-                <FF label="Tarifa Flete Real Pactada"><input type="number" placeholder={importResult.tarifa}/></FF>
-                <FF label="Humedad de Salida (%)"><input type="number" placeholder="13.2" step="0.1"/></FF>
-                <FF label="Contrato de Venta"><select><option value="">Sin asignar</option>{contratos.filter(c=>c.tipo==="VENTA").map(c=><option key={c.id}>{c.numero} — {c.especie}</option>)}</select></FF>
+                <FF label="Asignar a Contrato de Compra">
+                  <select value={importContratoCompra} onChange={e=>setImportContratoCompra(e.target.value)}>
+                    <option value="">Sin asignar</option>
+                    {contratos.filter(c=>c.tipo==="COMPRA").map(c=>
+                      <option key={c.id} value={c.id}>{c.numero} — {c.especie}</option>
+                    )}
+                  </select>
+                </FF>
+                <FF label="Tarifa Flete Real Pactada">
+                  <input type="number" value={importTarifaFleteReal} onChange={e=>setImportTarifaFleteReal(e.target.value)} placeholder={importResult.tarifa}/>
+                </FF>
+                <FF label="Humedad de Salida (%)">
+                  <input type="number" value={importHumedadSalida} onChange={e=>setImportHumedadSalida(e.target.value)} placeholder="13.2" step="0.1"/>
+                </FF>
+                <FF label="Contrato de Venta">
+                  <select value={importContratoVenta} onChange={e=>setImportContratoVenta(e.target.value)}>
+                    <option value="">Sin asignar</option>
+                    {contratos.filter(c=>c.tipo==="VENTA").map(c=>
+                      <option key={c.id} value={c.id}>{c.numero} — {c.especie}</option>
+                    )}
+                  </select>
+                </FF>
               </div>
               <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
                 <Btn variant="secondary" onClick={()=>setImportResult(null)}>← Volver</Btn>
                 <Btn onClick={async()=>{
                   try {
+                    const MAP_ESPECIES = { "soja": 1, "trigo": 2, "maíz": 3, "maiz": 3, "girasol": 4, "sorgo": 5, "cebada": 6 };
+                    const mapCampanaToId = (camp) => {
+                      if (!camp) return 2;
+                      const s = String(camp);
+                      if (s.includes("23") || (s.includes("24") && !s.includes("25"))) return 1;
+                      if (s.includes("25") || s.includes("26")) return 3;
+                      return 2;
+                    };
                     const payload = {
                       modalidad: modulo,
                       nro_cpe: importResult.nro_cpe,
                       nro_ctg: importResult.nro_ctg,
-                      fecha_cpe: "2026-02-16",
-                      fecha_vencimiento_cpe: "2026-02-19",
-                      titular_cpe_cuit: "30710183992",
+                      fecha_cpe: importResult.fecha_iso || "2026-02-16",
+                      fecha_vencimiento_cpe: importResult.vencimiento_iso || "2026-02-19",
+                      titular_cpe_cuit: importResult.titular_cuit || "30710183992",
                       titular_cpe_nombre: importResult.titular,
-                      remitente_comercial_productor_cuit: "30532041690",
-                      remitente_comercial_productor_nombre: importResult.rte_primaria,
-                      rte_comercial_venta_primaria_cuit: "30532041690",
-                      rte_comercial_venta_primaria_nombre: importResult.rte_primaria,
-                      destinatario_cuit: "30700869918",
+                      remitente_comercial_productor_cuit: importResult.rte_primaria_cuit || importResult.titular_cuit || "30532041690",
+                      remitente_comercial_productor_nombre: importResult.rte_primaria || importResult.titular,
+                      rte_comercial_venta_primaria_cuit: importResult.rte_primaria_cuit || importResult.titular_cuit || "30532041690",
+                      rte_comercial_venta_primaria_nombre: importResult.rte_primaria || importResult.titular,
+                      destinatario_cuit: importResult.destinatario_cuit || "30700869918",
                       destinatario_nombre: importResult.destinatario,
-                      destino_cuit: "30709590894",
+                      destino_cuit: importResult.destino_cuit || "30709590894",
                       destino_nombre: importResult.destino,
-                      flete_pagador_cuit: "30710183992",
-                      flete_pagador_nombre: importResult.titular,
-                      id_especie: 1,
-                      id_campana: 2,
+                      flete_pagador_cuit: importResult.flete_pagador_cuit || importResult.titular_cuit || "30710183992",
+                      flete_pagador_nombre: importResult.flete_pagador_nombre || importResult.titular,
+                      id_especie: MAP_ESPECIES[importResult.especie.toLowerCase()] || 1,
+                      id_campana: mapCampanaToId(importResult.campana),
                       renspa: importResult.renspa,
                       localidad_origen: importResult.origen_loc,
                       provincia_origen: importResult.origen_prov,
@@ -2619,11 +2987,13 @@ const Movimientos = ({modulo, usuario}) => {
                       patente_acoplado: importResult.acoplado,
                       km_a_recorrer: parseFloat(importResult.km),
                       tarifa_catac: parseFloat(importResult.tarifa),
-                      tarifa_flete_real: parseFloat(importResult.tarifa),
+                      tarifa_flete_real: parseFloat(importTarifaFleteReal || importResult.tarifa || 0),
                       peso_bruto_salida_kg: parseFloat(importResult.peso_bruto),
                       peso_tara_salida_kg: parseFloat(importResult.peso_tara),
-                      humedad_salida_pct: 13.2,
-                      usuario_carga: usuario
+                      humedad_salida_pct: parseFloat(importHumedadSalida || 13.2),
+                      usuario_carga: usuario,
+                      id_contrato_compra: importContratoCompra ? parseInt(importContratoCompra) : null,
+                      id_contrato_venta: importContratoVenta ? parseInt(importContratoVenta) : null
                     };
                     const r = await api.post("/api/movimientos", payload);
                     alert(`✓ Movimiento ${r.numero_movimiento} creado desde CPE N° ${importResult.nro_cpe}\nEstado: EN_TRÁNSITO`);
