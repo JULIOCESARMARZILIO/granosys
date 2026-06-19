@@ -1,6 +1,50 @@
 const router = require('express').Router();
 const { pool } = require('../db');
 
+// Recalcula y actualiza la cantidad de toneladas asignadas y el estado de un contrato
+async function recalcularContrato(id_contrato) {
+  if (!id_contrato) return;
+  const client = await pool.connect();
+  try {
+    const { rows: contractRows } = await client.query(
+      'SELECT tipo_contrato, cantidad_toneladas_pactadas FROM contratos WHERE id = $1',
+      [id_contrato]
+    );
+    if (contractRows.length === 0) return;
+    const { tipo_contrato, cantidad_toneladas_pactadas } = contractRows[0];
+
+    let sumQuery = '';
+    if (tipo_contrato === 'COMPRA') {
+      sumQuery = 'SELECT COALESCE(SUM(peso_neto_salida_kg), 0) as total_kg FROM movimientos WHERE id_contrato_compra = $1';
+    } else {
+      sumQuery = 'SELECT COALESCE(SUM(peso_neto_salida_kg), 0) as total_kg FROM movimientos WHERE id_contrato_venta = $1';
+    }
+
+    const { rows: sumRows } = await client.query(sumQuery, [id_contrato]);
+    const total_toneladas = parseFloat(sumRows[0].total_kg) / 1000;
+
+    let estado = 'CONFIRMADO';
+    if (total_toneladas >= parseFloat(cantidad_toneladas_pactadas)) {
+      estado = 'CUMPLIDO';
+    } else if (total_toneladas > 0) {
+      estado = 'EN_CURSO';
+    }
+
+    await client.query(
+      `UPDATE contratos SET
+         cantidad_toneladas_asignadas = $1,
+         estado = $2,
+         updated_at = NOW()
+       WHERE id = $3`,
+      [total_toneladas, estado, id_contrato]
+    );
+  } catch (err) {
+    console.error(`Error al recalcular contrato ${id_contrato}:`, err);
+  } finally {
+    client.release();
+  }
+}
+
 // GET todos los contratos
 router.get('/', async (req, res) => {
   try {
@@ -557,6 +601,9 @@ router.put('/:id', async (req, res) => {
     if (!rows[0]) {
       return res.status(404).json({ error: 'Contrato no encontrado' });
     }
+
+    // Recalcular contrato (para actualizar estado según pactadas vs asignadas)
+    await recalcularContrato(id);
 
     res.json(rows[0]);
   } catch (err) {

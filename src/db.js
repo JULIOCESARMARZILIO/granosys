@@ -1,4 +1,5 @@
 const { Pool } = require('pg');
+const crypto = require('crypto');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -175,6 +176,7 @@ async function initDB() {
         modalidad VARCHAR(20) NOT NULL,
         estado VARCHAR(20) DEFAULT 'BORRADOR',
         estado_liquidacion VARCHAR(20) DEFAULT 'SIN_ASIGNAR',
+        estado_flete VARCHAR(20) DEFAULT 'PENDIENTE',
         id_contrato_compra INTEGER REFERENCES contratos(id),
         id_contrato_venta INTEGER REFERENCES contratos(id),
         nro_cpe VARCHAR(30),
@@ -239,6 +241,7 @@ async function initDB() {
         factor_aplicado DECIMAL(8,6),
         kg_liquidables DECIMAL(12,3),
         observaciones TEXT,
+        codigo_preliquidacion VARCHAR(50),
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );
@@ -372,6 +375,21 @@ async function initDB() {
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS usuario_carga VARCHAR(50);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS chofer_nombre VARCHAR(200);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS transportista_nombre VARCHAR(200);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS nro_factura_flete VARCHAR(50);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS codigo_preliquidacion VARCHAR(50);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS estado_flete VARCHAR(20) DEFAULT 'PENDIENTE';
+
+      -- Inicializar estado_flete basado en campos de flete existentes
+      UPDATE movimientos SET estado_flete = 'LIQUIDADO' WHERE nro_factura_flete IS NOT NULL AND (estado_flete IS NULL OR estado_flete = 'PENDIENTE');
+      UPDATE movimientos SET estado_flete = 'PRELIQUIDADO' WHERE codigo_preliquidacion IS NOT NULL AND nro_factura_flete IS NULL AND (estado_flete IS NULL OR estado_flete = 'PENDIENTE');
+
+      -- Restaurar estado_liquidacion de granos para movimientos que tenían conflicto por liquidación de fletes
+      UPDATE movimientos 
+      SET estado_liquidacion = CASE 
+            WHEN id_contrato_compra IS NOT NULL OR id_contrato_venta IS NOT NULL THEN 'ASIGNADO' 
+            ELSE 'SIN_ASIGNAR' 
+          END 
+      WHERE (estado_liquidacion = 'PRELIQUIDADO' OR (estado_liquidacion = 'LIQUIDADO' AND id NOT IN (SELECT id_movimiento FROM liquidacion_movimientos)));
 
       CREATE TABLE IF NOT EXISTS reportes_ia (
         id SERIAL PRIMARY KEY,
@@ -381,7 +399,28 @@ async function initDB() {
         columnas TEXT[] NOT NULL,
         created_at TIMESTAMP DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS usuarios (
+        id SERIAL PRIMARY KEY,
+        usuario VARCHAR(50) UNIQUE NOT NULL,
+        contrasena VARCHAR(100) NOT NULL,
+        nombre VARCHAR(100),
+        rol VARCHAR(20) DEFAULT 'OPERADOR',
+        activo BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
     `);
+
+    // Sembrar usuario administrador por defecto
+    const { rows: userCount } = await client.query("SELECT id FROM usuarios WHERE usuario = 'admin'");
+    if (userCount.length === 0) {
+      const adminPass = crypto.createHash('sha256').update('admin123').digest('hex');
+      await client.query(`
+        INSERT INTO usuarios (usuario, contrasena, nombre, rol, activo)
+        VALUES ($1, $2, $3, 'ADMIN', TRUE)
+      `, ['admin', adminPass, 'Administrador']);
+      console.log('Usuario administrador sembrado correctamente.');
+    }
 
     // Insertar datos iniciales si no existen
     const { rows: campanas } = await client.query('SELECT id FROM campanas LIMIT 1');
@@ -464,6 +503,40 @@ async function initDB() {
       }
       console.log('Semilla de mermas_humedad completada.');
     }
+
+    // Sembrar transportistas y choferes si no existen
+    const { rows: tExist } = await client.query('SELECT id FROM transportistas LIMIT 1');
+    if (tExist.length === 0) {
+      console.log('Sembrando transportistas y choferes iniciales...');
+      const { rows: t1 } = await client.query(`
+        INSERT INTO transportistas (codigo_interno, modalidad, cuit, razon_social, condicion_iva, activo)
+        VALUES ('T-0001', 'FORMAL', '30-71020619-4', 'Logística Centro S.R.L.', 'RI', TRUE)
+        RETURNING id
+      `);
+      const { rows: t2 } = await client.query(`
+        INSERT INTO transportistas (codigo_interno, modalidad, cuit, razon_social, condicion_iva, activo)
+        VALUES ('T-0002', 'FORMAL', '20-18234567-8', 'Transportes del Norte', 'RI', TRUE)
+        RETURNING id
+      `);
+      const { rows: t3 } = await client.query(`
+        INSERT INTO transportistas (codigo_interno, modalidad, cuit, razon_social, condicion_iva, activo)
+        VALUES ('T-0003', 'INFORMAL', NULL, 'Fletes Rápidos', 'CF', TRUE)
+        RETURNING id
+      `);
+      await client.query(`
+        INSERT INTO transportistas (codigo_interno, modalidad, cuit, razon_social, condicion_iva, activo)
+        VALUES ('T-0004', 'FORMAL', '20-24567890-1', 'García Transporte S.A.', 'RI', TRUE)
+      `);
+      await client.query(`
+        INSERT INTO choferes (cuit_dni, nombre_completo, id_transportista, activo) VALUES
+        ('20-26504588-0', 'Zamora Pablo Leandro', $1, TRUE),
+        ('20-31234567-9', 'López Mario Alberto', $1, TRUE),
+        ('20-28765432-1', 'Ramírez Pedro José', $2, TRUE),
+        ('20-22345678-3', 'Fernández Juan Carlos', $3, TRUE)
+      `, [t1[0].id, t2[0].id, t3[0].id]);
+      console.log('Semilla de transportistas y choferes completada.');
+    }
+
 
     // Recalcular mermas por humedad retroactivas para todos los movimientos descargados basados en mermas_humedad
     await client.query(`

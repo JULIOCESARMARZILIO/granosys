@@ -190,5 +190,85 @@ router.put('/movimientos/:id/asignar', async (req, res) => {
   }
 });
 
+// GET /transportistas/resumen - Resumen de cuentas corrientes de transportistas
+router.get('/transportistas/resumen', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT t.id,
+             t.razon_social as nombre,
+             COALESCE((SELECT SUM(cc.debe - cc.haber) FROM cc_transportistas cc WHERE cc.id_transportista = t.id), 0) as saldo,
+             COALESCE((SELECT COUNT(*) FROM cc_transportistas cc WHERE cc.id_transportista = t.id AND cc.estado = 'ABIERTO'), 0) as fletes,
+             COALESCE((SELECT SUM(m.faltante_kg) FROM movimientos m WHERE m.id_transportista = t.id), 0) as faltantes
+      FROM transportistas t
+      WHERE t.activo = TRUE
+      ORDER BY t.razon_social ASC
+    `);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /transportistas/:id - Detalle de movimientos de cuenta corriente de un transportista
+router.get('/transportistas/:id', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT cc.*
+      FROM cc_transportistas cc
+      WHERE cc.id_transportista = $1
+      ORDER BY cc.fecha DESC, cc.id DESC
+    `, [req.params.id]);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /transportistas/movimientos - Registrar pago o adelanto a un transportista
+router.post('/transportistas/movimientos', async (req, res) => {
+  try {
+    const { id_transportista, fecha, tipo_movimiento, concepto, monto } = req.body;
+    
+    if (!id_transportista || !fecha || !tipo_movimiento || !monto) {
+      return res.status(400).json({ error: "Faltan campos obligatorios" });
+    }
+
+    const valorMonto = parseFloat(monto);
+    if (isNaN(valorMonto) || valorMonto <= 0) {
+      return res.status(400).json({ error: "El monto debe ser un número positivo" });
+    }
+
+    let debe = 0;
+    let haber = 0;
+    
+    if (tipo_movimiento === 'PAGO' || tipo_movimiento === 'ADELANTO') {
+      debe = valorMonto;
+    } else if (tipo_movimiento === 'AJUSTE') {
+      haber = valorMonto;
+    } else {
+      return res.status(400).json({ error: "Tipo de movimiento no válido. Debe ser PAGO, ADELANTO o AJUSTE" });
+    }
+
+    // Obtener último saldo
+    const { rows: lastCc } = await pool.query(
+      'SELECT saldo_acumulado FROM cc_transportistas WHERE id_transportista = $1 ORDER BY fecha DESC, id DESC LIMIT 1',
+      [id_transportista]
+    );
+    const lastSaldo = lastCc[0] ? parseFloat(lastCc[0].saldo_acumulado) : 0;
+    const saldo_acumulado = lastSaldo + (debe - haber);
+
+    const { rows } = await pool.query(`
+      INSERT INTO cc_transportistas
+        (id_transportista, fecha, concepto, descripcion, debe, haber, saldo_acumulado, estado)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'ABIERTO')
+      RETURNING *
+    `, [id_transportista, fecha, concepto, concepto, debe, haber, saldo_acumulado]);
+
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
 
