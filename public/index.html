@@ -2213,60 +2213,6 @@ const Movimientos = ({modulo, usuario}) => {
 
   const handleFile = (file) => {
     if (!file) return;
-    
-    // DEMO FALLBACK
-    if (file.name === "CPE_DEMO.pdf") {
-      setImporting(true);
-      setTimeout(() => {
-        setImporting(false);
-        const randomCpe = "00000-" + String(Math.floor(10000000 + Math.random() * 90000000)).slice(0, 8);
-        const randomCtg = String(Math.floor(10000000000 + Math.random() * 90000000000));
-        
-        const demoResult = {
-          nro_cpe: randomCpe,
-          nro_ctg: randomCtg,
-          fecha: "16/02/2026",
-          fecha_iso: "2026-02-16",
-          vencimiento: "19/02/2026",
-          vencimiento_iso: "2026-02-19",
-          titular: "INVERSIONES DEL SALADO S.A.",
-          titular_cuit: "30710183992",
-          rte_primaria: "ENRIQUE TOYA E HIJOS S A",
-          rte_primaria_cuit: "30532041690",
-          destinatario: "BUNGE ARGENTINA S.A.",
-          destinatario_cuit: "30700869918",
-          destino: "RENOVA S.A.",
-          destino_cuit: "30709590894",
-          transportista: "LOGISTICA CENTRO S.R.L.",
-          transportista_cuit: "30710206194",
-          chofer: "ZAMORA PABLO LEANDRO",
-          chofer_cuit: "20265045880",
-          especie: "Soja",
-          campana: "2424",
-          declaracion: "CONFORME",
-          peso_bruto: 52380,
-          peso_tara: 17400,
-          peso_neto: 34980,
-          origen_loc: "GRAMILLA",
-          origen_prov: "SGO. DEL ESTERO",
-          renspa: "gramilla",
-          destino_loc: "TIMBUES JOSE MARIA",
-          destino_prov: "SANTA FE",
-          nro_planta: "518477",
-          chasis: "AA496YI",
-          acoplado: "AD846IU",
-          km: 760,
-          tarifa: 411,
-        };
-        
-        setImportResult(demoResult);
-        setImportContratoCompra("");
-        setImportContratoVenta("");
-        setImportTarifaFleteReal(demoResult.tarifa || "");
-        setImportHumedadSalida("13.2");
-      }, 1000);
-      return;
-    }
 
     if (!file.name.toLowerCase().endsWith('.pdf')) {
       alert("Por favor, selecciona un archivo PDF válido.");
@@ -2301,10 +2247,6 @@ const Movimientos = ({modulo, usuario}) => {
       }
     };
     reader.readAsArrayBuffer(file);
-  };
-
-  const handleImport = () => {
-    handleFile({ name: "CPE_DEMO.pdf" });
   };
 
   const parseTicketText = (text) => {
@@ -3145,15 +3087,11 @@ const Movimientos = ({modulo, usuario}) => {
                 <Btn variant="secondary" size="sm">Seleccionar archivo PDF</Btn>
               </div>
               <div className="alert-info" style={{marginBottom:16}}>💡 La IA extrae automáticamente todos los datos. Validás antes de confirmar.</div>
-              {importing?(
+              {importing && (
                 <div style={{textAlign:"center",padding:"16px 0"}}>
                   <div className="pulse" style={{color:"#f5a623",fontWeight:600,marginBottom:6}}>Leyendo PDF con IA...</div>
                   <div style={{color:"#8890a8",fontSize:13}}>Extrayendo datos de la Carta de Porte</div>
                 </div>
-              ):(
-                <Btn onClick={handleImport} style={{width:"100%",justifyContent:"center",padding:"10px"}}>
-                  Procesar CPE (demo con archivo cargado)
-                </Btn>
               )}
             </div>
           ):(
@@ -3205,38 +3143,38 @@ const Movimientos = ({modulo, usuario}) => {
                     };
                     const payload = {
                       modalidad: modulo,
-                      nro_cpe: importResult.nro_cpe,
-                      nro_ctg: importResult.nro_ctg,
-                      fecha_cpe: importResult.fecha_iso || "2026-02-16",
-                      fecha_vencimiento_cpe: importResult.vencimiento_iso || "2026-02-19",
-                      titular_cpe_cuit: importResult.titular_cuit || "30710183992",
-                      titular_cpe_nombre: importResult.titular,
-                      remitente_comercial_productor_cuit: importResult.rte_primaria_cuit || importResult.titular_cuit || "30532041690",
-                      remitente_comercial_productor_nombre: importResult.rte_primaria || importResult.titular,
-                      rte_comercial_venta_primaria_cuit: importResult.rte_primaria_cuit || importResult.titular_cuit || "30532041690",
-                      rte_comercial_venta_primaria_nombre: importResult.rte_primaria || importResult.titular,
-                      destinatario_cuit: importResult.destinatario_cuit || "30700869918",
-                      destinatario_nombre: importResult.destinatario,
-                      destino_cuit: importResult.destino_cuit || "30709590894",
-                      destino_nombre: importResult.destino,
-                      flete_pagador_cuit: importResult.flete_pagador_cuit || importResult.titular_cuit || "30710183992",
-                      flete_pagador_nombre: importResult.flete_pagador_nombre || importResult.titular,
-                      id_especie: MAP_ESPECIES[importResult.especie.toLowerCase()] || 1,
+                      nro_cpe: importResult.nro_cpe || null,
+                      nro_ctg: importResult.nro_ctg || null,
+                      fecha_cpe: importResult.fecha_iso || null,
+                      fecha_vencimiento_cpe: importResult.vencimiento_iso || null,
+                      titular_cpe_cuit: importResult.titular_cuit || null,
+                      titular_cpe_nombre: importResult.titular || null,
+                      remitente_comercial_productor_cuit: importResult.rte_primaria_cuit || importResult.titular_cuit || null,
+                      remitente_comercial_productor_nombre: importResult.rte_primaria || importResult.titular || null,
+                      rte_comercial_venta_primaria_cuit: importResult.rte_primaria_cuit || importResult.titular_cuit || null,
+                      rte_comercial_venta_primaria_nombre: importResult.rte_primaria || importResult.titular || null,
+                      destinatario_cuit: importResult.destinatario_cuit || null,
+                      destinatario_nombre: importResult.destinatario || null,
+                      destino_cuit: importResult.destino_cuit || null,
+                      destino_nombre: importResult.destino || null,
+                      flete_pagador_cuit: importResult.flete_pagador_cuit || importResult.titular_cuit || null,
+                      flete_pagador_nombre: importResult.flete_pagador_nombre || importResult.titular || null,
+                      id_especie: MAP_ESPECIES[importResult.especie ? importResult.especie.toLowerCase() : ""] || 1,
                       id_campana: mapCampanaToId(importResult.campana),
-                      renspa: importResult.renspa,
-                      localidad_origen: importResult.origen_loc,
-                      provincia_origen: importResult.origen_prov,
-                      localidad_destino: importResult.destino_loc,
-                      provincia_destino: importResult.destino_prov,
-                      nro_planta_destino: importResult.nro_planta,
-                      patente_chasis: importResult.chasis,
-                      patente_acoplado: importResult.acoplado,
-                      km_a_recorrer: parseFloat(importResult.km),
-                      tarifa_catac: parseFloat(importResult.tarifa),
+                      renspa: importResult.renspa || null,
+                      localidad_origen: importResult.origen_loc || null,
+                      provincia_origen: importResult.origen_prov || null,
+                      localidad_destino: importResult.destino_loc || null,
+                      provincia_destino: importResult.destino_prov || null,
+                      nro_planta_destino: importResult.nro_planta || null,
+                      patente_chasis: importResult.chasis || null,
+                      patente_acoplado: importResult.acoplado || null,
+                      km_a_recorrer: parseFloat(importResult.km) || 0,
+                      tarifa_catac: parseFloat(importResult.tarifa) || 0,
                       tarifa_flete_real: parseFloat(importTarifaFleteReal || importResult.tarifa || 0),
-                      peso_bruto_salida_kg: parseFloat(importResult.peso_bruto),
-                      peso_tara_salida_kg: parseFloat(importResult.peso_tara),
-                      humedad_salida_pct: parseFloat(importHumedadSalida || 13.2),
+                      peso_bruto_salida_kg: parseFloat(importResult.peso_bruto) || 0,
+                      peso_tara_salida_kg: parseFloat(importResult.peso_tara) || 0,
+                      humedad_salida_pct: parseFloat(importHumedadSalida) || null,
                       usuario_carga: usuario,
                       id_contrato_compra: importContratoCompra ? parseInt(importContratoCompra) : null,
                       id_contrato_venta: importContratoVenta ? parseInt(importContratoVenta) : null
