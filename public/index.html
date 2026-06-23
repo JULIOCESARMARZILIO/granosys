@@ -59,6 +59,7 @@ tr:last-child td{border-bottom:none}
 .progress-fill{height:100%;border-radius:3px;background:#f5a623;transition:width .3s}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.0.2/tesseract.min.js"></script>
 </head>
 <body>
 <div id="root"></div>
@@ -1499,6 +1500,8 @@ const Movimientos = ({modulo, usuario}) => {
   const [ticketResult, setTicketResult] = useState(null);
   const [importingTicket, setImportingTicket] = useState(false);
   const [mappings, setMappings] = useState([]);
+  const [ticketFileUrl, setTicketFileUrl] = useState(null);
+  const [uploadedTicketFile, setUploadedTicketFile] = useState(null);
   const [showImportExcel, setShowImportExcel] = useState(false);
   const [excelRows, setExcelRows] = useState([]);
   const [importingExcel, setImportingExcel] = useState(false);
@@ -2304,27 +2307,246 @@ const Movimientos = ({modulo, usuario}) => {
     handleFile({ name: "CPE_DEMO.pdf" });
   };
 
+  const parseTicketText = (text) => {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const result = {
+      numero: "",
+      productor: "",
+      cuit_prod: "",
+      comprador: "",
+      transportista: "",
+      chasis: "",
+      acoplado: "",
+      especie: "",
+      peso_bruto: "",
+      peso_tara: "",
+      peso_neto: "",
+      fecha: "",
+      destino: ""
+    };
+
+    // Robust number matching
+    const nroMatch = text.match(/(?:N[°\*\._\s]*ro:?|N[°\*\._\s:]+)\s*(\d+)/i);
+    if (nroMatch) result.numero = nroMatch[1];
+
+    // Robust Remitente matching
+    const remMatch = text.match(/Remitente:\s*([^C\n\r\t!]+)(?:!|\s|-)*(?:C\.?U\.?[IL]\.?T\.?|C\.?U\.?L\.?T|CUIT):?\s*([\d-]+)/i);
+    if (remMatch) {
+      result.productor = remMatch[1].trim();
+      result.cuit_prod = remMatch[2].trim();
+    } else {
+      const remOnlyMatch = text.match(/Remitente:\s*([^\n\r\t]+)/i);
+      if (remOnlyMatch) {
+        result.productor = remOnlyMatch[1]
+          .replace(/(?:C\.?U\.?[IL]\.?T\.?|C\.?U\.?L\.?T|CUIT).*/i, "")
+          .replace(/[!\-]/g, "")
+          .trim();
+      }
+      const cuitMatch = text.match(/(?:C\.?U\.?[IL]\.?T\.?|C\.?U\.?L\.?T|CUIT):?\s*([\d-]+)/i);
+      if (cuitMatch) result.cuit_prod = cuitMatch[1].trim();
+    }
+
+    // Robust Destinatario matching
+    const destMatch = text.match(/Destinatario:\s*([^\n\r\t_]+)/i);
+    if (destMatch) {
+      result.comprador = destMatch[1]
+        .replace(/(?:C\.?U\.?[IL]\.?T\.?|C\.?U\.?L\.?T|CUIT|CUTTER).*/i, "")
+        .replace(/[!\-_]/g, "")
+        .trim();
+    }
+
+    // Robust Transporte matching
+    const transMatch = text.match(/Transporte:\s*([^\n\r\t_]+)/i);
+    if (transMatch) {
+      result.transportista = transMatch[1]
+        .replace(/(?:C\.?U\.?[IL]\.?T\.?|C\.?U\.?L\.?T|CUIT).*/i, "")
+        .replace(/[!\-_;]/g, "")
+        .trim();
+    }
+
+    // Patent matching
+    const chasisMatch = text.match(/Patente Chasis:\s*([A-Z0-9\-]+)/i);
+    if (chasisMatch) result.chasis = chasisMatch[1].trim();
+    
+    const acopladoMatch = text.match(/Patente Acoplado:\s*([A-Z0-9\-\/]+)/i);
+    if (acopladoMatch) {
+      const rawAcop = acopladoMatch[1].trim().toUpperCase();
+      // Argentine patent pattern (AAA111 or AA111AA or AAA-111) or general length filter
+      const patentRegex = /^[A-Z]{3}\d{3}$|^[A-Z]{2}\d{3}[A-Z]{2}$|^[A-Z]{3}-\d{3}$/;
+      if (patentRegex.test(rawAcop) || (rawAcop.length >= 6 && rawAcop.length <= 9)) {
+        result.acoplado = rawAcop;
+      }
+    }
+
+    // Product / Species
+    const prodMatch = text.match(/Producto:\s*([^\n\r\t]+)/i);
+    if (prodMatch) {
+      const rawProd = prodMatch[1].trim().toLowerCase();
+      const granos = ["soja", "trigo", "maíz", "maiz", "girasol", "sorgo", "cebada", "vacunos"];
+      for (const g of granos) {
+        if (rawProd.includes(g)) {
+          result.especie = g.charAt(0).toUpperCase() + g.slice(1).replace("í", "i");
+          break;
+        }
+      }
+      if (!result.especie) result.especie = prodMatch[1].trim();
+    }
+
+    // Bruto, Neto, Tara (B?RUTO matches BRUTO and RUTO)
+    const brutoMatch = text.match(/(?:B?RUTO|PRUTO):\s*(\d+)/i);
+    if (brutoMatch) result.peso_bruto = brutoMatch[1];
+    
+    const netoMatch = text.match(/NET[O0]:\s*(\d+)/i);
+    if (netoMatch) result.peso_neto = netoMatch[1];
+
+    const taraMatch = text.match(/TARA:\s*(\d+)/i);
+    if (taraMatch) {
+      result.peso_tara = taraMatch[1];
+    } else if (result.peso_bruto && result.peso_neto) {
+      result.peso_tara = String(parseInt(result.peso_bruto) - parseInt(result.peso_neto));
+    }
+
+    // Date
+    const dateMatch = text.match(/(\d{2})[\/\-\.](\d{2})[\/\-\.](\d{4})/);
+    if (dateMatch) {
+      result.fecha = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`;
+    }
+
+    // Destino
+    const dests = ["Básculas Santa Fe", "Básculas Banja Fe", "Básculas de Santa Fe"];
+    for (const d of dests) {
+      if (text.toLowerCase().includes(d.toLowerCase())) {
+        result.destino = "Básculas Santa Fe";
+        break;
+      }
+    }
+    if (!result.destino) {
+      const linesRev = [...lines].reverse();
+      for (const l of linesRev) {
+        if (l.includes("Básculas")) {
+          result.destino = l.replace(/[!_:]/g, "").trim();
+          break;
+        }
+      }
+    }
+
+    return result;
+  };
+
+  const generateMappings = (parsed, fullText) => {
+    const lines = fullText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const getRawLine = (keys, val) => {
+      const keysArr = Array.isArray(keys) ? keys : [keys];
+      for (const l of lines) {
+        for (const k of keysArr) {
+          if (l.toLowerCase().includes(k.toLowerCase()) || (val && l.includes(val))) {
+            return l;
+          }
+        }
+      }
+      return val ? `${keysArr[0]}: ${val}` : `${keysArr[0]}: —`;
+    };
+
+    return [
+      { id: "numero", raw: getRawLine(["N°", "N*", "Nro", "N_"], parsed.numero), field: "numero", value: parsed.numero },
+      { id: "productor", raw: getRawLine("Remitente", parsed.productor), field: "productor", value: parsed.productor },
+      { id: "cuit_prod", raw: getRawLine(["C.U.I.T", "C.U.LT", "CUIT"], parsed.cuit_prod), field: "cuit_prod", value: parsed.cuit_prod },
+      { id: "comprador", raw: getRawLine("Destinatario", parsed.comprador), field: "comprador", value: parsed.comprador },
+      { id: "transportista", raw: getRawLine("Transporte", parsed.transportista), field: "transportista", value: parsed.transportista },
+      { id: "chasis", raw: getRawLine("Chasis", parsed.chasis), field: "chasis", value: parsed.chasis },
+      { id: "acoplado", raw: getRawLine("Acoplado", parsed.acoplado), field: "acoplado", value: parsed.acoplado || "" },
+      { id: "especie", raw: getRawLine(["Producto", "Grano", "Especie"], parsed.especie), field: "especie", value: parsed.especie },
+      { id: "peso_bruto", raw: getRawLine(["BRUTO", "RUTO"], parsed.peso_bruto), field: "peso_bruto", value: parsed.peso_bruto },
+      { id: "peso_tara", raw: getRawLine("TARA", parsed.peso_tara), field: "peso_tara", value: parsed.peso_tara },
+      { id: "peso_neto", raw: getRawLine("NETO", parsed.peso_neto), field: "peso_neto", value: parsed.peso_neto },
+      { id: "fecha", raw: getRawLine(["SALIDA", "ENTRADA", "Fecha"], parsed.fecha), field: "fecha", value: parsed.fecha },
+      { id: "destino", raw: parsed.destino ? `Destino: ${parsed.destino}` : "Básculas Santa Fe", field: "destino", value: parsed.destino || "Básculas Santa Fe" }
+    ];
+  };
+
   const handleTicketFile = (file) => {
-    if(!file) return;
+    if (!file) return;
+
+    setUploadedTicketFile(file);
+
+    if (file.name === "ticket_balanza.jpg") {
+      setImportingTicket(true);
+      setTicketFileUrl("/ticket_balanza.jpg");
+      setTimeout(() => {
+        setImportingTicket(false);
+        const demoMappings = [
+          { id: "numero", raw: "N° 00009243", field: "numero", value: "00009243" },
+          { id: "productor", raw: "Remitente: FULL AGRO S.A.", field: "productor", value: "FULL AGRO S.A." },
+          { id: "cuit_prod", raw: "C.U.I.T: 30-70892516-7", field: "cuit_prod", value: "30-70892516-7" },
+          { id: "comprador", raw: "Destinatario: BIOGEN21", field: "comprador", value: "BIOGEN21" },
+          { id: "transportista", raw: "Transporte: MUNARETO OSCAR", field: "transportista", value: "MUNARETO OSCAR" },
+          { id: "chasis", raw: "Patente Chasis: LUG-354", field: "chasis", value: "LUG-354" },
+          { id: "acoplado", raw: "Patente Acoplado: —", field: "acoplado", value: "" },
+          { id: "especie", raw: "Producto: SOJA", field: "especie", value: "Soja" },
+          { id: "peso_bruto", raw: "BRUTO: 44980 Kg.", field: "peso_bruto", value: "44980" },
+          { id: "peso_tara", raw: "TARA: 14900 Kg.", field: "peso_tara", value: "14900" },
+          { id: "peso_neto", raw: "NETO: 30080 Kg.", field: "peso_neto", value: "30080" },
+          { id: "fecha", raw: "SALIDA: 09/06/2026", field: "fecha", value: "2026-06-09" },
+          { id: "destino", raw: "Básculas Santa Fe", field: "destino", value: "Básculas Santa Fe" }
+        ];
+        setMappings(demoMappings);
+        setTicketResult(true);
+      }, 1000);
+      return;
+    }
+
     setImportingTicket(true);
-    setTimeout(()=>{
-      setImportingTicket(false);
-      setMappings([
-        { id: "numero", raw: "N° 00009243", field: "numero", value: "00009243" },
-        { id: "productor", raw: "Remitente: FULL AGRO S.A.", field: "productor", value: "FULL AGRO S.A." },
-        { id: "cuit_prod", raw: "C.U.I.T: 30-70892516-7", field: "cuit_prod", value: "30-70892516-7" },
-        { id: "comprador", raw: "Destinatario: BIOGEN21", field: "comprador", value: "BIOGEN21" },
-        { id: "transportista", raw: "Transporte: MUNARETO OSCAR", field: "transportista", value: "MUNARETO OSCAR" },
-        { id: "chasis", raw: "Patente Chasis: LUG-354", field: "chasis", value: "LUG-354" },
-        { id: "especie", raw: "Producto: SOJA", field: "especie", value: "Soja" },
-        { id: "peso_bruto", raw: "BRUTO: 44980 Kg.", field: "peso_bruto", value: "44980" },
-        { id: "peso_tara", raw: "TARA: 14900 Kg.", field: "peso_tara", value: "14900" },
-        { id: "peso_neto", raw: "NETO: 30080 Kg.", field: "peso_neto", value: "30080" },
-        { id: "fecha", raw: "SALIDA: 09/06/2026", field: "fecha", value: "2026-06-09" },
-        { id: "destino", raw: "Básculas Santa Fe", field: "destino", value: "Básculas Santa Fe" }
-      ]);
-      setTicketResult(true);
-    }, 2000);
+    
+    if (file.name.toLowerCase().endsWith('.pdf')) {
+      setTicketFileUrl(null);
+      const reader = new FileReader();
+      reader.onload = async function() {
+        try {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+          const typedarray = new Uint8Array(this.result);
+          const pdf = await window.pdfjsLib.getDocument(typedarray).promise;
+          let fullText = "";
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join("\n");
+            fullText += pageText + "\n";
+          }
+          const parsed = parseTicketText(fullText);
+          const mapped = generateMappings(parsed, fullText);
+          setMappings(mapped);
+          setTicketResult(true);
+        } catch (err) {
+          alert("Error al procesar el ticket PDF: " + err.message);
+        } finally {
+          setImportingTicket(false);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const url = URL.createObjectURL(file);
+      setTicketFileUrl(url);
+      const reader = new FileReader();
+      reader.onload = async function() {
+        try {
+          const result = await window.Tesseract.recognize(
+            this.result,
+            'spa',
+            { logger: m => console.log(m) }
+          );
+          const text = result.data.text;
+          const parsed = parseTicketText(text);
+          const mapped = generateMappings(parsed, text);
+          setMappings(mapped);
+          setTicketResult(true);
+        } catch (err) {
+          alert("Error al procesar el ticket con OCR: " + err.message);
+        } finally {
+          setImportingTicket(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const updateMappingField = (index, newField) => {
@@ -2352,6 +2574,28 @@ const Movimientos = ({modulo, usuario}) => {
         }
       });
 
+      const MAP_ESPECIES = {
+        "soja": 1,
+        "trigo": 2,
+        "maíz": 3,
+        "maiz": 3,
+        "girasol": 4,
+        "sorgo": 5,
+        "cebada": 6,
+        "expeller de soja": 7
+      };
+      const cleanedEspecie = data.especie ? data.especie.trim().toLowerCase() : "soja";
+      const id_especie = MAP_ESPECIES[cleanedEspecie] || 1;
+
+      const mapCampanaToId = (fechaStr) => {
+        if (!fechaStr) return 2;
+        const s = String(fechaStr);
+        if (s.includes("2023") || (s.includes("2024") && !s.includes("2025"))) return 1;
+        if (s.includes("2025") || s.includes("2026")) return 3;
+        return 2;
+      };
+      const id_campana = mapCampanaToId(data.fecha);
+
       const payload = {
         modalidad: modulo,
         nro_cpe: data.numero || null,
@@ -2370,8 +2614,8 @@ const Movimientos = ({modulo, usuario}) => {
         destino_nombre: data.destino || "Básculas Santa Fe",
         flete_pagador_cuit: data.cuit_prod || "30708925167",
         flete_pagador_nombre: data.productor || "FULL AGRO S.A.",
-        id_especie: data.especie && data.especie.toLowerCase().includes("trigo") ? 2 : 1,
-        id_campana: 2,
+        id_especie: id_especie,
+        id_campana: id_campana,
         renspa: "balanza",
         localidad_origen: "25 DE MAYO",
         provincia_origen: "BUENOS AIRES",
@@ -2393,6 +2637,8 @@ const Movimientos = ({modulo, usuario}) => {
       alert(`✓ Movimiento ${r.numero_movimiento} creado exitosamente desde el Ticket N° ${data.numero}\nContraparte auto-registrada: ${payload.titular_cpe_nombre}`);
       setShowImportTicket(false);
       setTicketResult(null);
+      setTicketFileUrl(null);
+      setUploadedTicketFile(null);
       cargarMovimientos();
     } catch(err) {
       alert("Error al importar ticket: " + (err.response?.data?.error || err.message));
@@ -3031,7 +3277,7 @@ const Movimientos = ({modulo, usuario}) => {
         return (
           <Modal 
             title="Importar Ticket de Balanza (Módulo Informal)" 
-            onClose={() => { setShowImportTicket(false); setTicketResult(null); }} 
+            onClose={() => { setShowImportTicket(false); setTicketResult(null); setTicketFileUrl(null); setUploadedTicketFile(null); }} 
             width={1000}
           >
             {!ticketResult ? (
@@ -3089,12 +3335,20 @@ const Movimientos = ({modulo, usuario}) => {
                   <div style={{border:"1px solid #2a2d3e",borderRadius:8,background:"#0f1117",padding:10,display:"flex",flexDirection:"column",height:"480px"}}>
                     <div style={{fontSize:11,color:"#8890a8",fontWeight:600,textTransform:"uppercase",marginBottom:8}}>Ticket Original (Vista Previa)</div>
                     <div style={{flex:1,overflowY:"auto",overflowX:"hidden",border:"1px solid #1e2133",borderRadius:6,background:"#000",display:"flex",justifyContent:"center",alignItems:"flex-start"}}>
-                      <img 
-                        src="/ticket_balanza.jpg" 
-                        alt="Ticket de Balanza" 
-                        style={{width:"100%",height:"auto",opacity:0.95}} 
-                        onError={(e)=>{e.target.style.display='none';}}
-                      />
+                      {uploadedTicketFile && uploadedTicketFile.name.toLowerCase().endsWith('.pdf') ? (
+                        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",padding:20,width:"100%"}}>
+                          <div style={{fontSize:48,marginBottom:10}}>📄</div>
+                          <div style={{fontSize:13,fontWeight:600,textAlign:"center",wordBreak:"break-all"}}>{uploadedTicketFile.name}</div>
+                          <div style={{fontSize:11,color:"#8890a8",marginTop:5}}>Vista previa no disponible para PDF</div>
+                        </div>
+                      ) : (
+                        <img 
+                          src={ticketFileUrl || "/ticket_balanza.jpg"} 
+                          alt="Ticket de Balanza" 
+                          style={{width:"100%",height:"auto",opacity:0.95}} 
+                          onError={(e)=>{e.target.style.display='none';}}
+                        />
+                      )}
                     </div>
                   </div>
                   
