@@ -1985,6 +1985,14 @@ const Movimientos = ({modulo, usuario}) => {
         result.titular = titularPairs[0].name;
         result.titular_cuit = titularPairs[0].cuit;
       }
+      if (titularPairs.length > 1) {
+        result.rte_primaria = titularPairs[1].name;
+        result.rte_primaria_cuit = titularPairs[1].cuit;
+      }
+      if (titularPairs.length > 2) {
+        result.rte_venta_primaria = titularPairs[2].name;
+        result.rte_venta_primaria_cuit = titularPairs[2].cuit;
+      }
     }
 
     if (transportistaLabelIndex !== -1) {
@@ -2019,11 +2027,12 @@ const Movimientos = ({modulo, usuario}) => {
     }
 
     if (fleteLabelIndex !== -1) {
-      const fleteText = text.substring(fleteLabelIndex, fleteLabelIndex + 200);
-      const fletePairs = extractPairs(fleteText);
+      const beforeFlete = text.substring(Math.max(0, fleteLabelIndex - 120), fleteLabelIndex);
+      const fletePairs = extractPairs(beforeFlete);
       if (fletePairs.length > 0) {
-        result.flete_pagador = fletePairs[0].name;
-        result.flete_pagador_cuit = fletePairs[0].cuit;
+        const closestPair = fletePairs[fletePairs.length - 1];
+        result.flete_pagador = closestPair.name;
+        result.flete_pagador_cuit = closestPair.cuit;
       }
     }
 
@@ -2095,47 +2104,68 @@ const Movimientos = ({modulo, usuario}) => {
       if (lineMatch) result.km = parseInt(lineMatch[1]);
     }
 
+    const mapProvToProperCase = (pStr) => {
+      if (!pStr) return "";
+      const upper = pStr.toUpperCase();
+      if (upper.includes("BUENOS AIRES")) return "Buenos Aires";
+      if (upper.includes("CORDOBA") || upper.includes("CÓRDOBA")) return "Córdoba";
+      if (upper.includes("SANTA FE")) return "Santa Fe";
+      if (upper.includes("ENTRE RIOS") || upper.includes("ENTRE RÍOS")) return "Entre Ríos";
+      if (upper.includes("SANTIAGO DEL ESTERO")) return "Santiago del Estero";
+      if (upper.includes("CHACO")) return "Chaco";
+      if (upper.includes("LA PAMPA")) return "La Pampa";
+      if (upper.includes("SALTA")) return "Salta";
+      if (upper.includes("TUCUMAN") || upper.includes("TUCUMÁN")) return "Tucumán";
+      return pStr;
+    };
+
     const procedenciaIndex = text.indexOf("C - PROCEDENCIA");
     const destinoMercaderiaIndex = text.indexOf("D - DESTINO DE LA MERCADERÍA");
     if (procedenciaIndex !== -1 && destinoMercaderiaIndex !== -1) {
       const chunk = text.substring(procedenciaIndex, destinoMercaderiaIndex);
       const lines = chunk.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      const valueLines = lines.filter(l => 
-        !l.includes("C - PROCEDENCIA") &&
-        !l.includes("N° Planta") &&
-        !l.includes("Localidad") &&
-        !l.includes("Es un campo") &&
-        !l.includes("Latitud")
-      );
-      if (valueLines.length >= 2) {
-        const firstLine = valueLines[0];
-        const plantaMatch = firstLine.match(/^(\d+)\s+(.+)$/);
-        if (plantaMatch) {
-          result.origen_planta = plantaMatch[1];
-          result.origen_direccion = plantaMatch[2];
+      
+      const plantaLine = lines.find(l => /^\d+\s+/.test(l));
+      if (plantaLine) {
+        const m = plantaLine.match(/^(\d+)\s+(.+)$/);
+        if (m) {
+          result.origen_planta = m[1];
+          result.origen_direccion = m[2];
         }
-        
-        const secondLine = valueLines[1];
-        const provs = ["BUENOS AIRES", "CORDOBA", "CÓRDOBA", "SANTA FE", "ENTRE RIOS", "ENTRE RÍOS", "SANTIAGO DEL ESTERO", "CHACO", "LA PAMPA", "SALTA", "TUCUMAN", "TUCUMÁN"];
+      }
+      
+      const provs = ["BUENOS AIRES", "CORDOBA", "CÓRDOBA", "SANTA FE", "ENTRE RIOS", "ENTRE RÍOS", "SANTIAGO DEL ESTERO", "CHACO", "LA PAMPA", "SALTA", "TUCUMAN", "TUCUMÁN"];
+      const locProvLine = lines.find(l => {
+        const upper = l.toUpperCase();
+        return provs.some(p => upper.includes(p)) && !/^\d+\s+/.test(l) && !upper.includes("PROCEDENCIA") && !upper.includes("LOCALIDAD");
+      });
+      if (locProvLine) {
         let foundProv = "";
         for (const p of provs) {
-          if (secondLine.toUpperCase().includes(p)) {
+          if (locProvLine.toUpperCase().includes(p)) {
             foundProv = p;
             break;
           }
         }
-        if (foundProv) {
-          result.origen_prov = foundProv;
-          result.origen_loc = secondLine.replace(new RegExp(foundProv, "gi"), "").trim();
-        } else {
-          const lastSpace = secondLine.lastIndexOf(" ");
-          if (lastSpace !== -1) {
-            result.origen_loc = secondLine.substring(0, lastSpace).trim();
-            result.origen_prov = secondLine.substring(lastSpace + 1).trim();
-          } else {
-            result.origen_loc = secondLine;
-            result.origen_prov = "";
+        result.origen_prov = mapProvToProperCase(foundProv);
+        result.origen_loc = locProvLine.replace(new RegExp(foundProv, "gi"), "").trim();
+      }
+      
+      const latLine = lines.find(l => l.toLowerCase().includes("latitud"));
+      if (latLine) {
+        const coords = latLine.match(/-?\d+°\s*\d+['′’]?\s*\d*(?:''|'|″|")?/g);
+        if (coords && coords.length > 0) {
+          result.latitud = coords[0].trim();
+          if (coords.length > 1) {
+            result.longitud = coords[1].trim();
           }
+        }
+      }
+      const longLine = lines.find(l => l.toLowerCase().includes("longitud"));
+      if (longLine && !result.longitud) {
+        const coords = longLine.match(/-?\d+°\s*\d+['′’]?\s*\d*(?:''|'|″|")?/g);
+        if (coords && coords.length > 0) {
+          result.longitud = coords[0].trim();
         }
       }
     }
@@ -2145,62 +2175,48 @@ const Movimientos = ({modulo, usuario}) => {
     if (destinoIndex !== -1 && datosTransporteIndex !== -1) {
       const chunk = text.substring(destinoIndex, datosTransporteIndex);
       const lines = chunk.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      const valueLines = lines.filter(l => 
-        !l.includes("D - DESTINO") &&
-        !l.includes("N° Planta") &&
-        !l.includes("Localidad") &&
-        !l.includes("Dirección") &&
-        !l.includes("Es un campo")
-      );
       
-      let plantaDirLine = "";
-      let otherLines = [];
-      for (const l of valueLines) {
-        if (/^\d+\s+/.test(l)) {
-          plantaDirLine = l;
-        } else {
-          otherLines.push(l);
-        }
-      }
-      
-      if (plantaDirLine) {
-        const match = plantaDirLine.match(/^(\d+)\s+(.+)$/);
-        if (match) {
-          result.nro_planta = match[1];
-          result.destino_direccion = match[2];
+      const plantaLine = lines.find(l => /^\d+\s+/.test(l));
+      if (plantaLine) {
+        const m = plantaLine.match(/^(\d+)\s+(.+)$/);
+        if (m) {
+          result.nro_planta = m[1];
+          result.destino_direccion = m[2];
         }
       }
       
       const provs = ["BUENOS AIRES", "CORDOBA", "CÓRDOBA", "SANTA FE", "ENTRE RIOS", "ENTRE RÍOS", "SANTIAGO DEL ESTERO", "CHACO", "LA PAMPA", "SALTA", "TUCUMAN", "TUCUMÁN"];
-      let prov = "";
-      let loc = "";
-      
-      for (const l of otherLines) {
-        let isProv = false;
+      const provLine = lines.find(l => {
+        const upper = l.toUpperCase();
+        return provs.some(p => upper.includes(p)) && !/^\d+\s+/.test(l) && !upper.includes("DESTINO");
+      });
+      if (provLine) {
+        let foundProv = "";
         for (const p of provs) {
-          if (l.toUpperCase().includes(p)) {
-            prov = p;
-            isProv = true;
-            const remainder = l.replace(new RegExp(p, "gi"), "").trim();
-            if (remainder) loc = remainder;
+          if (provLine.toUpperCase().includes(p)) {
+            foundProv = p;
             break;
           }
         }
-        if (!isProv) {
-          if (!loc) loc = l;
-          else loc = loc + " " + l;
+        result.destino_prov = mapProvToProperCase(foundProv);
+        
+        const locLine = lines.find(l => {
+          const upper = l.toUpperCase();
+          return !provs.some(p => upper.includes(p)) && 
+                 !/^\d+\s+/.test(l) && 
+                 !upper.includes("DESTINO") && 
+                 !upper.includes("PLANTA") && 
+                 !upper.includes("LOCALIDAD") &&
+                 !upper.includes("DIRECCIÓN") &&
+                 !upper.includes("CAMPO");
+        });
+        if (locLine) {
+          result.destino_loc = locLine;
         }
       }
-      
-      result.destino_prov = prov;
-      result.destino_loc = loc;
     }
 
     // Fallbacks
-    if (!result.rte_primaria) {
-      result.rte_primaria = result.titular;
-      result.rte_primaria_cuit = result.titular_cuit;
-    }
     if (!result.renspa) {
       result.renspa = result.origen_loc ? result.origen_loc.toLowerCase() : "";
     }
@@ -3149,16 +3165,16 @@ const Movimientos = ({modulo, usuario}) => {
                       fecha_vencimiento_cpe: importResult.vencimiento_iso || null,
                       titular_cpe_cuit: importResult.titular_cuit || null,
                       titular_cpe_nombre: importResult.titular || null,
-                      remitente_comercial_productor_cuit: importResult.rte_primaria_cuit || importResult.titular_cuit || null,
-                      remitente_comercial_productor_nombre: importResult.rte_primaria || importResult.titular || null,
-                      rte_comercial_venta_primaria_cuit: importResult.rte_primaria_cuit || importResult.titular_cuit || null,
-                      rte_comercial_venta_primaria_nombre: importResult.rte_primaria || importResult.titular || null,
+                      remitente_comercial_productor_cuit: importResult.rte_primaria_cuit || null,
+                      remitente_comercial_productor_nombre: importResult.rte_primaria || null,
+                      rte_comercial_venta_primaria_cuit: importResult.rte_venta_primaria_cuit || null,
+                      rte_comercial_venta_primaria_nombre: importResult.rte_venta_primaria || null,
                       destinatario_cuit: importResult.destinatario_cuit || null,
                       destinatario_nombre: importResult.destinatario || null,
                       destino_cuit: importResult.destino_cuit || null,
                       destino_nombre: importResult.destino || null,
-                      flete_pagador_cuit: importResult.flete_pagador_cuit || importResult.titular_cuit || null,
-                      flete_pagador_nombre: importResult.flete_pagador_nombre || importResult.titular || null,
+                      flete_pagador_cuit: importResult.flete_pagador_cuit || null,
+                      flete_pagador_nombre: importResult.flete_pagador || null,
                       id_especie: MAP_ESPECIES[importResult.especie ? importResult.especie.toLowerCase() : ""] || 1,
                       id_campana: mapCampanaToId(importResult.campana),
                       renspa: importResult.renspa || null,
@@ -8380,7 +8396,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.1.1 — GranoSYS - INVDELSAL</div>
+          v2.1.2 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -9300,7 +9316,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.1.1 — GranoSYS - <span
+            v2.1.2 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
