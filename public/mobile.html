@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>GranoSYS Mobile — Salida de Camiones</title>
+  <!-- Google Fonts: Outfit & IBM Plex Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Tesseract.js for Client-side OCR -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  
+  <style>
+    :root {
+      --bg: #0c0f17;
+      --card-bg: #151926;
+      --border: #2a2e3f;
+      --text: #e8eaf0;
+      --text-muted: #8890a8;
+      --primary: #f5a623;
+      --primary-hover: #e09210;
+      --success: #2ece76;
+      --error: #e74c3c;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Outfit', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-bottom: 70px; /* Space for bottom tab bar */
+    }
+
+    .container {
+      width: 100%;
+      max-width: 480px;
+      padding: 16px;
+    }
+
+    /* PASSCODE SCREEN */
+    #lock-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: var(--bg);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      padding: 24px;
+    }
+
+    .logo {
+      font-family: 'IBM Plex Mono', monospace;
+      font-weight: 700;
+      font-size: 28px;
+      color: var(--primary);
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+
+    .logo span {
+      color: #fff;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 32px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .lock-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      width: 100%;
+      max-width: 360px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* INPUTS & BUTTONS */
+    label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      background-color: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      padding: 12px 14px;
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(245,166,35,0.15);
+    }
+
+    .btn {
+      width: 100%;
+      background-color: var(--primary);
+      color: #000;
+      font-weight: 600;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      cursor: pointer;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      transition: background-color 0.2s;
+    }
+
+    .btn:active {
+      background-color: var(--primary-hover);
+    }
+
+    .btn-secondary {
+      background-color: rgba(255,255,255,0.05);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:active {
+      background-color: rgba(255,255,255,0.1);
+    }
+
+    /* SCANNER BUTTON */
+    .btn-scan {
+      background: linear-gradient(135deg, #f5a623 0%, #d48200 100%);
+      color: #000;
+      margin-bottom: 20px;
+      font-weight: 700;
+      box-shadow: 0 4px 15px rgba(245,166,35,0.25);
+    }
+
+    /* APP HEADER */
+    .app-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .app-header .title {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    /* TABS */
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* BOTTOM TAB BAR */
+    .tab-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 60px;
+      background-color: var(--card-bg);
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      z-index: 900;
+    }
+
+    .tab-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 500;
+      flex: 1;
+      height: 100%;
+      cursor: pointer;
+    }
+
+    .tab-btn.active {
+      color: var(--primary);
+    }
+
+    .tab-btn svg {
+      width: 20px;
+      height: 20px;
+      margin-bottom: 4px;
+      fill: currentColor;
+    }
+
+    /* CARD FORM */
+    .card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    .form-row {
+      display: flex;
+      gap: 12px;
+    }
+
+    .form-row .form-group {
+      flex: 1;
+    }
+
+    /* OCR SCANNING OVERLAY */
+    #ocr-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(12,15,23,0.9);
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 1001;
+      padding: 24px;
+      text-align: center;
+    }
+
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 4px solid rgba(245,166,35,0.1);
+      border-top: 4px solid var(--primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* MOVEMENT LIST */
+    .mov-list-item {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .mov-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .mov-number {
+      font-family: 'IBM Plex Mono', monospace;
+      font-weight: 600;
+      color: var(--primary);
+      font-size: 14px;
+    }
+
+    .mov-details {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .mov-weight {
+      font-family: 'IBM Plex Mono', monospace;
+      font-weight: 600;
+      font-size: 14px;
+      text-align: right;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-top: 4px;
+    }
+
+    .badge-informal {
+      background-color: rgba(52, 152, 219, 0.15);
+      color: #3498db;
+    }
+
+    .badge-formal {
+      background-color: rgba(46, 206, 118, 0.15);
+      color: #2ece76;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- LOCK SCREEN -->
+  <div id="lock-screen">
+    <div class="logo">GRANO<span>SYS</span></div>
+    <div class="subtitle">Mobile Gateway</div>
+    <div class="lock-card">
+      <div>
+        <label for="passcode">Clave de Acceso</label>
+        <input type="password" id="passcode" placeholder="••••••••" style="text-align: center; letter-spacing: 0.2em; font-size: 18px;">
+      </div>
+      <button class="btn" onclick="validatePasscode()">Ingresar</button>
+      <div id="lock-error" style="color: var(--error); font-size: 13px; text-align: center; display: none;">Clave incorrecta</div>
+    </div>
+  </div>
+
+  <!-- OCR SCANNING OVERLAY -->
+  <div id="ocr-overlay">
+    <div class="spinner"></div>
+    <h3 style="margin-bottom: 8px;">Procesando Ticket / CPE</h3>
+    <p id="ocr-progress" style="color: var(--text-muted); font-size: 14px;">Iniciando Inteligencia Artificial...</p>
+  </div>
+
+  <!-- MAIN CONTAINER (Loaded after passcode check) -->
+  <div class="container" style="display: none;" id="app-container">
+    
+    <!-- HEADER -->
+    <div class="app-header">
+      <div class="logo">GRANO<span>SYS</span></div>
+      <div style="text-align: right;">
+        <div style="font-size: 11px; color: var(--text-muted);">Usuario</div>
+        <div style="font-size: 13px; font-weight: 600;">Chofer / Balanza</div>
+      </div>
+    </div>
+
+    <!-- TAB 1: FORM (REGISTER DEPARTURE) -->
+    <div id="tab-form" class="tab-content active">
+      
+      <!-- SCANNER BUTTON -->
+      <button class="btn btn-scan" onclick="triggerCamera()">
+        <svg style="width:22px; height:22px; fill:currentColor" viewBox="0 0 24 24">
+          <path d="M4 4h3V2H4c-1.1 0-2 .9-2 2v3h2V4zm16 0h-3v2h3v3h2V4c0-1.1-.9-2-2-2zm0 16h-3v2h3c1.1 0 2-.9 2-2v-3h-2v3zM4 20h3v2H4c-1.1 0-2-.9-2-2v-3h2v3zm12-8c0-2.21-1.79-4-4-4s-4 1.79-4 4 1.79 4 4 4 4-1.79 4-4zm-4 2c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/>
+        </svg>
+        Tomar Foto a Ticket / CPE
+      </button>
+      <input type="file" accept="image/*" capture="environment" id="camera-input" style="display: none;" onchange="processCapture(this)">
+
+      <div class="card">
+        <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+          <span style="display:inline-block; width:6px; height:6px; background-color:var(--primary); border-radius:50%"></span>
+          Registro de Salida
+        </h3>
+
+        <!-- Form fields -->
+        <div class="form-row">
+          <div class="form-group">
+            <label for="modalidad">Canal / Modulo</label>
+            <select id="modalidad" onchange="onModalidadChange()">
+              <option value="INFORMAL">Informal</option>
+              <option value="FORMAL">Formal</option>
+            </select>
+          </div>
+          <div class="form-group" id="group-cpe" style="display: none;">
+            <label for="nro_cpe">N° CPE</label>
+            <input type="text" id="nro_cpe" placeholder="00000-00000000">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="productor">Productor</label>
+          <select id="productor" onchange="onProductorChange()">
+            <option value="">Seleccionar productor...</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="especie">Especie</label>
+            <select id="especie" onchange="onEspecieChange()">
+              <option value="Soja">Soja</option>
+              <option value="Trigo">Trigo</option>
+              <option value="Maíz">Maíz</option>
+              <option value="Girasol">Girasol</option>
+              <option value="Sorgo">Sorgo</option>
+              <option value="Cebada">Cebada</option>
+              <option value="Pellet de Cáscara de Soja">Pellet de Cáscara de Soja</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="campana">Campaña</label>
+            <select id="campana">
+              <option value="2024/2025">2024/2025</option>
+              <option value="2025/2026">2025/2026</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="contrato">Contrato de Compra</label>
+          <select id="contrato">
+            <option value="">Sin asignar (Posición abierta)</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="patente">Patente Chasis</label>
+            <input type="text" id="patente" placeholder="AA496YI" style="text-transform: uppercase;">
+          </div>
+          <div class="form-group">
+            <label for="humedad">Humedad (%)</label>
+            <input type="number" step="0.1" id="humedad" placeholder="13.5">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="bruto">Bruto Carga (kg)</label>
+            <input type="number" id="bruto" placeholder="52000" oninput="calcNeto()">
+          </div>
+          <div class="form-group">
+            <label for="tara">Tara Camión (kg)</label>
+            <input type="number" id="tara" placeholder="17000" oninput="calcNeto()">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="neto">Neto Carga (kg) - Calculado</label>
+          <input type="number" id="neto" readonly style="background-color: rgba(255,255,255,0.05); color: var(--text-muted);" placeholder="0">
+        </div>
+
+        <div class="form-group">
+          <label for="destino">Destino / Entrega</label>
+          <input type="text" id="destino" placeholder="Planta / Localidad destino">
+        </div>
+
+        <button class="btn" style="margin-top: 10px;" id="btn-submit" onclick="submitMovement()">Registrar Salida de Camión</button>
+      </div>
+
+    </div>
+
+    <!-- TAB 2: LIST (RECENT DEPARTURES) -->
+    <div id="tab-list" class="tab-content">
+      <div style="margin-bottom: 12px; display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="font-size: 15px; font-weight:600;">Últimas Salidas Registradas</h3>
+        <button class="btn btn-secondary" style="width:auto; padding:6px 12px; font-size:12px;" onclick="loadRecentMovements()">Refrescar</button>
+      </div>
+      <div id="movements-list-container">
+        <!-- Loaded dynamically -->
+        <div style="padding:40px; text-align:center; color:var(--text-muted);">Cargando viajes recientes...</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- BOTTOM TAB BAR -->
+  <div class="tab-bar" id="tab-bar" style="display: none;">
+    <button class="tab-btn active" id="btn-tab-form" onclick="switchTab('form')">
+      <svg viewBox="0 0 24 24">
+        <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+      </svg>
+      Registrar Salida
+    </button>
+    <button class="tab-btn" id="btn-tab-list" onclick="switchTab('list')">
+      <svg viewBox="0 0 24 24">
+        <path d="M4 14h6v-6H4v6zm0 7h6v-6H4v6zm7-7h10v-6H11v6zm0 7h10v-6H11v6z"/>
+      </svg>
+      Ver Salidas
+    </button>
+  </div>
+
+  <!-- APP LOGIC -->
+  <script>
+    const API_URL = window.location.hostname === "localhost"
+      ? "http://localhost:3000"
+      : window.location.origin;
+
+    let contrapartes = [];
+    let contratos = [];
+
+    // Lock screen bypass
+    function validatePasscode() {
+      const pin = document.getElementById("passcode").value;
+      if (pin === "invdelsal") {
+        document.getElementById("lock-screen").style.display = "none";
+        document.getElementById("app-container").style.display = "block";
+        document.getElementById("tab-bar").style.display = "flex";
+        initApp();
+      } else {
+        document.getElementById("lock-error").style.display = "block";
+      }
+    }
+
+    async function initApp() {
+      await fetchContrapartes();
+      await fetchContratos();
+      populateProducers();
+      loadRecentMovements();
+    }
+
+    async function fetchContrapartes() {
+      try {
+        const r = await fetch(`${API_URL}/api/contrapartes`);
+        contrapartes = await r.json();
+      } catch (e) {
+        console.error("Error fetching contrapartes:", e);
+      }
+    }
+
+    async function fetchContratos() {
+      try {
+        const r = await fetch(`${API_URL}/api/contratos`);
+        contratos = await r.json();
+      } catch (e) {
+        console.error("Error fetching contratos:", e);
+      }
+    }
+
+    function populateProducers() {
+      const select = document.getElementById("productor");
+      select.innerHTML = '<option value="">Seleccionar productor...</option>';
+      const filtered = contrapartes.filter(c => c.tipo_contraparte === "PRODUCTOR" || c.tipo_contraparte === "AMBOS");
+      filtered.forEach(p => {
+        const opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = p.razon_social;
+        select.appendChild(opt);
+      });
+    }
+
+    function onModalidadChange() {
+      const mod = document.getElementById("modalidad").value;
+      document.getElementById("group-cpe").style.display = mod === "FORMAL" ? "block" : "none";
+      updateContractsDropdown();
+    }
+
+    function onProductorChange() {
+      updateContractsDropdown();
+    }
+
+    function onEspecieChange() {
+      updateContractsDropdown();
+    }
+
+    function updateContractsDropdown() {
+      const prodId = document.getElementById("productor").value;
+      const mod = document.getElementById("modalidad").value;
+      const especie = document.getElementById("especie").value.toLowerCase();
+      
+      const select = document.getElementById("contrato");
+      select.innerHTML = '<option value="">Sin asignar (Posición abierta)</option>';
+      
+      const filtered = contratos.filter(c => {
+        // filter by type
+        if (c.tipo_contrato !== "COMPRA") return false;
+        // filter by modality
+        if (c.modalidad !== mod) return false;
+        // filter by producer (if selected)
+        if (prodId && c.id_contraparte !== parseInt(prodId)) return false;
+        // filter by especie
+        const espName = c.especie_nombre || '';
+        if (especie && !espName.toLowerCase().includes(especie)) return false;
+        return true;
+      });
+
+      filtered.forEach(c => {
+        const opt = document.createElement("option");
+        opt.value = c.id;
+        opt.textContent = `${c.numero_contrato} — ${c.contraparte_nombre || 'Contrato'} (${c.cantidad_toneladas_pactadas} tn)`;
+        select.appendChild(opt);
+      });
+    }
+
+    function calcNeto() {
+      const bruto = parseFloat(document.getElementById("bruto").value) || 0;
+      const tara = parseFloat(document.getElementById("tara").value) || 0;
+      document.getElementById("neto").value = bruto > tara ? (bruto - tara) : 0;
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("active"));
+      document.querySelectorAll(".tab-btn").forEach(el => el.classList.remove("active"));
+      
+      document.getElementById(`tab-${tabId}`).classList.add("active");
+      document.getElementById(`btn-tab-${tabId}`).classList.add("active");
+      
+      if (tabId === "list") {
+        loadRecentMovements();
+      }
+    }
+
+    // TRIGGER REAR CAMERA
+    function triggerCamera() {
+      document.getElementById("camera-input").click();
+    }
+
+    // PROCESS THE CAPTURED IMAGE USING TESSERACT OCR
+    function processCapture(input) {
+      const file = input.files[0];
+      if (!file) return;
+
+      const overlay = document.getElementById("ocr-overlay");
+      const progressText = document.getElementById("ocr-progress");
+      overlay.style.display = "flex";
+
+      const reader = new FileReader();
+      reader.onload = async function() {
+        try {
+          progressText.textContent = "Iniciando análisis OCR...";
+          
+          const result = await Tesseract.recognize(
+            this.result,
+            'spa',
+            { logger: m => {
+              if (m.status === 'recognizing text') {
+                progressText.textContent = `Leyendo imagen: ${Math.round(m.progress * 100)}%`;
+              }
+            }}
+          );
+
+          const text = result.data.text;
+          console.log("OCR parsed text:", text);
+          
+          // Parse values from OCR text using the system's regexes
+          const parsed = parseTicketText(text);
+          console.log("Extracted ticket info:", parsed);
+
+          // Autofill form
+          if (parsed.chasis) {
+            document.getElementById("patente").value = parsed.chasis.toUpperCase();
+          }
+          if (parsed.peso_bruto) {
+            document.getElementById("bruto").value = parsed.peso_bruto;
+          }
+          if (parsed.peso_tara) {
+            document.getElementById("tara").value = parsed.peso_tara;
+          }
+          if (parsed.peso_neto) {
+            document.getElementById("neto").value = parsed.peso_neto;
+          }
+          calcNeto();
+
+          if (parsed.destino) {
+            document.getElementById("destino").value = parsed.destino;
+          }
+
+          // Try to match Especie
+          if (parsed.especie) {
+            const especieSelect = document.getElementById("especie");
+            for (let i = 0; i < especieSelect.options.length; i++) {
+              if (especieSelect.options[i].value.toLowerCase().includes(parsed.especie.toLowerCase())) {
+                especieSelect.selectedIndex = i;
+                break;
+              }
+            }
+          }
+
+          // Try to match Productor by name
+          if (parsed.productor) {
+            const prodName = parsed.productor.toLowerCase();
+            const matchedProd = contrapartes.find(c => c.razon_social.toLowerCase().includes(prodName));
+            if (matchedProd) {
+              document.getElementById("productor").value = matchedProd.id;
+              onProductorChange();
+            }
+          }
+
+          overlay.style.display = "none";
+          alert("✓ Imagen escaneada exitosamente. Se completaron las patentes, pesos y datos disponibles. Por favor verifique los campos.");
+
+        } catch (err) {
+          overlay.style.display = "none";
+          console.error(err);
+          alert("No se pudo procesar la imagen con OCR: " + err.message);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // REGEX TICKET PARSING ENGINE
+    const parseTicketText = (text) => {
+      const result = {
+        numero: "",
+        productor: "",
+        cuit_prod: "",
+        comprador: "",
+        transportista: "",
+        chasis: "",
+        acoplado: "",
+        especie: "",
+        peso_bruto: "",
+        peso_tara: "",
+        peso_neto: "",
+        fecha: "",
+        destino: ""
+      };
+
+      const nroMatch = text.match(/(?:N[°\*\._\s]*ro:?|N[°\*\._\s:]+)\s*(\d+)/i);
+      if (nroMatch) result.numero = nroMatch[1];
+
+      const remMatch = text.match(/Remitente:\s*([^C\n\r\t!]+)(?:!|\s|-)*(?:C\.?U\.?[IL]\.?T\.?|C\.?U\.?L\.?T|CUIT):?\s*([\d-]+)/i);
+      if (remMatch) {
+        result.productor = remMatch[1].trim();
+        result.cuit_prod = remMatch[2].trim();
+      } else {
+        const remOnlyMatch = text.match(/Remitente:\s*([^\n\r\t]+)/i);
+        if (remOnlyMatch) {
+          result.productor = remOnlyMatch[1]
+            .replace(/(?:C\.?U\.?[IL]\.?T\.?|C\.?U\.?L\.?T|CUIT).*/i, "")
+            .trim();
+        }
+      }
+
+      const chasisMatch = text.match(/Patente Chasis:\s*([A-Z0-9\-]+)/i);
+      if (chasisMatch) result.chasis = chasisMatch[1].trim();
+
+      const prodMatch = text.match(/Producto:\s*([^\n\r\t]+)/i);
+      if (prodMatch) {
+        const rawProd = prodMatch[1].trim().toLowerCase();
+        const granos = ["soja", "trigo", "maíz", "maiz", "girasol", "sorgo", "cebada"];
+        for (const g of granos) {
+          if (rawProd.includes(g)) {
+            result.especie = g.charAt(0).toUpperCase() + g.slice(1).replace("í", "i");
+            break;
+          }
+        }
+      }
+
+      const brutoMatch = text.match(/(?:B?RUTO|PRUTO):\s*(\d+)/i);
+      if (brutoMatch) result.peso_bruto = brutoMatch[1];
+      
+      const netoMatch = text.match(/NET[O0]:\s*(\d+)/i);
+      if (netoMatch) result.peso_neto = netoMatch[1];
+
+      const taraMatch = text.match(/TARA:\s*(\d+)/i);
+      if (taraMatch) result.peso_tara = taraMatch[1];
+
+      const dateMatch = text.match(/(\d{2})[\/\-\.](\d{2})[\/\-\.](\d{4})/);
+      if (dateMatch) {
+        result.fecha = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`;
+      }
+
+      return result;
+    };
+
+    // SUBMIT MOVEMENT TO BACKEND
+    async function submitMovement() {
+      const prodId = document.getElementById("productor").value;
+      const bruto = document.getElementById("bruto").value;
+      const tara = document.getElementById("tara").value;
+      
+      if (!prodId) return alert("Por favor seleccione un productor.");
+      if (!bruto || !tara) return alert("Por favor ingrese Bruto y Tara.");
+
+      const prod = contrapartes.find(c => c.id === parseInt(prodId));
+      const contratoId = document.getElementById("contrato").value;
+      const mod = document.getElementById("modalidad").value;
+      const cpe = document.getElementById("nro_cpe").value;
+      const patente = document.getElementById("patente").value.toUpperCase();
+      const humedad = document.getElementById("humedad").value;
+      const destino = document.getElementById("destino").value;
+      const especie = document.getElementById("especie").value;
+      const campana = document.getElementById("campana").value;
+
+      const ESPECIES_LIST = ["Soja", "Trigo", "Maíz", "Girasol", "Sorgo", "Cebada", "Pellet de Cáscara de Soja"];
+      const espId = ESPECIES_LIST.indexOf(especie) + 1;
+      
+      const CAMPANAS_LIST = ["2024/2025", "2025/2026"];
+      const campId = CAMPANAS_LIST.indexOf(campana) + 1;
+
+      const payload = {
+        modalidad: mod,
+        id_contrato_compra: contratoId ? parseInt(contratoId) : null,
+        nro_cpe: cpe || null,
+        titular_cpe_cuit: prod.cuit || null,
+        titular_cpe_nombre: prod.razon_social || null,
+        remitente_comercial_productor_cuit: prod.cuit || null,
+        remitente_comercial_productor_nombre: prod.razon_social || null,
+        destinatario_cuit: "30111111118",
+        destinatario_nombre: "BIOGEN21",
+        flete_pagador_cuit: prod.cuit || null,
+        flete_pagador_nombre: prod.razon_social || null,
+        id_especie: espId > 0 ? espId : 1,
+        id_campana: campId > 0 ? campId : 2,
+        patente_chasis: patente || null,
+        peso_bruto_salida_kg: parseFloat(bruto),
+        peso_tara_salida_kg: parseFloat(tara),
+        humedad_salida_pct: humedad ? parseFloat(humedad) : 13.5,
+        localidad_destino: destino || "Planta Destino",
+        usuario_carga: "mobile-balanza"
+      };
+
+      const btn = document.getElementById("btn-submit");
+      btn.disabled = true;
+      btn.textContent = "Registrando...";
+
+      try {
+        const r = await fetch(`${API_URL}/api/movimientos`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
+
+        const data = await r.json();
+        alert(`✓ Salida de camión registrada con éxito.\nMovimiento N°: ${data.numero_movimiento}`);
+        
+        // Reset form
+        document.getElementById("patente").value = "";
+        document.getElementById("bruto").value = "";
+        document.getElementById("tara").value = "";
+        document.getElementById("neto").value = "";
+        document.getElementById("humedad").value = "";
+        document.getElementById("destino").value = "";
+        document.getElementById("nro_cpe").value = "";
+        document.getElementById("contrato").value = "";
+        
+        // Redirect to list
+        switchTab("list");
+
+      } catch (err) {
+        console.error(err);
+        alert("Error al guardar salida: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Registrar Salida de Camión";
+      }
+    }
+
+    // LOAD RECENT MOVEMENTS
+    async function loadRecentMovements() {
+      const container = document.getElementById("movements-list-container");
+      try {
+        const r = await fetch(`${API_URL}/api/movimientos`);
+        const data = await r.json();
+        
+        container.innerHTML = "";
+        const latest = data.slice(0, 15); // Show latest 15 unloads
+
+        if (latest.length === 0) {
+          container.innerHTML = '<div style="padding:40px; text-align:center; color:var(--text-muted);">No hay salidas registradas.</div>';
+          return;
+        }
+
+        latest.forEach(m => {
+          const item = document.createElement("div");
+          item.className = "mov-list-item";
+          
+          const netWeight = m.peso_neto_salida_kg ? parseFloat(m.peso_neto_salida_kg).toLocaleString() : '—';
+          
+          item.innerHTML = `
+            <div class="mov-info">
+              <span class="mov-number">${m.numero_movimiento}</span>
+              <span class="mov-details">${m.remitente_comercial_productor_nombre || 'Sin productor'}</span>
+              <span class="mov-details" style="font-size:11px;">Patente: <strong>${m.patente_chasis || '—'}</strong> | Cereal: ${m.especie_nombre || 'Soja'}</span>
+            </div>
+            <div>
+              <div class="mov-weight">${netWeight} kg</div>
+              <div style="text-align:right">
+                <span class="badge ${m.modalidad === 'FORMAL' ? 'badge-formal' : 'badge-informal'}">${m.modalidad}</span>
+              </div>
+            </div>
+          `;
+          container.appendChild(item);
+        });
+      } catch (e) {
+        console.error("Error loading recent movements:", e);
+        container.innerHTML = '<div style="padding:40px; text-align:center; color:var(--error);">Error al cargar viajes recientes.</div>';
+      }
+    }
+  </script>
+</body>
+</html>

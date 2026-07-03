@@ -75,6 +75,9 @@ app.get('/api/debug-files', (req, res) => {
 });
 
 // Frontend - VA AL FINAL
+app.get('/mobile', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/mobile.html'));
+});
 app.use(express.static(path.join(__dirname, '../public')));
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));

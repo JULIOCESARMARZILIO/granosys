@@ -4697,8 +4697,23 @@ const Liquidaciones = ({modulo}) => {
   // Filtrado de contrapartes:
   const contrapartesFiltradas = contrapartes.filter(cp => {
     const t = cp.tipo_contraparte || cp.tipo;
-    if (tipo === "COMPRA") return t === "PRODUCTOR" || t === "AMBOS";
-    return t === "COMPRADOR" || t === "AMBOS";
+    const matchesTipo = tipo === "COMPRA"
+      ? (t === "PRODUCTOR" || t === "AMBOS")
+      : (t === "COMPRADOR" || t === "AMBOS");
+    if (!matchesTipo) return false;
+
+    // Solo mostrar contrapartes que tengan algún camión en estado 'ASIGNADO' para liquidar
+    const cpContratos = contratos.filter(c => c.id_contraparte === cp.id && c.tipo_contrato === tipo);
+    const tieneMovimientosParaLiquidar = movimientos.some(m => {
+      if (m.estado_liq !== 'ASIGNADO') return false;
+      if (tipo === "COMPRA") {
+        return cpContratos.some(c => m.id_contrato_compra === c.id);
+      } else {
+        return cpContratos.some(c => m.id_contrato_venta === c.id);
+      }
+    });
+
+    return tieneMovimientosParaLiquidar;
   });
 
   // Filtrado de contratos:
