@@ -611,7 +611,7 @@ const Contrapartes = ({modulo}) => {
 };
 
 // ── CONTRATOS ──
-const Contratos = ({modulo}) => {
+const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie}) => {
   const [tab,setTab]=useState("COMPRA");
   const [showForm,setShowForm]=useState(false);
   const [lista,setLista]=useState([]);
@@ -778,7 +778,7 @@ const Contratos = ({modulo}) => {
     cargarContrapartes();
     cargarEspecies();
     cargarCampanas();
-  },[modulo,tab]);
+  },[modulo,tab,globalFiltroProductor,globalFiltroEspecie]);
 
   const cargarContratos = async () => {
     try {
@@ -814,10 +814,35 @@ const Contratos = ({modulo}) => {
           tipo_liq: c.tipo_liquidacion,
           tipo: c.tipo_contrato
         };
-      });
-      setLista(mapped);
+      let filteredMapped = mapped;
+      if (globalFiltroProductor) {
+        filteredMapped = filteredMapped.filter(c => 
+          (c.contraparte || "").toLowerCase().includes(globalFiltroProductor.toLowerCase())
+        );
+      }
+      if (globalFiltroEspecie) {
+        filteredMapped = filteredMapped.filter(c => 
+          (c.especie || "").toLowerCase().includes(globalFiltroEspecie.toLowerCase()) ||
+          (c.es_canje && (
+            (c.venta?.especie_nombre || "").toLowerCase().includes(globalFiltroEspecie.toLowerCase()) ||
+            (c.compra?.especie_nombre || "").toLowerCase().includes(globalFiltroEspecie.toLowerCase())
+          ))
+        );
+      }
+      setLista(filteredMapped);
     } catch(e) {
-      setLista(mockContratos.filter(c=>c.modalidad===modulo&&c.tipo===tab));
+      let filteredMock = mockContratos.filter(c=>c.modalidad===modulo&&c.tipo===tab);
+      if (globalFiltroProductor) {
+        filteredMock = filteredMock.filter(c => 
+          (c.contraparte || "").toLowerCase().includes(globalFiltroProductor.toLowerCase())
+        );
+      }
+      if (globalFiltroEspecie) {
+        filteredMock = filteredMock.filter(c => 
+          (c.especie || "").toLowerCase().includes(globalFiltroEspecie.toLowerCase())
+        );
+      }
+      setLista(filteredMock);
     }
   };
 
@@ -1483,8 +1508,7 @@ const Contratos = ({modulo}) => {
 };
 
 // ── MOVIMIENTOS ──
-// ── MOVIMIENTOS ──
-const Movimientos = ({modulo, usuario}) => {
+const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspecie}) => {
   const [showForm,setShowForm]=useState(false);
   const [showImport,setShowImport]=useState(false);
   const [showRapido,setShowRapido]=useState(false);
@@ -1507,7 +1531,19 @@ const Movimientos = ({modulo, usuario}) => {
   const [importingExcel, setImportingExcel] = useState(false);
   const [excelFileName, setExcelFileName] = useState("");
   const [movsReal,setMovsReal]=useState(null);
-  const rawMovs = movsReal !== null ? movsReal : mockMovimientos.filter(m=>m.modalidad===modulo);
+
+  let rawMovs = movsReal !== null ? movsReal : mockMovimientos.filter(m=>m.modalidad===modulo);
+  if (globalFiltroProductor) {
+    rawMovs = rawMovs.filter(m => 
+      (m.remitente_comercial_productor_nombre || m.titular_cpe_nombre || m.productor || "").toLowerCase().includes(globalFiltroProductor.toLowerCase()) ||
+      (m.destinatario_nombre || m.comprador || "").toLowerCase().includes(globalFiltroProductor.toLowerCase())
+    );
+  }
+  if (globalFiltroEspecie) {
+    rawMovs = rawMovs.filter(m => 
+      (m.especie_nombre || m.especie || "").toLowerCase().includes(globalFiltroEspecie.toLowerCase())
+    );
+  }
   const movs = [...rawMovs].sort((a, b) => {
     const isAPending = a.estado === "BORRADOR" || a.estado === "EN_TRANSITO" || !a.peso_tara_salida || (a.estado === "DESCARGADO" && a.factor === null);
     const isBPending = b.estado === "BORRADOR" || b.estado === "EN_TRANSITO" || !b.peso_tara_salida || (b.estado === "DESCARGADO" && b.factor === null);
@@ -1533,7 +1569,7 @@ const Movimientos = ({modulo, usuario}) => {
   }));
   const [tempFactor, setTempFactor] = useState(null);
   const [movForm, setMovForm] = useState({
-    productor_nombre: "",
+    productor_nombre: globalFiltroProductor || "",
     comprador_nombre: "",
     id_contrato_compra: null,
     id_contrato_venta: null,
@@ -1542,9 +1578,9 @@ const Movimientos = ({modulo, usuario}) => {
     fecha_cpe: "",
     fecha_vencimiento_cpe: "",
     titular_cpe_cuit: "",
-    titular_cpe_nombre: "",
+    titular_cpe_nombre: globalFiltroProductor || "",
     remitente_comercial_productor_cuit: "",
-    remitente_comercial_productor_nombre: "",
+    remitente_comercial_productor_nombre: globalFiltroProductor || "",
     rte_primaria_cuit: "",
     rte_primaria_nombre: "",
     destinatario_cuit: "",
@@ -1552,8 +1588,8 @@ const Movimientos = ({modulo, usuario}) => {
     destino_cuit: "",
     destino_nombre: "",
     flete_pagador_cuit: "",
-    flete_pagador_nombre: "",
-    id_especie: 1,
+    flete_pagador_nombre: globalFiltroProductor || "",
+    id_especie: globalFiltroEspecie ? (ESPECIES.indexOf(globalFiltroEspecie) !== -1 ? ESPECIES.indexOf(globalFiltroEspecie) + 1 : 1) : 1,
     id_campana: 2,
     declaracion_calidad: "CONFORME",
     observaciones: "",
@@ -1730,7 +1766,7 @@ const Movimientos = ({modulo, usuario}) => {
       });
     } else {
       setMovForm({
-        productor_nombre: "",
+        productor_nombre: globalFiltroProductor || "",
         comprador_nombre: "",
         id_contrato_compra: null,
         id_contrato_venta: null,
@@ -1739,9 +1775,9 @@ const Movimientos = ({modulo, usuario}) => {
         fecha_cpe: "",
         fecha_vencimiento_cpe: "",
         titular_cpe_cuit: "",
-        titular_cpe_nombre: "",
+        titular_cpe_nombre: globalFiltroProductor || "",
         remitente_comercial_productor_cuit: "",
-        remitente_comercial_productor_nombre: "",
+        remitente_comercial_productor_nombre: globalFiltroProductor || "",
         rte_primaria_cuit: "",
         rte_primaria_nombre: "",
         destinatario_cuit: "",
@@ -1749,8 +1785,8 @@ const Movimientos = ({modulo, usuario}) => {
         destino_cuit: "",
         destino_nombre: "",
         flete_pagador_cuit: "",
-        flete_pagador_nombre: "",
-        id_especie: 1,
+        flete_pagador_nombre: globalFiltroProductor || "",
+        id_especie: globalFiltroEspecie ? (ESPECIES.indexOf(globalFiltroEspecie) !== -1 ? ESPECIES.indexOf(globalFiltroEspecie) + 1 : 1) : 1,
         id_campana: 2,
         declaracion_calidad: "CONFORME",
         observaciones: "",
@@ -4473,7 +4509,7 @@ const RenderServiciosSeccion = ({ movs, servicios, setServicios, editDescuentos,
   );
 };
 
-const Liquidaciones = ({modulo}) => {
+const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie}) => {
   const [lista,setLista]=useState([]);
   const [showNuevaModal, setShowNuevaModal] = useState(false);
   const [contrapartes, setContrapartes] = useState([]);
@@ -4552,6 +4588,7 @@ const Liquidaciones = ({modulo}) => {
             tipo_liq: l.tipo_liquidacion,
             contraparte: l.contraparte_nombre,
             contrato: l.numero_contrato,
+            especie: l.especie_nombre,
             fecha: l.fecha_liquidacion ? l.fecha_liquidacion.split('T')[0] : '',
             kg: parseFloat(l.kg_total) || 0,
             monto_bruto: parseFloat(l.monto_bruto_total) || 0,
@@ -4560,7 +4597,18 @@ const Liquidaciones = ({modulo}) => {
             monto_neto: parseFloat(l.monto_neto_a_pagar) || 0,
             estado: l.estado
           }));
-          setLista(mapped);
+          let filteredMapped = mapped;
+          if (globalFiltroProductor) {
+            filteredMapped = filteredMapped.filter(l => 
+              (l.contraparte || "").toLowerCase().includes(globalFiltroProductor.toLowerCase())
+            );
+          }
+          if (globalFiltroEspecie) {
+            filteredMapped = filteredMapped.filter(l => 
+              (l.especie || "").toLowerCase().includes(globalFiltroEspecie.toLowerCase())
+            );
+          }
+          setLista(filteredMapped);
         } else {
           setLista(mockLiquidaciones.filter(l=>l.modalidad===modulo));
         }
@@ -4592,7 +4640,7 @@ const Liquidaciones = ({modulo}) => {
   useEffect(()=>{
     cargarLiquidaciones();
     cargarMermas();
-  },[modulo]);
+  },[modulo,globalFiltroProductor,globalFiltroEspecie]);
 
   const abrirNuevaModal = async () => {
     try {
@@ -5252,7 +5300,7 @@ const Liquidaciones = ({modulo}) => {
   );
 };
 // ── CUENTA CORRIENTE ──
-const CuentaCorriente = ({modulo}) => {
+const CuentaCorriente = ({modulo, globalFiltroProductor, globalFiltroEspecie}) => {
   const [tab,setTab]=useState("productores");
   const [ccResumen,setCCResumen]=useState([]);
   const [ccTransportistas,setCcTransportistas]=useState([]);
@@ -5474,12 +5522,15 @@ const CuentaCorriente = ({modulo}) => {
 
   useEffect(()=>{
     cargarCCResumen();
-  },[modulo]);
+  },[modulo, globalFiltroProductor, globalFiltroEspecie]);
 
   const ccProd = ccResumen.filter(c=>c.tipo_contraparte==="PRODUCTOR"||c.tipo_contraparte==="AMBOS").map(c=>({id:c.id,nombre:c.razon_social,tipo:"PRODUCTOR",saldo:parseFloat(c.saldo)||0,pendiente:parseInt(c.movs_pendientes)||0,ultimo:"—"}));
   const ccComp = ccResumen.filter(c=>c.tipo_contraparte==="COMPRADOR").map(c=>({id:c.id,nombre:c.razon_social,tipo:"COMPRADOR",saldo:parseFloat(c.saldo)||0,pendiente:parseInt(c.movs_pendientes)||0,ultimo:"—"}));
   const ccTrans = ccTransportistas.map(t=>({id:t.id,nombre:t.nombre,tipo:"TRANSPORTISTA",saldo:parseFloat(t.saldo)||0,fletes:parseInt(t.fletes)||0,faltantes:parseFloat(t.faltantes)||0,ultimo:"—"}));
-  const lista = tab==="productores"?ccProd:tab==="compradores"?ccComp:ccTrans;
+  const rawLista = tab==="productores"?ccProd:tab==="compradores"?ccComp:ccTrans;
+  const lista = globalFiltroProductor
+    ? rawLista.filter(c => (c.nombre || "").toLowerCase().includes(globalFiltroProductor.toLowerCase()))
+    : rawLista;
 
   return (
     <div className="fade-in">
@@ -9311,6 +9362,8 @@ function App() {
   const [codigoOculto,setCodigoOculto]=useState("");
   const [informalUnlocked,setInformalUnlocked]=useState(false);
   const [configDefaultTab, setConfigDefaultTab] = useState("especies");
+  const [globalFiltroProductor, setGlobalFiltroProductor] = useState("");
+  const [globalFiltroEspecie, setGlobalFiltroEspecie] = useState("");
 
   if(!logueado) return <Login onLogin={(u)=>{setLogueado(true);setUsuario(u);}}/>;
 
@@ -9331,15 +9384,23 @@ function App() {
 
   const render = () => {
     const userStr = usuario ? usuario.usuario : "";
-    const p = {modulo, usuario: userStr};
+    const p = {
+      modulo, 
+      usuario: userStr,
+      globalFiltroProductor,
+      setGlobalFiltroProductor,
+      globalFiltroEspecie,
+      setGlobalFiltroEspecie,
+      setSec
+    };
     if (modulo === "CONSOLIDADO") {
       switch(sec){
-        case "dashboard": return <DashboardConsolidado/>;
-        case "stock": return <StockConsolidado/>;
-        case "cc": return <CCConsolidada/>;
-        case "posicion_abierta": return <PosicionAbierta modulo="CONSOLIDADO"/>;
-        case "reportes_ia": return <ReportesIA modulo="CONSOLIDADO" usuario={userStr}/>;
-        default: return <DashboardConsolidado/>;
+        case "dashboard": return <DashboardConsolidado {...p}/>;
+        case "stock": return <StockConsolidado {...p}/>;
+        case "cc": return <CCConsolidada {...p}/>;
+        case "posicion_abierta": return <PosicionAbierta {...p}/>;
+        case "reportes_ia": return <ReportesIA {...p}/>;
+        default: return <DashboardConsolidado {...p}/>;
       }
     }
     switch(sec){
@@ -9349,12 +9410,12 @@ function App() {
       case "movimientos": return <Movimientos {...p}/>;
       case "liquidaciones": return <Liquidaciones {...p}/>;
       case "cc": return <CuentaCorriente {...p}/>;
-      case "stock": return <Stock modulo={modulo}/>;
-      case "rep_fletes": return <ReporteFletes modulo={modulo}/>;
-      case "rep_calidades": return <ReporteCalidades modulo={modulo}/>;
-      case "posicion_abierta": return <PosicionAbierta modulo={modulo}/>;
-      case "importador_excel": return <ImportadorExcel modulo={modulo} usuario={userStr} setSec={setSec}/>;
-      case "reportes_ia": return <ReportesIA modulo={modulo} usuario={userStr}/>;
+      case "stock": return <Stock {...p}/>;
+      case "rep_fletes": return <ReporteFletes {...p}/>;
+      case "rep_calidades": return <ReporteCalidades {...p}/>;
+      case "posicion_abierta": return <PosicionAbierta {...p}/>;
+      case "importador_excel": return <ImportadorExcel {...p} setSec={setSec}/>;
+      case "reportes_ia": return <ReportesIA {...p}/>;
       case "configuracion": return <Configuracion usuario={usuario} defaultTab={configDefaultTab} setDefaultTab={setConfigDefaultTab}/>;
       default: return <Dashboard {...p}/>;
     }
@@ -9505,7 +9566,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.2.0 — GranoSYS - <span
+            v2.2.1 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
@@ -9514,6 +9575,49 @@ function App() {
       </div>
       {/* MAIN */}
       <div style={{flex:1,overflow:"auto",padding:22,background:"#0f1117"}}>
+        {(globalFiltroProductor || globalFiltroEspecie) && (
+          <div style={{
+            background: "rgba(245,166,35,.06)",
+            border: "1px solid rgba(245,166,35,.15)",
+            borderRadius: 8,
+            padding: "10px 16px",
+            marginBottom: 16,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            fontSize: 13
+          }}>
+            <div style={{display: "flex", alignItems: "center", gap: 10}}>
+              <span style={{color: "#f5a623", fontWeight: 600}}>🔍 Filtro Activo:</span>
+              {globalFiltroProductor && (
+                <span style={{background: "#2a2d3e", padding: "3px 8px", borderRadius: 4, color: "#e8eaf0", fontSize: 12}}>
+                  Productor/Cliente: <strong>{globalFiltroProductor}</strong>
+                </span>
+              )}
+              {globalFiltroEspecie && (
+                <span style={{background: "#2a2d3e", padding: "3px 8px", borderRadius: 4, color: "#e8eaf0", fontSize: 12}}>
+                  Cereal: <strong>{globalFiltroEspecie}</strong>
+                </span>
+              )}
+            </div>
+            <button 
+              onClick={() => {
+                setGlobalFiltroProductor("");
+                setGlobalFiltroEspecie("");
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#e74c3c",
+                cursor: "pointer",
+                fontWeight: 600,
+                fontSize: 12
+              }}
+            >
+              ❌ Limpiar Filtro
+            </button>
+          </div>
+        )}
         {render()}
       </div>
     </div>

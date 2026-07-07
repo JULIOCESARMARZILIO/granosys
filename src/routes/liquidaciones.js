@@ -7,10 +7,12 @@ router.get('/', async (req, res) => {
     const { modalidad, tipo, estado } = req.query;
     let query = `
       SELECT l.*, cp.razon_social as contraparte_nombre, c.numero_contrato,
+             e.nombre as especie_nombre,
              COALESCE((SELECT SUM(lm.kg_liquidables) FROM liquidacion_movimientos lm WHERE lm.id_liquidacion = l.id), 0) as kg_total
       FROM liquidaciones l
       LEFT JOIN contrapartes cp ON l.id_contraparte = cp.id
       LEFT JOIN contratos c ON l.id_contrato = c.id
+      LEFT JOIN especies e ON c.id_especie = e.id
       WHERE 1=1
     `;
     const params = [];
