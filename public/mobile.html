@@ -787,7 +787,10 @@
     };
 
     // SUBMIT MOVEMENT TO BACKEND
+    let isSubmitting = false;
     async function submitMovement() {
+      if (isSubmitting) return;
+
       const prodId = document.getElementById("productor").value;
       const bruto = document.getElementById("bruto").value;
       const tara = document.getElementById("tara").value;
@@ -836,6 +839,7 @@
       const btn = document.getElementById("btn-submit");
       btn.disabled = true;
       btn.textContent = "Registrando...";
+      isSubmitting = true;
 
       try {
         const r = await fetch(`${API_URL}/api/movimientos`, {
@@ -870,6 +874,7 @@
       } finally {
         btn.disabled = false;
         btn.textContent = "Registrar Salida de Camión";
+        isSubmitting = false;
       }
     }
 
