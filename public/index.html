@@ -5986,68 +5986,221 @@ const CuentaCorriente = ({modulo}) => {
 };
 
 // ── STOCK ──
-const stockData = [
-  {
-    productor:"García Juan Carlos", cuit:"20-12345678-9",
-    especie:"Soja", campana:"2024/2025", ubicacion:"Planta Propia",
-    tn_total: 180,
-    con_contrato: [
-      {contrato:"OC-2025-0001", tn:180, precio:285000, moneda:"PESOS", tipo:"PRECIO_HECHO", estado:"EN_CURSO"}
-    ],
-    sin_contrato: 0,
-  },
-  {
-    productor:"García Juan Carlos", cuit:"20-12345678-9",
-    especie:"Trigo", campana:"2024/2025", ubicacion:"Acopio Tercero",
-    tn_total: 60,
-    con_contrato: [
-      {contrato:"OC-2025-0003", tn:60, precio:180000, moneda:"PESOS", tipo:"PRECIO_HECHO", estado:"CONFIRMADO"}
-    ],
-    sin_contrato: 0,
-  },
-  {
-    productor:"Rodríguez Pedro", cuit:null,
-    especie:"Maíz", campana:"2024/2025", ubicacion:"Planta Propia",
-    tn_total: 31.4,
-    con_contrato: [],
-    sin_contrato: 31.4,
-  },
-];
-
-const Stock = () => {
+// ── STOCK ──
+const Stock = ({modulo}) => {
   const [expandido, setExpandido] = useState({});
   const toggle = (key) => setExpandido(prev => ({...prev, [key]: !prev[key]}));
 
-  // Agrupar por productor
-  const porProductor = stockData.reduce((acc, s) => {
-    const key = s.productor;
-    if (!acc[key]) acc[key] = {productor:s.productor, cuit:s.cuit, items:[]};
-    acc[key].items.push(s);
-    return acc;
-  }, {});
+  const [movimientos, setMovimientos] = useState([]);
+  const [contratos, setContratos] = useState([]);
+  const [cargando, setCargando] = useState(true);
 
-  const totalSoja = stockData.filter(s=>s.especie==="Soja").reduce((a,s)=>a+s.tn_total,0);
-  const totalMaiz = stockData.filter(s=>s.especie==="Maíz").reduce((a,s)=>a+s.tn_total,0);
-  const totalTrigo = stockData.filter(s=>s.especie==="Trigo").reduce((a,s)=>a+s.tn_total,0);
-  const totalSinContrato = stockData.reduce((a,s)=>a+s.sin_contrato,0);
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setCargando(true);
+        const resMov = await api.get(`/api/movimientos?modalidad=${modulo}`);
+        const resCont = await api.get(`/api/contratos`);
+        
+        // Map movements
+        const mappedMovs = resMov.map(m => ({
+          ...m,
+          especie: m.especie_nombre || 'Soja',
+          campana: m.campana_desc || '2024/2025',
+          contrato_compra: m.nro_contrato_compra,
+          contrato_venta: m.nro_contrato_venta,
+          productor: m.remitente_comercial_productor_nombre || m.titular_cpe_nombre || 'Sin Productor',
+          comprador: m.destinatario_nombre || 'Sin Comprador',
+          peso_neto_llegada: m.peso_neto_llegada_kg ? parseFloat(m.peso_neto_llegada_kg) : null,
+          peso_neto_salida: m.peso_neto_salida_kg ? parseFloat(m.peso_neto_salida_kg) : null,
+        }));
+        
+        // Filter contracts
+        const filteredContratos = resCont.filter(c => c.modalidad === modulo);
+        
+        setMovimientos(mappedMovs);
+        setContratos(filteredContratos);
+      } catch (e) {
+        console.error("Error fetching stock data:", e);
+      } finally {
+        setCargando(false);
+      }
+    };
+    fetchData();
+  }, [modulo]);
+
+  if (cargando) {
+    return (
+      <div style={{padding: "20px 0", color: "#8890a8", display: "flex", alignItems: "center", gap: 10}}>
+        <div style={{
+          width: 18, height: 18, border: "2px solid #2ece76", 
+          borderTopColor: "transparent", borderRadius: "50%", 
+          animation: "spin 1s linear infinite"
+        }}></div>
+        <span>Cargando stock en tiempo real...</span>
+      </div>
+    );
+  }
+
+  // Group movements of the current module by producer, species, and campaign
+  const porProductor = {};
+  movimientos.forEach(m => {
+    const prodName = m.productor;
+    const espName = m.especie;
+    const campDesc = m.campana;
+    
+    // Weight in tons
+    const netWeight = m.peso_neto_llegada !== null ? m.peso_neto_llegada : m.peso_neto_salida;
+    const tn = (netWeight || 0) / 1000;
+    
+    if (!porProductor[prodName]) {
+      porProductor[prodName] = {
+        productor: prodName,
+        cuit: m.remitente_comercial_productor_cuit || m.titular_cpe_cuit || "",
+        items: {}
+      };
+    }
+    
+    const itemKey = `${espName}-${campDesc}`;
+    if (!porProductor[prodName].items[itemKey]) {
+      porProductor[prodName].items[itemKey] = {
+        especie: espName,
+        campana: campDesc,
+        ubicacion: m.localidad_destino || "Planta Destino",
+        tn_total: 0,
+        con_contrato: {},
+        sin_contrato: 0
+      };
+    }
+    
+    const item = porProductor[prodName].items[itemKey];
+    item.tn_total += tn;
+    
+    if (m.id_contrato_compra) {
+      const contrNo = m.contrato_compra || `CON-${m.id_contrato_compra}`;
+      if (!item.con_contrato[contrNo]) {
+        const c = contratos.find(x => x.id === m.id_contrato_compra);
+        item.con_contrato[contrNo] = {
+          contrato: contrNo,
+          tn: 0,
+          tipo: c ? c.tipo_precio || "A_FIJAR" : "A_FIJAR",
+          precio: c ? c.precio_pactado : null,
+          moneda: c ? c.moneda : null,
+          estado: c ? c.estado : "EN_CURSO"
+        };
+      }
+      item.con_contrato[contrNo].tn += tn;
+    } else {
+      item.sin_contrato += tn;
+    }
+  });
+
+  // Convert items of each producer from object to array
+  const porProductorList = Object.values(porProductor).map(p => ({
+    ...p,
+    items: Object.values(p.items).map(item => ({
+      ...item,
+      con_contrato: Object.values(item.con_contrato)
+    }))
+  })).sort((a,b) => a.productor.localeCompare(b.productor));
+
+  // Calculate unassigned tons by cereal
+  const cereals = ["Soja", "Trigo", "Maíz", "Girasol", "Sorgo", "Cebada"];
+  const cerealSummary = cereals.map(cereal => {
+    const cMovs = movimientos.filter(m => (m.especie || "").toLowerCase().includes(cereal.toLowerCase()));
+    
+    let totalEntregado = 0;
+    let conCompra = 0;
+    let sinCompra = 0;
+    let conVenta = 0;
+    let sinVenta = 0;
+    
+    cMovs.forEach(m => {
+      const netWeight = m.peso_neto_llegada !== null ? m.peso_neto_llegada : m.peso_neto_salida;
+      const tn = (netWeight || 0) / 1000;
+      
+      totalEntregado += tn;
+      
+      if (m.id_contrato_compra) {
+        conCompra += tn;
+      } else {
+        sinCompra += tn;
+      }
+      
+      if (m.id_contrato_venta) {
+        conVenta += tn;
+      } else {
+        sinVenta += tn;
+      }
+    });
+    
+    return {
+      cereal,
+      totalEntregado,
+      conCompra,
+      sinCompra,
+      conVenta,
+      sinVenta
+    };
+  });
+
+  const totalSoja = movimientos.filter(m => (m.especie || "").toLowerCase().includes("soja")).reduce((a, m) => a + ((m.peso_neto_llegada !== null ? m.peso_neto_llegada : m.peso_neto_salida) || 0) / 1000, 0);
+  const totalMaiz = movimientos.filter(m => (m.especie || "").toLowerCase().includes("ma")).reduce((a, m) => a + ((m.peso_neto_llegada !== null ? m.peso_neto_llegada : m.peso_neto_salida) || 0) / 1000, 0);
+  const totalTrigo = movimientos.filter(m => (m.especie || "").toLowerCase().includes("trigo")).reduce((a, m) => a + ((m.peso_neto_llegada !== null ? m.peso_neto_llegada : m.peso_neto_salida) || 0) / 1000, 0);
+  const totalSinContrato = movimientos.filter(m => !m.id_contrato_compra).reduce((a, m) => a + ((m.peso_neto_llegada !== null ? m.peso_neto_llegada : m.peso_neto_salida) || 0) / 1000, 0);
 
   return (
     <div className="fade-in">
       <div style={{marginBottom:20}}>
         <h2 style={{fontSize:18,fontWeight:700}}>Stock por Productor</h2>
-        <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Total con contrato y sin contrato desglosado por productor</p>
+        <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Total con contrato y sin contrato desglosado en tiempo real</p>
       </div>
 
       {/* RESUMEN GENERAL */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:20}}>
-        <StatCard label="Soja — Total" value={`${totalSoja} tn`} sub="todas las posiciones" color="#e67e22"/>
-        <StatCard label="Maíz — Total" value={`${totalMaiz} tn`} sub="todas las posiciones" color="#f1c40f"/>
-        <StatCard label="Trigo — Total" value={`${totalTrigo} tn`} sub="todas las posiciones" color="#e74c3c"/>
-        <StatCard label="Sin Contrato" value={`${totalSinContrato.toFixed(1)} tn`} sub="posición abierta a fijar" color="#9b59b6"/>
+        <StatCard label="Soja — Total" value={`${totalSoja.toFixed(3)} tn`} sub="en tránsito / descargada" color="#e67e22"/>
+        <StatCard label="Maíz — Total" value={`${totalMaiz.toFixed(3)} tn`} sub="en tránsito / descargada" color="#f1c40f"/>
+        <StatCard label="Trigo — Total" value={`${totalTrigo.toFixed(3)} tn`} sub="en tránsito / descargada" color="#e74c3c"/>
+        <StatCard label="Sin Contrato Compra" value={`${totalSinContrato.toFixed(3)} tn`} sub="posición de compra abierta" color="#9b59b6"/>
+      </div>
+
+      {/* CEREAL SUMMARY TABLE */}
+      <div className="card" style={{marginBottom: 20, padding: "16px 20px"}}>
+        <h3 style={{fontSize:14, fontWeight:600, marginBottom:12, color:"#e8eaf0"}}>Resumen de Posición y Toneladas Sin Asignar</h3>
+        <div style={{overflowX:"auto"}}>
+          <table className="table" style={{width:"100%", borderCollapse:"collapse", minWidth: 600}}>
+            <thead>
+              <tr style={{borderBottom:"1px solid #2a2d3e", textAlign:"left"}}>
+                <th style={{padding:"8px 12px", color:"#8890a8", fontSize:11, textTransform:"uppercase"}}>Cereal</th>
+                <th style={{padding:"8px 12px", color:"#8890a8", fontSize:11, textTransform:"uppercase", textAlign:"right"}}>Total Entregado</th>
+                <th style={{padding:"8px 12px", color:"#8890a8", fontSize:11, textTransform:"uppercase", textAlign:"right", color:"#2ece76"}}>Asignado Compra</th>
+                <th style={{padding:"8px 12px", color:"#8890a8", fontSize:11, textTransform:"uppercase", textAlign:"right", color:"#9b59b6"}}>Sin Asignar Compra</th>
+                <th style={{padding:"8px 12px", color:"#8890a8", fontSize:11, textTransform:"uppercase", textAlign:"right", color:"#3498db"}}>Asignado Venta</th>
+                <th style={{padding:"8px 12px", color:"#8890a8", fontSize:11, textTransform:"uppercase", textAlign:"right", color:"#f1c40f"}}>Sin Asignar Venta</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cerealSummary.map(row => (
+                <tr key={row.cereal} style={{borderBottom:"1px solid #1a1d27", fontSize:13}}>
+                  <td style={{padding:"10px 12px", fontWeight:600}}>{row.cereal}</td>
+                  <td className="mono" style={{padding:"10px 12px", textAlign:"right"}}>{row.totalEntregado.toFixed(3)} tn</td>
+                  <td className="mono" style={{padding:"10px 12px", textAlign:"right", color:"#2ece76"}}>{row.conCompra.toFixed(3)} tn</td>
+                  <td className="mono" style={{padding:"10px 12px", textAlign:"right", color:"#9b59b6", fontWeight: row.sinCompra > 0 ? "700" : "normal"}}>{row.sinCompra.toFixed(3)} tn</td>
+                  <td className="mono" style={{padding:"10px 12px", textAlign:"right", color:"#3498db"}}>{row.conVenta.toFixed(3)} tn</td>
+                  <td className="mono" style={{padding:"10px 12px", textAlign:"right", color:"#f1c40f", fontWeight: row.sinVenta > 0 ? "700" : "normal"}}>{row.sinVenta.toFixed(3)} tn</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* POR PRODUCTOR */}
-      {Object.values(porProductor).map(prod => {
+      {porProductorList.length === 0 ? (
+        <div className="card" style={{padding: 20, textAlign: "center", color: "#8890a8"}}>
+          No hay movimientos registrados en este módulo.
+        </div>
+      ) : porProductorList.map(prod => {
         const tnTotal = prod.items.reduce((a,s)=>a+s.tn_total,0);
         const tnConContrato = prod.items.reduce((a,s)=>a+s.con_contrato.reduce((b,c)=>b+c.tn,0),0);
         const tnSinContrato = prod.items.reduce((a,s)=>a+s.sin_contrato,0);
@@ -6105,12 +6258,12 @@ const Stock = () => {
                         <span className="mono" style={{fontSize:12,color:"#f5a623"}}>{cc.contrato}</span>
                         <span className="mono" style={{fontSize:12}}>{cc.tn.toFixed(3)} tn</span>
                         <span style={{fontSize:12,color:"#8890a8"}}>
-                          {cc.tipo==="A_FIJAR"
+                          {cc.tipo === "A_FIJAR"
                             ? <Badge label="A FIJAR" color="purple"/>
-                            : `$ ${cc.precio?.toLocaleString()} ${cc.moneda==="PESOS"?"$":cc.moneda==="DOLARES"?"USD":"USD Bill."}`
+                            : `$ ${cc.precio?.toLocaleString()} ${cc.moneda === "PESOS" ? "$" : "USD"}`
                           }
                         </span>
-                        <Badge label={cc.estado} color={cc.estado==="EN_CURSO"?"green":"blue"} />
+                        <Badge label={cc.estado} color={cc.estado === "EN_CURSO" ? "green" : "blue"} />
                       </div>
                     ))}
 
@@ -6122,9 +6275,6 @@ const Stock = () => {
                         <span className="mono" style={{fontSize:12}}>{s.sin_contrato.toFixed(3)} tn</span>
                         <Badge label="POSICIÓN ABIERTA" color="purple"/>
                         <Badge label="A FIJAR" color="purple"/>
-                        <Btn variant="ghost" size="sm" onClick={()=>alert("Ir a Posición Abierta para asignar contrato")}>
-                          Asignar contrato →
-                        </Btn>
                       </div>
                     )}
                   </div>
@@ -8430,7 +8580,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.1.8 — GranoSYS - INVDELSAL</div>
+          v2.1.9 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -9194,7 +9344,7 @@ function App() {
       case "movimientos": return <Movimientos {...p}/>;
       case "liquidaciones": return <Liquidaciones {...p}/>;
       case "cc": return <CuentaCorriente {...p}/>;
-      case "stock": return <Stock/>;
+      case "stock": return <Stock modulo={modulo}/>;
       case "rep_fletes": return <ReporteFletes modulo={modulo}/>;
       case "rep_calidades": return <ReporteCalidades modulo={modulo}/>;
       case "posicion_abierta": return <PosicionAbierta modulo={modulo}/>;
@@ -9350,7 +9500,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.1.8 — GranoSYS - <span
+            v2.1.9 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
