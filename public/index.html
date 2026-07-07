@@ -2872,7 +2872,7 @@ const Movimientos = ({modulo, usuario}) => {
         <h2 style={{fontSize:18,fontWeight:700}}>Movimientos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
         <div style={{display:"flex",gap:8}}>
           <Btn variant="secondary" size="sm" onClick={()=>setShowRapido(true)}>⚡ Carga Rápida</Btn>
-          {modulo==="FORMAL"&&<Btn variant="secondary" size="sm" onClick={()=>setShowImport(true)}>↑ Importar CPE</Btn>}
+          <Btn variant="secondary" size="sm" onClick={()=>setShowImport(true)}>↑ Importar CPE</Btn>
           {modulo==="INFORMAL"&&<>
             <Btn variant="secondary" size="sm" onClick={()=>setShowImportTicket(true)}>↑ Importar Ticket</Btn>
             <Btn variant="secondary" size="sm" onClick={()=>setShowImportExcel(true)}>↑ Importar Excel</Btn>
@@ -3195,8 +3195,27 @@ const Movimientos = ({modulo, usuario}) => {
                       id_contrato_compra: importContratoCompra ? parseInt(importContratoCompra) : null,
                       id_contrato_venta: importContratoVenta ? parseInt(importContratoVenta) : null
                     };
+
+                    let crearEnFormal = false;
+                    if (modulo === "INFORMAL") {
+                      crearEnFormal = confirm("¿Desea crear este movimiento también en el módulo Formal?");
+                    }
+
                     const r = await api.post("/api/movimientos", payload);
-                    alert(`✓ Movimiento ${r.numero_movimiento} creado desde CPE N° ${importResult.nro_cpe}\nEstado: EN_TRÁNSITO`);
+                    let msg = `✓ Movimiento ${r.numero_movimiento} creado desde CPE N° ${importResult.nro_cpe}\nEstado: EN_TRÁNSITO`;
+
+                    if (crearEnFormal) {
+                      const formalPayload = { 
+                        ...payload, 
+                        modalidad: "FORMAL",
+                        id_contrato_compra: null,
+                        id_contrato_venta: null
+                      };
+                      const rFormal = await api.post("/api/movimientos", formalPayload);
+                      msg += `\n✓ Movimiento ${rFormal.numero_movimiento} duplicado creado también en el Módulo Formal.`;
+                    }
+
+                    alert(modulo === "INFORMAL" ? msg : `✓ Movimiento ${r.numero_movimiento} creado desde CPE N° ${importResult.nro_cpe}\nEstado: EN_TRÁNSITO`);
                     setShowImport(false);
                     setImportResult(null);
                     cargarMovimientos();
@@ -8411,7 +8430,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.1.6 — GranoSYS - INVDELSAL</div>
+          v2.1.7 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -9331,7 +9350,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.1.6 — GranoSYS - <span
+            v2.1.7 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
