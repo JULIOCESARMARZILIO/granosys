@@ -6530,8 +6530,12 @@ const ReporteFletes = ({modulo}) => {
 
   const handleTarifaChange = async (id, val) => {
     try {
-      await api.put('/api/movimientos/bulk-update', { ids: [id], tarifa_flete_real: val });
-      cargarMovimientos();
+      const res = await api.put('/api/movimientos/bulk-update', { ids: [id], tarifa_flete_real: val });
+      if (!res) {
+        alert("Error al actualizar tarifa");
+      } else {
+        cargarMovimientos();
+      }
     } catch(e) { alert("Error al actualizar tarifa"); }
   };
 
@@ -6879,6 +6883,7 @@ const ReporteFletes = ({modulo}) => {
                             <div style={{display:"flex",alignItems:"center",gap:2}}>
                               <span style={{color:"#8890a8",fontSize:12}}>$</span>
                               <input
+                                key={m.id + '-' + (m.tarifa_real || '')}
                                 defaultValue={m.tarifa_real||""}
                                 type="number"
                                 placeholder="—"
@@ -8580,7 +8585,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.1.9 — GranoSYS - INVDELSAL</div>
+          v2.2.0 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -9500,7 +9505,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.1.9 — GranoSYS - <span
+            v2.2.0 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>

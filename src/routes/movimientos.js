@@ -629,7 +629,8 @@ router.put('/bulk-update', async (req, res) => {
     const params = [];
 
     if (tarifa_flete_real !== undefined) {
-      params.push(tarifa_flete_real === '' ? null : tarifa_flete_real);
+      const parsedTarifa = (tarifa_flete_real === '' || tarifa_flete_real === null) ? null : parseFloat(tarifa_flete_real);
+      params.push(parsedTarifa);
       updates.push(`tarifa_flete_real = $${params.length}`);
     }
     if (transportista_nombre !== undefined) {
