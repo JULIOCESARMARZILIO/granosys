@@ -814,6 +814,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie}) => {
           tipo_liq: c.tipo_liquidacion,
           tipo: c.tipo_contrato
         };
+      });
       let filteredMapped = mapped;
       if (globalFiltroProductor) {
         filteredMapped = filteredMapped.filter(c => 
