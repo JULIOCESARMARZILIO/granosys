@@ -6039,7 +6039,7 @@ const CuentaCorriente = ({modulo, globalFiltroProductor, globalFiltroEspecie}) =
 
 // ── STOCK ──
 // ── STOCK ──
-const Stock = ({modulo}) => {
+const Stock = ({modulo, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec}) => {
   const [expandido, setExpandido] = useState({});
   const toggle = (key) => setExpandido(prev => ({...prev, [key]: !prev[key]}));
 
@@ -6237,9 +6237,47 @@ const Stock = ({modulo}) => {
                   <td style={{padding:"10px 12px", fontWeight:600}}>{row.cereal}</td>
                   <td className="mono" style={{padding:"10px 12px", textAlign:"right"}}>{row.totalEntregado.toFixed(3)} tn</td>
                   <td className="mono" style={{padding:"10px 12px", textAlign:"right", color:"#2ece76"}}>{row.conCompra.toFixed(3)} tn</td>
-                  <td className="mono" style={{padding:"10px 12px", textAlign:"right", color:"#9b59b6", fontWeight: row.sinCompra > 0 ? "700" : "normal"}}>{row.sinCompra.toFixed(3)} tn</td>
+                  <td 
+                    className="mono" 
+                    onClick={() => {
+                      if (row.sinCompra > 0) {
+                        setGlobalFiltroEspecie(row.cereal);
+                        setGlobalFiltroProductor("");
+                        setSec("movimientos");
+                      }
+                    }}
+                    style={{
+                      padding:"10px 12px", 
+                      textAlign:"right", 
+                      color:"#9b59b6", 
+                      fontWeight: row.sinCompra > 0 ? "700" : "normal",
+                      cursor: row.sinCompra > 0 ? "pointer" : "default",
+                      textDecoration: row.sinCompra > 0 ? "underline" : "none"
+                    }}
+                  >
+                    {row.sinCompra.toFixed(3)} tn
+                  </td>
                   <td className="mono" style={{padding:"10px 12px", textAlign:"right", color:"#3498db"}}>{row.conVenta.toFixed(3)} tn</td>
-                  <td className="mono" style={{padding:"10px 12px", textAlign:"right", color:"#f1c40f", fontWeight: row.sinVenta > 0 ? "700" : "normal"}}>{row.sinVenta.toFixed(3)} tn</td>
+                  <td 
+                    className="mono" 
+                    onClick={() => {
+                      if (row.sinVenta > 0) {
+                        setGlobalFiltroEspecie(row.cereal);
+                        setGlobalFiltroProductor("");
+                        setSec("movimientos");
+                      }
+                    }}
+                    style={{
+                      padding:"10px 12px", 
+                      textAlign:"right", 
+                      color:"#f1c40f", 
+                      fontWeight: row.sinVenta > 0 ? "700" : "normal",
+                      cursor: row.sinVenta > 0 ? "pointer" : "default",
+                      textDecoration: row.sinVenta > 0 ? "underline" : "none"
+                    }}
+                  >
+                    {row.sinVenta.toFixed(3)} tn
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -6321,9 +6359,25 @@ const Stock = ({modulo}) => {
 
                     {/* SIN CONTRATO */}
                     {s.sin_contrato > 0 && (
-                      <div style={{padding:"8px 18px 8px 40px",borderBottom:"1px solid #1a1d27",display:"flex",alignItems:"center",gap:12}}>
+                      <div 
+                        onClick={() => {
+                          setGlobalFiltroProductor(prod.productor);
+                          setGlobalFiltroEspecie(s.especie);
+                          setSec("movimientos");
+                        }}
+                        style={{
+                          padding:"8px 18px 8px 40px",
+                          borderBottom:"1px solid #1a1d27",
+                          display:"flex",
+                          alignItems:"center",
+                          gap:12,
+                          cursor: "pointer",
+                          background: "rgba(155, 89, 182, 0.04)"
+                        }}
+                        title="Hacer clic para ver movimientos de este productor sin contrato"
+                      >
                         <div style={{width:6,height:6,borderRadius:"50%",background:"#9b59b6",flexShrink:0}}/>
-                        <span style={{fontSize:12,color:"#9b59b6",fontWeight:600,minWidth:80}}>Sin contrato</span>
+                        <span style={{fontSize:12,color:"#9b59b6",fontWeight:600,minWidth:80,textDecoration:"underline"}}>Sin contrato</span>
                         <span className="mono" style={{fontSize:12}}>{s.sin_contrato.toFixed(3)} tn</span>
                         <Badge label="POSICIÓN ABIERTA" color="purple"/>
                         <Badge label="A FIJAR" color="purple"/>
@@ -8637,7 +8691,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.2.1 — GranoSYS - INVDELSAL</div>
+          v2.2.2 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -9567,7 +9621,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.2.1 — GranoSYS - <span
+            v2.2.2 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
