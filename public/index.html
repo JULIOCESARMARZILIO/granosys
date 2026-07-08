@@ -57,6 +57,7 @@ tr:last-child td{border-bottom:none}
 .alert-danger{padding:10px 14px;background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);border-radius:6px;font-size:12px;color:#e74c3c}
 .progress-bar{height:6px;background:#0f1117;border-radius:3px;overflow:hidden;min-width:60px}
 .progress-fill{height:100%;border-radius:3px;background:#f5a623;transition:width .3s}
+.menu-item-hover:hover{background:rgba(245,166,35,.12) !important;color:#f5a623 !important}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.0.2/tesseract.min.js"></script>
@@ -6042,6 +6043,13 @@ const CuentaCorriente = ({modulo, globalFiltroProductor, globalFiltroEspecie}) =
 const Stock = ({modulo, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec}) => {
   const [expandido, setExpandido] = useState({});
   const toggle = (key) => setExpandido(prev => ({...prev, [key]: !prev[key]}));
+  const [activeMenu, setActiveMenu] = useState(null);
+
+  useEffect(() => {
+    const handleDocClick = () => setActiveMenu(null);
+    document.addEventListener("click", handleDocClick);
+    return () => document.removeEventListener("click", handleDocClick);
+  }, []);
 
   const [movimientos, setMovimientos] = useState([]);
   const [contratos, setContratos] = useState([]);
@@ -6307,7 +6315,80 @@ const Stock = ({modulo, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec
               <div style={{display:"flex",alignItems:"center",gap:14}}>
                 <span style={{color:"#565d7a",fontSize:16}}>{isOpen?"▼":"▶"}</span>
                 <div>
-                  <div style={{fontWeight:700,fontSize:15}}>{prod.productor}</div>
+                  <div style={{fontWeight:700,fontSize:15,display:"flex",alignItems:"center",gap:8}}>
+                    {prod.productor}
+                    <div style={{position:"relative",display:"inline-block"}} onClick={e=>e.stopPropagation()}>
+                      <button 
+                        onClick={() => setActiveMenu(activeMenu === `prod-${prod.productor}` ? null : `prod-${prod.productor}`)}
+                        style={{
+                          background:"#2a2d3e",
+                          color:"#8890a8",
+                          border:"none",
+                          width:20,
+                          height:20,
+                          borderRadius:4,
+                          display:"flex",
+                          alignItems:"center",
+                          justifyContent:"center",
+                          fontSize:12,
+                          cursor:"pointer"
+                        }}
+                        title="Acciones de Productor"
+                      >
+                        ⋮
+                      </button>
+                      {activeMenu === `prod-${prod.productor}` && (
+                        <div style={{
+                          position:"absolute",
+                          top:22,
+                          left:0,
+                          background:"#1a1d27",
+                          border:"1px solid #2a2d3e",
+                          borderRadius:6,
+                          boxShadow:"0 4px 12px rgba(0,0,0,0.5)",
+                          zIndex:100,
+                          minWidth:160,
+                          padding:"4px 0"
+                        }}>
+                          <div 
+                            onClick={() => {
+                              setGlobalFiltroProductor(prod.productor);
+                              setGlobalFiltroEspecie("");
+                              setSec("movimientos");
+                              setActiveMenu(null);
+                            }}
+                            style={{padding:"8px 12px",fontSize:12,color:"#e8eaf0",cursor:"pointer",transition:"background 0.2s"}}
+                            className="menu-item-hover"
+                          >
+                            📋 Ir a Movimientos
+                          </div>
+                          <div 
+                            onClick={() => {
+                              setGlobalFiltroProductor(prod.productor);
+                              setGlobalFiltroEspecie("");
+                              setSec("liquidaciones");
+                              setActiveMenu(null);
+                            }}
+                            style={{padding:"8px 12px",fontSize:12,color:"#e8eaf0",cursor:"pointer",transition:"background 0.2s"}}
+                            className="menu-item-hover"
+                          >
+                            💰 Ir a Liquidaciones
+                          </div>
+                          <div 
+                            onClick={() => {
+                              setGlobalFiltroProductor(prod.productor);
+                              setSec("cc");
+                              setActiveMenu(null);
+                            }}
+                            style={{padding:"8px 12px",fontSize:12,color:"#e8eaf0",cursor:"pointer",transition:"background 0.2s"}}
+                            className="menu-item-hover"
+                          >
+                            🏦 Ir a Cuenta Corriente
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                   <div style={{fontSize:12,color:"#8890a8",marginTop:2}}>{prod.cuit||"Informal"}</div>
                 </div>
               </div>
@@ -6316,12 +6397,30 @@ const Stock = ({modulo, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec
                   <div style={{fontSize:10,color:"#8890a8",textTransform:"uppercase",letterSpacing:".06em"}}>Total</div>
                   <div className="mono" style={{fontWeight:700,fontSize:18,color:"#e8eaf0"}}>{tnTotal.toFixed(3)} tn</div>
                 </div>
-                <div style={{textAlign:"center"}}>
-                  <div style={{fontSize:10,color:"#8890a8",textTransform:"uppercase",letterSpacing:".06em"}}>Con Contrato</div>
+                <div 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setGlobalFiltroProductor(prod.productor);
+                    setGlobalFiltroEspecie("");
+                    setSec("movimientos");
+                  }}
+                  style={{textAlign:"center", cursor:"pointer", textDecoration:"underline"}}
+                  title="Ver todos los movimientos asignados a contrato"
+                >
+                  <div style={{fontSize:10,color:"#27ae60",textTransform:"uppercase",letterSpacing:".06em"}}>Con Contrato</div>
                   <div className="mono" style={{fontWeight:700,fontSize:16,color:"#27ae60"}}>{tnConContrato.toFixed(3)} tn</div>
                 </div>
-                <div style={{textAlign:"center"}}>
-                  <div style={{fontSize:10,color:"#8890a8",textTransform:"uppercase",letterSpacing:".06em"}}>Sin Contrato</div>
+                <div 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setGlobalFiltroProductor(prod.productor);
+                    setGlobalFiltroEspecie("");
+                    setSec("movimientos");
+                  }}
+                  style={{textAlign:"center", cursor:tnSinContrato>0?"pointer":"default", textDecoration:tnSinContrato>0?"underline":"none"}}
+                  title={tnSinContrato>0?"Ver movimientos de este productor sin contrato":""}
+                >
+                  <div style={{fontSize:10,color:tnSinContrato>0?"#9b59b6":"#8890a8",textTransform:"uppercase",letterSpacing:".06em"}}>Sin Contrato</div>
                   <div className="mono" style={{fontWeight:700,fontSize:16,color:tnSinContrato>0?"#9b59b6":"#565d7a"}}>{tnSinContrato.toFixed(3)} tn</div>
                 </div>
               </div>
@@ -6335,6 +6434,68 @@ const Stock = ({modulo, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec
                     {/* FILA ESPECIE */}
                     <div style={{padding:"10px 18px 6px 18px",background:"rgba(255,255,255,.02)",borderBottom:"1px solid #1e2133",display:"flex",alignItems:"center",gap:12}}>
                       <span style={{fontWeight:600,fontSize:13,minWidth:60}}>{s.especie}</span>
+                      
+                      <div style={{position:"relative",display:"inline-block"}} onClick={e=>e.stopPropagation()}>
+                        <button 
+                          onClick={() => setActiveMenu(activeMenu === `esp-${prod.productor}-${s.especie}` ? null : `esp-${prod.productor}-${s.especie}`)}
+                          style={{
+                            background:"#2a2d3e",
+                            color:"#8890a8",
+                            border:"none",
+                            width:16,
+                            height:16,
+                            borderRadius:3,
+                            display:"flex",
+                            alignItems:"center",
+                            justifyContent:"center",
+                            fontSize:10,
+                            cursor:"pointer"
+                          }}
+                          title="Acciones de Cereal"
+                        >
+                          ⋮
+                        </button>
+                        {activeMenu === `esp-${prod.productor}-${s.especie}` && (
+                          <div style={{
+                            position:"absolute",
+                            top:18,
+                            left:0,
+                            background:"#1a1d27",
+                            border:"1px solid #2a2d3e",
+                            borderRadius:6,
+                            boxShadow:"0 4px 12px rgba(0,0,0,0.5)",
+                            zIndex:100,
+                            minWidth:160,
+                            padding:"4px 0"
+                          }}>
+                            <div 
+                              onClick={() => {
+                                setGlobalFiltroProductor(prod.productor);
+                                setGlobalFiltroEspecie(s.especie);
+                                setSec("movimientos");
+                                setActiveMenu(null);
+                              }}
+                              style={{padding:"8px 12px",fontSize:12,color:"#e8eaf0",cursor:"pointer",transition:"background 0.2s"}}
+                              className="menu-item-hover"
+                            >
+                              📋 Ir a Movimientos
+                            </div>
+                            <div 
+                              onClick={() => {
+                                setGlobalFiltroProductor(prod.productor);
+                                setGlobalFiltroEspecie(s.especie);
+                                setSec("liquidaciones");
+                                setActiveMenu(null);
+                              }}
+                              style={{padding:"8px 12px",fontSize:12,color:"#e8eaf0",cursor:"pointer",transition:"background 0.2s"}}
+                              className="menu-item-hover"
+                            >
+                              💰 Ir a Liquidaciones
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       <span className="mono" style={{fontSize:11,color:"#565d7a"}}>{s.campana}</span>
                       <span style={{fontSize:12,color:"#8890a8"}}>{s.ubicacion}</span>
                       <span className="mono" style={{marginLeft:"auto",fontWeight:700,color:"#f5a623"}}>{s.tn_total.toFixed(3)} tn total</span>
@@ -6342,9 +6503,26 @@ const Stock = ({modulo, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec
 
                     {/* CON CONTRATO */}
                     {s.con_contrato.length > 0 && s.con_contrato.map((cc,ci) => (
-                      <div key={ci} style={{padding:"8px 18px 8px 40px",borderBottom:"1px solid #1a1d27",display:"flex",alignItems:"center",gap:12}}>
+                      <div 
+                        key={ci} 
+                        onClick={() => {
+                          setGlobalFiltroProductor(prod.productor);
+                          setGlobalFiltroEspecie(s.especie);
+                          setSec("movimientos");
+                        }}
+                        style={{
+                          padding:"8px 18px 8px 40px",
+                          borderBottom:"1px solid #1a1d27",
+                          display:"flex",
+                          alignItems:"center",
+                          gap:12,
+                          cursor: "pointer",
+                          background: "rgba(39, 174, 96, 0.04)"
+                        }}
+                        title="Hacer clic para ver movimientos de este contrato"
+                      >
                         <div style={{width:6,height:6,borderRadius:"50%",background:"#27ae60",flexShrink:0}}/>
-                        <span style={{fontSize:12,color:"#27ae60",fontWeight:600,minWidth:80}}>Con contrato</span>
+                        <span style={{fontSize:12,color:"#27ae60",fontWeight:600,minWidth:80,textDecoration:"underline"}}>Con contrato</span>
                         <span className="mono" style={{fontSize:12,color:"#f5a623"}}>{cc.contrato}</span>
                         <span className="mono" style={{fontSize:12}}>{cc.tn.toFixed(3)} tn</span>
                         <span style={{fontSize:12,color:"#8890a8"}}>
@@ -8691,7 +8869,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.2.2 — GranoSYS - INVDELSAL</div>
+          v2.3.0 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -9419,6 +9597,23 @@ function App() {
   const [configDefaultTab, setConfigDefaultTab] = useState("especies");
   const [globalFiltroProductor, setGlobalFiltroProductor] = useState("");
   const [globalFiltroEspecie, setGlobalFiltroEspecie] = useState("");
+  const [listaProductores, setListaProductores] = useState([]);
+
+  useEffect(() => {
+    if (logueado) {
+      api.get("/api/contrapartes")
+        .then(data => {
+          if (data && data.length > 0) {
+            setListaProductores(data.map(c => c.razon_social).filter(Boolean));
+          } else {
+            setListaProductores(mockContrapartes.map(c => c.razon_social).filter(Boolean));
+          }
+        })
+        .catch(() => {
+          setListaProductores(mockContrapartes.map(c => c.razon_social).filter(Boolean));
+        });
+    }
+  }, [logueado]);
 
   if(!logueado) return <Login onLogin={(u)=>{setLogueado(true);setUsuario(u);}}/>;
 
@@ -9621,7 +9816,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.2.2 — GranoSYS - <span
+            v2.3.0 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
@@ -9630,49 +9825,93 @@ function App() {
       </div>
       {/* MAIN */}
       <div style={{flex:1,overflow:"auto",padding:22,background:"#0f1117"}}>
-        {(globalFiltroProductor || globalFiltroEspecie) && (
-          <div style={{
-            background: "rgba(245,166,35,.06)",
-            border: "1px solid rgba(245,166,35,.15)",
-            borderRadius: 8,
-            padding: "10px 16px",
-            marginBottom: 16,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            fontSize: 13
-          }}>
-            <div style={{display: "flex", alignItems: "center", gap: 10}}>
-              <span style={{color: "#f5a623", fontWeight: 600}}>🔍 Filtro Activo:</span>
-              {globalFiltroProductor && (
-                <span style={{background: "#2a2d3e", padding: "3px 8px", borderRadius: 4, color: "#e8eaf0", fontSize: 12}}>
-                  Productor/Cliente: <strong>{globalFiltroProductor}</strong>
-                </span>
-              )}
-              {globalFiltroEspecie && (
-                <span style={{background: "#2a2d3e", padding: "3px 8px", borderRadius: 4, color: "#e8eaf0", fontSize: 12}}>
-                  Cereal: <strong>{globalFiltroEspecie}</strong>
-                </span>
-              )}
+        {/* FILTROS GLOBALES PERMANENTES */}
+        <div style={{
+          background: "#1a1d27",
+          border: "1px solid #2a2d3e",
+          borderRadius: 8,
+          padding: "10px 16px",
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 16,
+          flexWrap: "wrap"
+        }}>
+          <div style={{display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", flex: 1}}>
+            <span style={{color: "#f5a623", fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", gap: 4}}>
+              🔍 Filtros Globales:
+            </span>
+            
+            <div style={{display: "flex", alignItems: "center", gap: 6}}>
+              <span style={{fontSize: 11, color: "#8890a8", textTransform: "uppercase", fontWeight: 600, letterSpacing: ".05em"}}>Productor:</span>
+              <select 
+                value={globalFiltroProductor} 
+                onChange={e => setGlobalFiltroProductor(e.target.value)}
+                style={{
+                  background: "#0f1117",
+                  border: "1px solid #2a2d3e",
+                  color: "#e8eaf0",
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  minWidth: 180,
+                  outline: "none"
+                }}
+              >
+                <option value="">-- Todos los Productores --</option>
+                {[...new Set(listaProductores)].sort().map(name => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
             </div>
+
+            <div style={{display: "flex", alignItems: "center", gap: 6}}>
+              <span style={{fontSize: 11, color: "#8890a8", textTransform: "uppercase", fontWeight: 600, letterSpacing: ".05em"}}>Cereal:</span>
+              <select 
+                value={globalFiltroEspecie} 
+                onChange={e => setGlobalFiltroEspecie(e.target.value)}
+                style={{
+                  background: "#0f1117",
+                  border: "1px solid #2a2d3e",
+                  color: "#e8eaf0",
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  minWidth: 140,
+                  outline: "none"
+                }}
+              >
+                <option value="">-- Todos los Cereales --</option>
+                {ESPECIES.map(esp => (
+                  <option key={esp} value={esp}>{esp}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {(globalFiltroProductor || globalFiltroEspecie) && (
             <button 
               onClick={() => {
                 setGlobalFiltroProductor("");
                 setGlobalFiltroEspecie("");
               }}
               style={{
-                background: "transparent",
-                border: "none",
+                background: "rgba(231,76,60,.12)",
+                border: "1px solid rgba(231,76,60,.2)",
                 color: "#e74c3c",
-                cursor: "pointer",
+                padding: "4px 10px",
+                borderRadius: 6,
                 fontWeight: 600,
-                fontSize: 12
+                fontSize: 11,
+                cursor: "pointer",
+                transition: "all 0.2s"
               }}
             >
-              ❌ Limpiar Filtro
+              ❌ Limpiar
             </button>
-          </div>
-        )}
+          )}
+        </div>
         {render()}
       </div>
     </div>
