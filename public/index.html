@@ -612,7 +612,7 @@ const Contrapartes = ({modulo}) => {
 };
 
 // ── CONTRATOS ──
-const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie}) => {
+const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec}) => {
   const [tab,setTab]=useState("COMPRA");
   const [showForm,setShowForm]=useState(false);
   const [lista,setLista]=useState([]);
@@ -1358,6 +1358,58 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie}) => {
 
       {selectedContract && (
         <Modal title={selectedContract.es_canje ? `Detalle de Canje ${selectedContract.numero}` : `Detalle del Contrato ${selectedContract.numero}`} onClose={() => setSelectedContract(null)} width={selectedContract.es_canje ? 1000 : 800}>
+          <div style={{display: "flex", gap: 10, marginBottom: 16, background: "rgba(255,255,255,0.02)", padding: 10, borderRadius: 6, border: "1px solid #2a2d3e"}}>
+            <button 
+              onClick={() => {
+                setGlobalFiltroProductor(selectedContract.contraparte);
+                setGlobalFiltroEspecie(selectedContract.especie || (selectedContract.es_canje ? selectedContract.venta?.especie : ""));
+                setSec("movimientos");
+                setSelectedContract(null);
+              }}
+              style={{
+                flex: 1,
+                background: "#2a2d3e",
+                color: "#e8eaf0",
+                border: "none",
+                padding: "8px 12px",
+                borderRadius: 6,
+                fontWeight: 600,
+                fontSize: 12,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6
+              }}
+            >
+              📋 Ver Movimientos de este Contrato
+            </button>
+            <button 
+              onClick={() => {
+                setGlobalFiltroProductor(selectedContract.contraparte);
+                setGlobalFiltroEspecie(selectedContract.especie || (selectedContract.es_canje ? selectedContract.venta?.especie : ""));
+                setSec("liquidaciones");
+                setSelectedContract(null);
+              }}
+              style={{
+                flex: 1,
+                background: "#2a2d3e",
+                color: "#e8eaf0",
+                border: "none",
+                padding: "8px 12px",
+                borderRadius: 6,
+                fontWeight: 600,
+                fontSize: 12,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6
+              }}
+            >
+              💰 Ver Liquidaciones de este Contrato
+            </button>
+          </div>
           {selectedContract.es_canje ? (
             <div>
               {/* Información Común */}
@@ -1510,7 +1562,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie}) => {
 };
 
 // ── MOVIMIENTOS ──
-const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspecie}) => {
+const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspecie, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec}) => {
   const [showForm,setShowForm]=useState(false);
   const [showImport,setShowImport]=useState(false);
   const [showRapido,setShowRapido]=useState(false);
@@ -3040,7 +3092,29 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             {modulo==="FORMAL"&&<td><span className="mono" style={{fontSize:11,color:"#8890a8"}}>{m.nro_ctg||"—"}</span></td>}
             <td>{m.especie}</td>
             <td style={{maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#8890a8"}}>{m.productor}</td>
-            <td><span className="mono" style={{fontSize:11}}>{m.contrato_compra||"—"}</span></td>
+            <td>
+              {m.contrato_compra ? (
+                <span 
+                  className="mono" 
+                  onClick={() => {
+                    setGlobalFiltroProductor(m.productor);
+                    setSec("contratos");
+                  }}
+                  style={{
+                    fontSize:11,
+                    color: "#f5a623",
+                    textDecoration: "underline",
+                    cursor: "pointer",
+                    fontWeight: 600
+                  }}
+                  title="Hacer clic para ir a este contrato"
+                >
+                  {m.contrato_compra}
+                </span>
+              ) : (
+                <span className="mono" style={{fontSize:11, color: "#565d7a"}}>—</span>
+              )}
+            </td>
             <td><span className="mono">{m.peso_neto_salida?.toLocaleString()}</span></td>
             <td><span className="mono">{m.peso_neto_llegada?.toLocaleString()||"—"}</span></td>
             <td>{m.faltante===null?"—":m.faltante>0?<span className="mono" style={{color:"#e74c3c"}}>-{m.faltante}</span>:<span style={{color:"#27ae60"}}>✓</span>}</td>
@@ -4511,7 +4585,7 @@ const RenderServiciosSeccion = ({ movs, servicios, setServicios, editDescuentos,
   );
 };
 
-const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie}) => {
+const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec}) => {
   const [lista,setLista]=useState([]);
   const [showNuevaModal, setShowNuevaModal] = useState(false);
   const [contrapartes, setContrapartes] = useState([]);
@@ -4837,7 +4911,29 @@ const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie}) => 
             <td><Badge label={l.tipo} color={l.tipo==="COMPRA"?"orange":"blue"}/></td>
             {modulo==="FORMAL"&&<td><Badge label={l.tipo_liq==="INCISO_A"?"Inc. A":"Inc. B"} color={l.tipo_liq==="INCISO_A"?"blue":"purple"}/></td>}
             <td style={{fontWeight:500}}>{l.contraparte}</td>
-            <td><span className="mono" style={{fontSize:11}}>{l.contrato}</span></td>
+            <td>
+              {l.contrato ? (
+                <span 
+                  className="mono" 
+                  onClick={() => {
+                    setGlobalFiltroProductor(l.contraparte);
+                    setSec("contratos");
+                  }}
+                  style={{
+                    fontSize:11,
+                    color: "#f5a623",
+                    textDecoration: "underline",
+                    cursor: "pointer",
+                    fontWeight: 600
+                  }}
+                  title="Hacer clic para ir a este contrato"
+                >
+                  {l.contrato}
+                </span>
+              ) : (
+                <span className="mono" style={{fontSize:11, color: "#565d7a"}}>—</span>
+              )}
+            </td>
             <td style={{color:"#8890a8",fontSize:12}}>{l.fecha}</td>
             <td><span className="mono">{l.kg?.toLocaleString()}</span></td>
             <td><span className="mono" style={{fontSize:12}}>$ {l.monto_bruto?.toLocaleString()}</span></td>
@@ -8893,7 +8989,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.3.1 — GranoSYS - INVDELSAL</div>
+          v2.4.0 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -9840,7 +9936,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.3.1 — GranoSYS - <span
+            v2.4.0 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
@@ -9914,27 +10010,113 @@ function App() {
             </div>
           </div>
 
-          {(globalFiltroProductor || globalFiltroEspecie) && (
-            <button 
-              onClick={() => {
-                setGlobalFiltroProductor("");
-                setGlobalFiltroEspecie("");
-              }}
-              style={{
-                background: "rgba(231,76,60,.12)",
-                border: "1px solid rgba(231,76,60,.2)",
-                color: "#e74c3c",
-                padding: "4px 10px",
-                borderRadius: 6,
-                fontWeight: 600,
-                fontSize: 11,
-                cursor: "pointer",
-                transition: "all 0.2s"
-              }}
-            >
-              ❌ Limpiar
-            </button>
-          )}
+          <div style={{display: "flex", alignItems: "center", gap: 12}}>
+            {(globalFiltroProductor || globalFiltroEspecie) && (
+              <button 
+                onClick={() => {
+                  setGlobalFiltroProductor("");
+                  setGlobalFiltroEspecie("");
+                }}
+                style={{
+                  background: "rgba(231,76,60,.12)",
+                  border: "1px solid rgba(231,76,60,.2)",
+                  color: "#e74c3c",
+                  padding: "4px 10px",
+                  borderRadius: 6,
+                  fontWeight: 600,
+                  fontSize: 11,
+                  cursor: "pointer",
+                  transition: "all 0.2s"
+                }}
+              >
+                ❌ Limpiar
+              </button>
+            )}
+            
+            <div style={{display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", borderLeft: "1px solid #2a2d3e", paddingLeft: 12}}>
+              <span style={{fontSize: 10, color: "#565d7a", textTransform: "uppercase", fontWeight: 700, marginRight: 4}}>Saltar a:</span>
+              <button 
+                onClick={() => setSec("stock")}
+                style={{
+                  background: sec === "stock" ? "#27ae60" : "#2a2d3e",
+                  color: sec === "stock" ? "#fff" : "#8890a8",
+                  border: "none",
+                  padding: "4px 8px",
+                  borderRadius: 5,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all 0.2s"
+                }}
+              >
+                📊 Stock
+              </button>
+              <button 
+                onClick={() => setSec("movimientos")}
+                style={{
+                  background: sec === "movimientos" ? "#f5a623" : "#2a2d3e",
+                  color: sec === "movimientos" ? "#000" : "#8890a8",
+                  border: "none",
+                  padding: "4px 8px",
+                  borderRadius: 5,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  transition: "all 0.2s"
+                }}
+              >
+                📋 Movs
+              </button>
+              <button 
+                onClick={() => setSec("contratos")}
+                style={{
+                  background: sec === "contratos" ? "#f5a623" : "#2a2d3e",
+                  color: sec === "contratos" ? "#000" : "#8890a8",
+                  border: "none",
+                  padding: "4px 8px",
+                  borderRadius: 5,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  transition: "all 0.2s"
+                }}
+              >
+                📜 Contratos
+              </button>
+              <button 
+                onClick={() => setSec("liquidaciones")}
+                style={{
+                  background: sec === "liquidaciones" ? "#f5a623" : "#2a2d3e",
+                  color: sec === "liquidaciones" ? "#000" : "#8890a8",
+                  border: "none",
+                  padding: "4px 8px",
+                  borderRadius: 5,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  transition: "all 0.2s"
+                }}
+              >
+                💰 Liqs
+              </button>
+              <button 
+                onClick={() => setSec("cc")}
+                style={{
+                  background: sec === "cc" ? "#2980b9" : "#2a2d3e",
+                  color: sec === "cc" ? "#fff" : "#8890a8",
+                  border: "none",
+                  padding: "4px 8px",
+                  borderRadius: 5,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all 0.2s"
+                }}
+              >
+                🏦 Cta Cte
+              </button>
+            </div>
+          </div>
         </div>
         {render()}
       </div>
