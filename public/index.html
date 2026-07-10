@@ -937,7 +937,15 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                 const pctRecepcion = c.compra?.toneladas > 0 ? Math.round((c.compra.asignadas / c.compra.toneladas) * 100) : 0;
                 return (
                   <tr key={c.id}>
-                    <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{c.numero}</span></td>
+                    <td>
+                      <span 
+                        className="mono" 
+                        style={{color:"#f5a623",fontSize:12,cursor:"pointer",textDecoration:"underline"}}
+                        onClick={() => abrirDetalleContrato(c)}
+                      >
+                        {c.numero}
+                      </span>
+                    </td>
                     <td style={{color:"#8890a8",fontSize:12}}>{c.fecha}</td>
                     <td style={{fontWeight:500}}>{c.contraparte}</td>
                     <td style={{fontSize:13,color:"#e8eaf0",fontWeight:600}}>{c.descripcion_relacion_canje}</td>
@@ -965,8 +973,8 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                     </td>
                     <td><Badge label={c.estado} color={estadoColor(c.estado)}/></td>
                     <td style={{display:"flex",gap:6}}>
-                      <Btn variant="ghost" size="sm" onClick={() => abrirDetalleContrato(c)}>Ver</Btn>
-                      <Btn variant="ghost" size="sm" onClick={() => abrirEditarContrato(c)}>Editar</Btn>
+                      <Btn variant="secondary" size="sm" onClick={() => abrirDetalleContrato(c)}>👁️ Ver</Btn>
+                      <Btn variant="secondary" size="sm" onClick={() => abrirEditarContrato(c)}>✏️ Editar</Btn>
                       <Btn variant="danger" size="sm" onClick={() => eliminarContrato(c)}>✕</Btn>
                     </td>
                   </tr>
@@ -974,7 +982,15 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
               }
               return (
                 <tr key={c.id}>
-                  <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{c.numero}</span></td>
+                  <td>
+                    <span 
+                      className="mono" 
+                      style={{color:"#f5a623",fontSize:12,cursor:"pointer",textDecoration:"underline"}}
+                      onClick={() => abrirDetalleContrato(c)}
+                    >
+                      {c.numero}
+                    </span>
+                  </td>
                   <td style={{color:"#8890a8",fontSize:12}}>{c.fecha}</td>
                   <td style={{fontWeight:500,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.contraparte}</td>
                   <td>{c.especie}</td>
@@ -990,8 +1006,8 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                   {modulo==="FORMAL"&&<td>{c.tipo_liq?<Badge label={c.tipo_liq==="INCISO_A"?"Inc.A":"Inc.B"} color={c.tipo_liq==="INCISO_A"?"blue":"purple"}/>:"—"}</td>}
                   <td><Badge label={c.estado} color={estadoColor(c.estado)}/></td>
                   <td style={{display:"flex",gap:6}}>
-                    <Btn variant="ghost" size="sm" onClick={() => abrirDetalleContrato(c)}>Ver</Btn>
-                    <Btn variant="ghost" size="sm" onClick={() => abrirEditarContrato(c)}>Editar</Btn>
+                    <Btn variant="secondary" size="sm" onClick={() => abrirDetalleContrato(c)}>👁️ Ver</Btn>
+                    <Btn variant="secondary" size="sm" onClick={() => abrirEditarContrato(c)}>✏️ Editar</Btn>
                     <Btn variant="danger" size="sm" onClick={() => eliminarContrato(c)}>✕</Btn>
                   </td>
                 </tr>
@@ -9121,7 +9137,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.5.1 — GranoSYS - INVDELSAL</div>
+          v2.5.2 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -10071,7 +10087,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.5.1 — GranoSYS - <span
+            v2.5.2 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
