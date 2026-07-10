@@ -67,6 +67,14 @@ tr:last-child td{border-bottom:none}
 <script type="text/babel">
 const {useState, useEffect} = React;
 
+const normalizarMoneda = (m) => {
+  if (!m) return "PESOS";
+  const upper = m.toString().toUpperCase().trim();
+  if (upper === "ARS" || upper === "PESOS") return "PESOS";
+  if (upper === "USD" || upper === "DOLARES" || upper === "DÓLARES" || upper === "DOLARES_BILLETE" || upper === "DÓLARES BILLETE") return "DOLARES";
+  return "PESOS";
+};
+
 // DATOS MOCK
 const ESPECIES = ["Soja","Trigo","Maíz","Girasol","Sorgo","Cebada"];
 const CAMPANAS = ["2023/2024","2024/2025","2025/2026"];
@@ -4842,10 +4850,9 @@ const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie, setG
           if (contrId) {
             setIdContrato(String(contrId));
           }
-          setSelectedMovs([]);
           setFechaLiq(new Date().toISOString().split('T')[0]);
           setTipoLiq(autoLiquidacionesContrato.tipo_liq || autoLiquidacionesContrato.tipo_liquidacion || "INCISO_A");
-          setMoneda(autoLiquidacionesContrato.moneda || "PESOS");
+          setMoneda(normalizarMoneda(autoLiquidacionesContrato.moneda));
           setServiciosAgregados([]);
           setEditDescuentos(0);
           setEditObservaciones("");
@@ -5133,7 +5140,7 @@ const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie, setG
                   // Cargar moneda predeterminada del contrato
                   const selectedC = contratos.find(c => c.id === parseInt(e.target.value));
                   if (selectedC) {
-                    setMoneda(selectedC.moneda || "PESOS");
+                    setMoneda(normalizarMoneda(selectedC.moneda));
                     if (modulo === "FORMAL" && selectedC.tipo_liq) {
                       setTipoLiq(selectedC.tipo_liq);
                     }
@@ -5285,19 +5292,19 @@ const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie, setG
                 <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1e2133"}}>
                   <span style={{color:"#8890a8",fontSize:13}}>Monto Bruto Estimado</span>
                   <span className="mono" style={{fontWeight:600,color:"#e8eaf0"}}>
-                    {moneda === "PESOS" ? "$" : "USD"} {montoBrutoCalculado.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+                    {(moneda === "PESOS" || moneda === "ARS") ? "$" : "USD"} {montoBrutoCalculado.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
                   </span>
                 </div>
                 <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1e2133"}}>
                   <span style={{color:"#e74c3c",fontSize:13}}>— Descuentos (Servicios)</span>
                   <span className="mono" style={{fontWeight:600,color:"#e74c3c"}}>
-                    - {moneda === "PESOS" ? "$" : "USD"} {editDescuentos.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+                    - {(moneda === "PESOS" || moneda === "ARS") ? "$" : "USD"} {editDescuentos.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
                   </span>
                 </div>
                 <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1e2133"}}>
                   <span style={{fontWeight:700,fontSize:14,color:"#27ae60"}}>= Neto Final Estimado</span>
                   <span className="mono" style={{fontWeight:700,fontSize:16,color:"#27ae60"}}>
-                    {moneda === "PESOS" ? "$" : "USD"} {(montoBrutoCalculado - editDescuentos).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+                    {(moneda === "PESOS" || moneda === "ARS") ? "$" : "USD"} {(montoBrutoCalculado - editDescuentos).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
                   </span>
                 </div>
               </div>
@@ -6823,7 +6830,7 @@ const Stock = ({modulo, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec
                         <span style={{fontSize:12,color:"#8890a8"}}>
                           {cc.tipo === "A_FIJAR"
                             ? <Badge label="A FIJAR" color="purple"/>
-                            : `$ ${cc.precio?.toLocaleString()} ${cc.moneda === "PESOS" ? "$" : "USD"}`
+                            : `$ ${cc.precio?.toLocaleString()} ${(cc.moneda === "PESOS" || cc.moneda === "ARS") ? "$" : "USD"}`
                           }
                         </span>
                         <Badge label={cc.estado} color={cc.estado === "EN_CURSO" ? "green" : "blue"} />
@@ -9164,7 +9171,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.5.3 — GranoSYS - INVDELSAL</div>
+          v2.5.4 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -10114,7 +10121,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.5.3 — GranoSYS - <span
+            v2.5.4 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
