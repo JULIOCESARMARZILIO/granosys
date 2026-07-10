@@ -612,7 +612,7 @@ const Contrapartes = ({modulo}) => {
 };
 
 // ── CONTRATOS ──
-const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec}) => {
+const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec, autoLiquidacionesContrato, setAutoLiquidacionesContrato}) => {
   const [tab,setTab]=useState("COMPRA");
   const [showForm,setShowForm]=useState(false);
   const [lista,setLista]=useState([]);
@@ -1382,7 +1382,31 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                 gap: 6
               }}
             >
-              📋 Ver Movimientos de este Contrato
+              📋 Ver Movimientos
+            </button>
+            <button 
+              onClick={() => {
+                setAutoLiquidacionesContrato(selectedContract);
+                setSec("liquidaciones");
+                setSelectedContract(null);
+              }}
+              style={{
+                flex: 1,
+                background: "#f5a623",
+                color: "#0f1117",
+                border: "none",
+                padding: "8px 12px",
+                borderRadius: 6,
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6
+              }}
+            >
+              💰 Liquidar este Contrato
             </button>
             <button 
               onClick={() => {
@@ -1407,7 +1431,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                 gap: 6
               }}
             >
-              💰 Ver Liquidaciones de este Contrato
+              🔍 Ver Liquidaciones Existentes
             </button>
           </div>
           {selectedContract.es_canje ? (
@@ -4585,7 +4609,7 @@ const RenderServiciosSeccion = ({ movs, servicios, setServicios, editDescuentos,
   );
 };
 
-const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec}) => {
+const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec, autoLiquidacionesContrato, setAutoLiquidacionesContrato}) => {
   const [lista,setLista]=useState([]);
   const [showNuevaModal, setShowNuevaModal] = useState(false);
   const [contrapartes, setContrapartes] = useState([]);
@@ -4717,6 +4741,108 @@ const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie, setG
     cargarLiquidaciones();
     cargarMermas();
   },[modulo,globalFiltroProductor,globalFiltroEspecie]);
+
+  useEffect(() => {
+    if (autoLiquidacionesContrato) {
+      const runAutoLiq = async () => {
+        try {
+          const cps = await api.get("/api/contrapartes");
+          const ctrs = await api.get(`/api/contratos?modulo=${modulo}`);
+          const movs = await api.get(`/api/movimientos?modalidad=${modulo}`);
+          
+          const mappedCps = cps.map(c => ({
+            ...c,
+            tipo: c.tipo_contraparte || c.tipo,
+            tipo_contraparte: c.tipo_contraparte || c.tipo,
+            codigo: c.codigo_interno || c.codigo,
+            codigo_interno: c.codigo_interno || c.codigo
+          }));
+          setContrapartes(mappedCps);
+
+          const mappedCtrs = ctrs.map(c => ({
+            id: c.id,
+            numero: c.numero_contrato,
+            fecha: c.fecha_contrato ? c.fecha_contrato.split('T')[0] : '',
+            contraparte: c.contraparte_nombre,
+            id_contraparte: c.id_contraparte,
+            especie: c.especie_nombre,
+            campana: c.campana_desc,
+            toneladas: parseFloat(c.cantidad_toneladas_pactadas) || 0,
+            asignadas: parseFloat(c.cantidad_toneladas_asignadas) || 0,
+            tipo_precio: c.tipo_precio,
+            precio: c.precio_pactado ? parseFloat(c.precio_pactado) : null,
+            moneda: c.moneda,
+            tipo_entrega: c.tipo_entrega,
+            estado: c.estado,
+            tipo_liq: c.tipo_liquidacion,
+            tipo_contrato: c.tipo_contrato,
+            flete_estimado: c.flete_estimado ? parseFloat(c.flete_estimado) : 0,
+            costo_secada_punto: c.costo_secada_punto ? parseFloat(c.costo_secada_punto) : 0,
+            costo_zarandeo_tn: c.costo_zarandeo_tn ? parseFloat(c.costo_zarandeo_tn) : 0,
+            costo_paritaria_tn: c.costo_paritaria_tn ? parseFloat(c.costo_paritaria_tn) : 0,
+            costo_fumigacion_fijo: c.costo_fumigacion_fijo ? parseFloat(c.costo_fumigacion_fijo) : 0,
+            costo_secada_destino_punto: c.costo_secada_destino_punto ? parseFloat(c.costo_secada_destino_punto) : 0,
+            costo_zarandeo_destino_tn: c.costo_zarandeo_destino_tn ? parseFloat(c.costo_zarandeo_destino_tn) : 0,
+            costo_paritaria_destino_tn: c.costo_paritaria_destino_tn ? parseFloat(c.costo_paritaria_destino_tn) : 0,
+            costo_fumigacion_destino_fijo: c.costo_fumigacion_destino_fijo ? parseFloat(c.costo_fumigacion_destino_fijo) : 0,
+            otros_destino_descripcion: c.otros_destino_descripcion || '',
+            costo_otros_destino_valor: c.costo_otros_destino_valor ? parseFloat(c.costo_otros_destino_valor) : 0
+          }));
+          setContratos(mappedCtrs);
+
+          const mappedMovs = movs.map(m => ({
+            id: m.id,
+            numero: m.numero_movimiento,
+            nro_ctg: m.nro_ctg,
+            nro_cpe: m.nro_cpe,
+            id_especie: m.id_especie,
+            especie: m.especie_nombre || 'Soja',
+            campana: m.campana_desc,
+            id_contrato_compra: m.id_contrato_compra,
+            id_contrato_venta: m.id_contrato_venta,
+            contrato_compra: m.nro_contrato_compra,
+            contrato_venta: m.nro_contrato_venta,
+            productor: m.remitente_comercial_productor_nombre || m.titular_cpe_nombre,
+            comprador: m.destinatario_nombre,
+            patente_chasis: m.patente_chasis,
+            peso_neto_llegada: m.peso_neto_llegada_kg ? parseFloat(m.peso_neto_llegada_kg) : null,
+            humedad_llegada: m.humedad_llegada_pct ? parseFloat(m.humedad_llegada_pct) : null,
+            estado: m.estado,
+            estado_liq: m.estado_liquidacion,
+            factor_aplicado: m.factor_aplicado ? parseFloat(m.factor_aplicado) : null,
+            factor_manual: m.factor_manual ? parseFloat(m.factor_manual) : null,
+            kg_liquidables: m.kg_liquidables ? parseFloat(m.kg_liquidables) : null
+          }));
+          setMovimientos(mappedMovs);
+
+          const cp = mappedCps.find(x => x.razon_social === autoLiquidacionesContrato.contraparte);
+          const matchedContract = mappedCtrs.find(x => x.id === autoLiquidacionesContrato.id || x.numero === autoLiquidacionesContrato.numero);
+
+          setTipo(autoLiquidacionesContrato.tipo_contrato || "COMPRA");
+          if (cp) {
+            setIdContraparte(cp.id);
+          }
+          if (matchedContract) {
+            setIdContrato(matchedContract.id);
+          }
+          setSelectedMovs([]);
+          setFechaLiq(new Date().toISOString().split('T')[0]);
+          setTipoLiq(autoLiquidacionesContrato.tipo_liq || "INCISO_A");
+          setMoneda(autoLiquidacionesContrato.moneda || "PESOS");
+          setServiciosAgregados([]);
+          setEditDescuentos(0);
+          setEditObservaciones("");
+
+          setShowNuevaModal(true);
+        } catch(e) {
+          console.error("Error auto-liquidating:", e);
+        } finally {
+          setAutoLiquidacionesContrato(null);
+        }
+      };
+      runAutoLiq();
+    }
+  }, [autoLiquidacionesContrato]);
 
   const abrirNuevaModal = async () => {
     try {
@@ -8989,7 +9115,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.4.0 — GranoSYS - INVDELSAL</div>
+          v2.4.1 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -9718,6 +9844,7 @@ function App() {
   const [globalFiltroProductor, setGlobalFiltroProductor] = useState("");
   const [globalFiltroEspecie, setGlobalFiltroEspecie] = useState("");
   const [listaProductores, setListaProductores] = useState([]);
+  const [autoLiquidacionesContrato, setAutoLiquidacionesContrato] = useState(null);
 
   useEffect(() => {
     if (logueado) {
@@ -9761,7 +9888,9 @@ function App() {
       setGlobalFiltroProductor,
       globalFiltroEspecie,
       setGlobalFiltroEspecie,
-      setSec
+      setSec,
+      autoLiquidacionesContrato,
+      setAutoLiquidacionesContrato
     };
     if (modulo === "CONSOLIDADO") {
       switch(sec){
@@ -9936,7 +10065,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.4.0 — GranoSYS - <span
+            v2.4.1 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
