@@ -4815,19 +4815,20 @@ const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie, setG
           }));
           setMovimientos(mappedMovs);
 
-          const cp = mappedCps.find(x => x.razon_social === autoLiquidacionesContrato.contraparte);
-          const matchedContract = mappedCtrs.find(x => x.id === autoLiquidacionesContrato.id || x.numero === autoLiquidacionesContrato.numero);
+          const targetTipo = autoLiquidacionesContrato.tipo || autoLiquidacionesContrato.tipo_contrato || "COMPRA";
+          const cpId = autoLiquidacionesContrato.id_contraparte;
+          const contrId = autoLiquidacionesContrato.id;
 
-          setTipo(autoLiquidacionesContrato.tipo_contrato || "COMPRA");
-          if (cp) {
-            setIdContraparte(cp.id);
+          setTipo(targetTipo);
+          if (cpId) {
+            setIdContraparte(String(cpId));
           }
-          if (matchedContract) {
-            setIdContrato(matchedContract.id);
+          if (contrId) {
+            setIdContrato(String(contrId));
           }
           setSelectedMovs([]);
           setFechaLiq(new Date().toISOString().split('T')[0]);
-          setTipoLiq(autoLiquidacionesContrato.tipo_liq || "INCISO_A");
+          setTipoLiq(autoLiquidacionesContrato.tipo_liq || autoLiquidacionesContrato.tipo_liquidacion || "INCISO_A");
           setMoneda(autoLiquidacionesContrato.moneda || "PESOS");
           setServiciosAgregados([]);
           setEditDescuentos(0);
@@ -4970,6 +4971,11 @@ const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie, setG
       ? (t === "PRODUCTOR" || t === "AMBOS")
       : (t === "COMPRADOR" || t === "AMBOS");
     if (!matchesTipo) return false;
+
+    // Si es la contraparte pre-seleccionada por autoliquidación, la mostramos siempre
+    if (idContraparte && cp.id === parseInt(idContraparte)) {
+      return true;
+    }
 
     // Solo mostrar contrapartes que tengan algún camión en estado 'ASIGNADO' para liquidar
     const cpContratos = contratos.filter(c => c.id_contraparte === cp.id && c.tipo_contrato === tipo);
@@ -9115,7 +9121,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.5.0 — GranoSYS - INVDELSAL</div>
+          v2.5.1 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -10065,7 +10071,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.5.0 — GranoSYS - <span
+            v2.5.1 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
