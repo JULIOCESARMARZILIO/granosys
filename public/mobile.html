@@ -476,9 +476,15 @@
           <input type="number" id="neto" readonly style="background-color: rgba(255,255,255,0.05); color: var(--text-muted);" placeholder="0">
         </div>
 
-        <div class="form-group">
-          <label for="destino">Destino / Entrega</label>
-          <input type="text" id="destino" placeholder="Planta / Localidad destino">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="destino_nombre">Destino (Nombre / Razón Social)</label>
+            <input type="text" id="destino_nombre" placeholder="Ej. Cargill, ACA">
+          </div>
+          <div class="form-group">
+            <label for="localidad_destino">Localidad de Entrega</label>
+            <input type="text" id="localidad_destino" placeholder="Ej. Cañuelas, Quequén">
+          </div>
         </div>
 
         <button class="btn" style="margin-top: 10px;" id="btn-submit" onclick="submitMovement()">Registrar Salida de Camión</button>
@@ -498,6 +504,120 @@
       </div>
     </div>
 
+    <!-- TAB 3: CONTRACT FORM (REGISTER CONTRACT) -->
+    <div id="tab-contrato" class="tab-content">
+      <div class="card">
+        <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+          <span style="display:inline-block; width:6px; height:6px; background-color:var(--primary); border-radius:50%"></span>
+          Registro de Contrato
+        </h3>
+
+        <!-- Form fields for Contract -->
+        <div class="form-row">
+          <div class="form-group">
+            <label for="c_modalidad">Canal / Modulo</label>
+            <select id="c_modalidad">
+              <option value="INFORMAL">Informal</option>
+              <option value="FORMAL">Formal</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="c_tipo_contrato">Tipo Contrato</label>
+            <select id="c_tipo_contrato" onchange="onContractTipoChange()">
+              <option value="COMPRA">Compra (Productor)</option>
+              <option value="VENTA">Venta (Puerto/Exportador)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label id="c_label_contraparte" for="c_contraparte">Productor (Vendedor)</label>
+          <select id="c_contraparte">
+            <option value="">Seleccionar contraparte...</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="c_especie">Especie</label>
+            <select id="c_especie">
+              <option value="Soja">Soja</option>
+              <option value="Trigo">Trigo</option>
+              <option value="Maíz">Maíz</option>
+              <option value="Girasol">Girasol</option>
+              <option value="Sorgo">Sorgo</option>
+              <option value="Cebada">Cebada</option>
+              <option value="Pellet de Cáscara de Soja">Pellet de Cáscara de Soja</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="c_campana">Campaña</label>
+            <select id="c_campana">
+              <option value="2024/2025">2024/2025</option>
+              <option value="2025/2026">2025/2026</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="c_toneladas">Toneladas Pactadas</label>
+            <input type="number" step="0.01" id="c_toneladas" placeholder="30.00">
+          </div>
+          <div class="form-group">
+            <label for="c_tipo_precio">Tipo Precio</label>
+            <select id="c_tipo_precio" onchange="onContractTipoPrecioChange()">
+              <option value="PRECIO_HECHO">Precio Hecho</option>
+              <option value="A_FIJAR">A Fijar</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row" id="c_row_precio">
+          <div class="form-group">
+            <label for="c_precio">Precio Unitario</label>
+            <input type="number" step="0.01" id="c_precio" placeholder="250.00">
+          </div>
+          <div class="form-group">
+            <label for="c_moneda">Moneda</label>
+            <select id="c_moneda">
+              <option value="PESOS">Pesos ($)</option>
+              <option value="DOLARES">Dólares (US$)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="c_tipo_entrega">Condición de Entrega</label>
+            <select id="c_tipo_entrega">
+              <option value="A_RETIRAR">A Retirar (Origen)</option>
+              <option value="ENTREGADO">Entregado (Destino)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="c_tipo_liq">Tipo Liquidación</label>
+            <select id="c_tipo_liq">
+              <option value="INCISO_A">Inciso A (100% C. Corriente)</option>
+              <option value="DIRECTA">Liquidación Directa</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="c_localidad_entrega">Lugar / Localidad de Entrega</label>
+          <input type="text" id="c_localidad_entrega" placeholder="Ej. Saladillo, Rosario, Puerto San Lorenzo">
+        </div>
+
+        <div class="form-group">
+          <label for="c_observaciones">Observaciones</label>
+          <textarea id="c_observaciones" rows="2" placeholder="Notas adicionales..."></textarea>
+        </div>
+
+        <button class="btn" style="margin-top: 10px;" id="c_btn_submit" onclick="submitContract()">Registrar Contrato</button>
+      </div>
+    </div>
+
   </div>
 
   <!-- BOTTOM TAB BAR -->
@@ -506,7 +626,13 @@
       <svg viewBox="0 0 24 24">
         <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
       </svg>
-      Registrar Salida
+      Salidas
+    </button>
+    <button class="tab-btn" id="btn-tab-contrato" onclick="switchTab('contrato')">
+      <svg viewBox="0 0 24 24">
+        <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+      </svg>
+      Contratos
     </button>
     <button class="tab-btn" id="btn-tab-list" onclick="switchTab('list')">
       <svg viewBox="0 0 24 24">
@@ -598,6 +724,7 @@
       await fetchContrapartes();
       await fetchContratos();
       populateProducers();
+      populateContractContrapartes();
       loadRecentMovements();
     }
 
@@ -629,6 +756,39 @@
         opt.textContent = p.razon_social;
         select.appendChild(opt);
       });
+    }
+
+    function onContractTipoChange() {
+      const tipo = document.getElementById("c_tipo_contrato").value;
+      const label = document.getElementById("c_label_contraparte");
+      label.textContent = tipo === "COMPRA" ? "Productor (Vendedor)" : "Comprador (Cliente)";
+      populateContractContrapartes();
+    }
+
+    function populateContractContrapartes() {
+      const select = document.getElementById("c_contraparte");
+      const tipo = document.getElementById("c_tipo_contrato").value;
+      select.innerHTML = '<option value="">Seleccionar contraparte...</option>';
+      
+      const filtered = contrapartes.filter(c => {
+        if (tipo === "COMPRA") {
+          return c.tipo_contraparte === "PRODUCTOR" || c.tipo_contraparte === "AMBOS";
+        } else {
+          return c.tipo_contraparte === "COMPRADOR" || c.tipo_contraparte === "AMBOS";
+        }
+      });
+
+      filtered.forEach(p => {
+        const opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = p.razon_social;
+        select.appendChild(opt);
+      });
+    }
+
+    function onContractTipoPrecioChange() {
+      const val = document.getElementById("c_tipo_precio").value;
+      document.getElementById("c_row_precio").style.display = val === "A_FIJAR" ? "none" : "flex";
     }
 
     function onModalidadChange() {
@@ -744,7 +904,7 @@
           calcNeto();
 
           if (parsed.destino) {
-            document.getElementById("destino").value = parsed.destino;
+            document.getElementById("localidad_destino").value = parsed.destino;
           }
 
           // Try to match Especie
@@ -864,7 +1024,8 @@
       const cpe = document.getElementById("nro_cpe").value;
       const patente = document.getElementById("patente").value.toUpperCase();
       const humedad = document.getElementById("humedad").value;
-      const destino = document.getElementById("destino").value;
+      const destinoNombre = document.getElementById("destino_nombre").value;
+      const localidadDestino = document.getElementById("localidad_destino").value;
       const especie = document.getElementById("especie").value;
       const campana = document.getElementById("campana").value;
 
@@ -892,7 +1053,8 @@
         peso_bruto_salida_kg: parseFloat(bruto),
         peso_tara_salida_kg: parseFloat(tara),
         humedad_salida_pct: humedad ? parseFloat(humedad) : 13.5,
-        localidad_destino: destino || "Planta Destino",
+        destino_nombre: destinoNombre || null,
+        localidad_destino: localidadDestino || null,
         usuario_carga: loggedInUser
       };
 
@@ -921,7 +1083,8 @@
         document.getElementById("tara").value = "";
         document.getElementById("neto").value = "";
         document.getElementById("humedad").value = "";
-        document.getElementById("destino").value = "";
+        document.getElementById("destino_nombre").value = "";
+        document.getElementById("localidad_destino").value = "";
         document.getElementById("nro_cpe").value = "";
         document.getElementById("contrato").value = "";
         
@@ -977,6 +1140,95 @@
       } catch (e) {
         console.error("Error loading recent movements:", e);
         container.innerHTML = '<div style="padding:40px; text-align:center; color:var(--error);">Error al cargar viajes recientes.</div>';
+      }
+    }
+
+    // SUBMIT CONTRACT TO BACKEND
+    let isSubmittingContract = false;
+    async function submitContract() {
+      if (isSubmittingContract) return;
+
+      const mod = document.getElementById("c_modalidad").value;
+      const tipo = document.getElementById("c_tipo_contrato").value;
+      const contraparteId = document.getElementById("c_contraparte").value;
+      const especie = document.getElementById("c_especie").value;
+      const campana = document.getElementById("c_campana").value;
+      const toneladas = document.getElementById("c_toneladas").value;
+      const tipoPrecio = document.getElementById("c_tipo_precio").value;
+      const precio = document.getElementById("c_precio").value;
+      const moneda = document.getElementById("c_moneda").value;
+      const tipoEntrega = document.getElementById("c_tipo_entrega").value;
+      const tipoLiq = document.getElementById("c_tipo_liq").value;
+      const localidadEntrega = document.getElementById("c_localidad_entrega").value;
+      const observaciones = document.getElementById("c_observaciones").value;
+
+      if (!contraparteId) return alert("Por favor seleccione un productor o comprador.");
+      if (!toneladas) return alert("Por favor ingrese las toneladas pactadas.");
+      if (tipoPrecio === "PRECIO_HECHO" && !precio) return alert("Por favor ingrese el precio unitario.");
+
+      const ESPECIES_LIST = ["Soja", "Trigo", "Maíz", "Girasol", "Sorgo", "Cebada", "Pellet de Cáscara de Soja"];
+      const espId = ESPECIES_LIST.indexOf(especie) + 1;
+      
+      const CAMPANAS_LIST = ["2024/2025", "2025/2026"];
+      const campId = CAMPANAS_LIST.indexOf(campana) + 1;
+
+      const payload = {
+        tipo_contrato: tipo,
+        modalidad: mod,
+        fecha_contrato: new Date().toISOString().split('T')[0],
+        id_contraparte: parseInt(contraparteId),
+        id_especie: espId > 0 ? espId : 1,
+        id_campana: campId > 0 ? campId : 2,
+        cantidad_toneladas_pactadas: parseFloat(toneladas),
+        tipo_precio: tipoPrecio,
+        moneda: moneda,
+        precio_pactado: tipoPrecio === "PRECIO_HECHO" ? parseFloat(precio) : null,
+        tipo_entrega: tipoEntrega,
+        tipo_liquidacion: tipoLiq,
+        localidad_entrega: localidadEntrega || null,
+        observaciones: observaciones || null,
+        estado: "ACTIVO"
+      };
+
+      const btn = document.getElementById("c_btn_submit");
+      btn.disabled = true;
+      btn.textContent = "Registrando...";
+      isSubmittingContract = true;
+
+      try {
+        const r = await fetch(`${API_URL}/api/contratos`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!r.ok) {
+          throw new Error(await r.text());
+        }
+
+        const data = await r.json();
+        alert(`✓ Contrato registrado con éxito.\nNro Contrato: ${data.numero_contrato}`);
+        
+        // Reset form
+        document.getElementById("c_toneladas").value = "";
+        document.getElementById("c_precio").value = "";
+        document.getElementById("c_localidad_entrega").value = "";
+        document.getElementById("c_observaciones").value = "";
+        document.getElementById("c_contraparte").value = "";
+        
+        // Update both apps lists and dropdowns
+        await initApp();
+        
+        // Go to movements form tab
+        switchTab("form");
+
+      } catch (err) {
+        console.error(err);
+        alert("Error al guardar contrato: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Registrar Contrato";
+        isSubmittingContract = false;
       }
     }
   </script>
