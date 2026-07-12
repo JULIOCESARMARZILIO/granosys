@@ -332,12 +332,34 @@ router.put('/:id/llegada', async (req, res) => {
     }
 
     const factor_calculado = 1.0 + (descuento_calidad_pct / 100.0);
-    const factor_manual = mov[0].factor_manual !== null && mov[0].factor_manual !== undefined ? parseFloat(mov[0].factor_manual) : null;
-    const factor_aplicado = factor_manual !== null ? factor_manual : factor_calculado;
-
-    // Los kilos liquidables aplican la merma de humedad al peso y luego el factor de calidad
     const kg_secos = peso_neto_llegada * (1.0 - (merma_humedad_pct / 100.0));
-    const kg_liquidables = kg_secos * factor_aplicado;
+
+    const calidad_tipo_ajuste = mov[0].calidad_tipo_ajuste || 'FACTOR';
+    const calidad_valor_ajuste = mov[0].calidad_valor_ajuste !== null ? parseFloat(mov[0].calidad_valor_ajuste) : null;
+
+    let factor_aplicado = factor_calculado;
+    let kg_liquidables = kg_secos;
+    let db_factor_manual = null;
+
+    if (calidad_valor_ajuste !== null) {
+      if (calidad_tipo_ajuste === 'PORCENTAJE') {
+        db_factor_manual = 1.0 - (calidad_valor_ajuste / 100.0);
+        factor_aplicado = db_factor_manual;
+        kg_liquidables = kg_secos * factor_aplicado;
+      } else if (calidad_tipo_ajuste === 'KILOS') {
+        kg_liquidables = Math.max(0, kg_secos - calidad_valor_ajuste);
+        db_factor_manual = kg_secos > 0 ? kg_liquidables / kg_secos : 0;
+        factor_aplicado = db_factor_manual;
+      } else { // 'FACTOR'
+        db_factor_manual = calidad_valor_ajuste;
+        factor_aplicado = db_factor_manual;
+        kg_liquidables = kg_secos * factor_aplicado;
+      }
+    } else if (mov[0].factor_manual !== null) {
+      db_factor_manual = parseFloat(mov[0].factor_manual);
+      factor_aplicado = db_factor_manual;
+      kg_liquidables = kg_secos * factor_aplicado;
+    }
 
     const { rows } = await pool.query(`
       UPDATE movimientos SET
@@ -345,13 +367,13 @@ router.put('/:id/llegada', async (req, res) => {
         peso_bruto_llegada_kg=$4, peso_tara_llegada_kg=$5,
         peso_neto_llegada_kg=$6, humedad_llegada_pct=$7,
         diferencia_kg=$8, tolerancia_kg=$9, faltante_kg=$10,
-        factor_calculado=$11, factor_aplicado=$12, kg_liquidables=$13,
+        factor_calculado=$11, factor_manual=$12, factor_aplicado=$13, kg_liquidables=$14,
         estado='DESCARGADO', updated_at=NOW()
-      WHERE id=$14 RETURNING *
+      WHERE id=$15 RETURNING *
     `, [fecha_arribo||null, fecha_descarga||null, nro_turno||null,
         peso_bruto_llegada_kg, peso_tara_llegada_kg, peso_neto_llegada,
         humedad_llegada_pct||null, diferencia, tolerancia, faltante,
-        factor_calculado, factor_aplicado, kg_liquidables,
+        factor_calculado, db_factor_manual, factor_aplicado, kg_liquidables,
         req.params.id]);
 
     res.json(rows[0]);
@@ -363,7 +385,7 @@ router.put('/:id/llegada', async (req, res) => {
 // PUT registrar calidad y calcular factor
 router.put('/:id/calidad', async (req, res) => {
   try {
-    const { parametros, factor_manual } = req.body;
+    const { parametros, factor_manual, calidad_tipo_ajuste, calidad_valor_ajuste } = req.body;
     const id = req.params.id;
 
     // Borrar calidad anterior
@@ -416,21 +438,51 @@ router.put('/:id/calidad', async (req, res) => {
       }
     }
 
-    const factor_aplicado = factor_manual !== undefined && factor_manual !== null 
-      ? parseFloat(factor_manual)
-      : factor_calculado;
-
+    let final_factor_manual = null;
+    let final_tipo_factor = 'CALCULADO';
+    
     // Los kilos liquidables aplican la merma de humedad al peso y luego el factor de calidad
     const kg_secos = m.peso_neto_llegada_kg * (1.0 - (merma_humedad_pct / 100.0));
-    const kg_liquidables = kg_secos * factor_aplicado;
+    let kg_liquidables = kg_secos;
+    let factor_aplicado = factor_calculado;
+
+    if (calidad_tipo_ajuste !== undefined && calidad_tipo_ajuste !== null) {
+      final_tipo_factor = calidad_tipo_ajuste;
+      const val = calidad_valor_ajuste !== null && calidad_valor_ajuste !== undefined ? parseFloat(calidad_valor_ajuste) : null;
+      if (val !== null) {
+        if (calidad_tipo_ajuste === 'PORCENTAJE') {
+          final_factor_manual = 1.0 - (val / 100.0);
+          factor_aplicado = final_factor_manual;
+          kg_liquidables = kg_secos * factor_aplicado;
+        } else if (calidad_tipo_ajuste === 'KILOS') {
+          kg_liquidables = Math.max(0, kg_secos - val);
+          final_factor_manual = kg_secos > 0 ? kg_liquidables / kg_secos : 0;
+          factor_aplicado = final_factor_manual;
+        } else { // 'FACTOR'
+          final_factor_manual = val;
+          factor_aplicado = final_factor_manual;
+          kg_liquidables = kg_secos * factor_aplicado;
+        }
+      }
+    } else if (factor_manual !== undefined && factor_manual !== null) {
+      final_factor_manual = parseFloat(factor_manual);
+      final_tipo_factor = 'MANUAL';
+      factor_aplicado = final_factor_manual;
+      kg_liquidables = kg_secos * factor_aplicado;
+    }
 
     const { rows } = await pool.query(`
       UPDATE movimientos SET
         factor_calculado=$1, factor_manual=$2, factor_aplicado=$3,
-        tipo_factor=$4, kg_liquidables=$5, updated_at=NOW()
-      WHERE id=$6 RETURNING *
-    `, [factor_calculado, factor_manual||null, factor_aplicado,
-        factor_manual !== undefined && factor_manual !== null ? 'MANUAL' : 'CALCULADO', kg_liquidables, id]);
+        tipo_factor=$4, kg_liquidables=$5,
+        calidad_tipo_ajuste=$6, calidad_valor_ajuste=$7,
+        updated_at=NOW()
+      WHERE id=$8 RETURNING *
+    `, [factor_calculado, final_factor_manual, factor_aplicado,
+        final_tipo_factor, kg_liquidables,
+        calidad_tipo_ajuste || 'FACTOR',
+        calidad_valor_ajuste !== undefined && calidad_valor_ajuste !== null ? parseFloat(calidad_valor_ajuste) : null,
+        id]);
 
     res.json(rows[0]);
   } catch (err) {

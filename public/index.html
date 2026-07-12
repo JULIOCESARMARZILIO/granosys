@@ -1670,6 +1670,41 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     codigo_interno: c.codigo_interno || c.codigo
   }));
   const [tempFactor, setTempFactor] = useState(null);
+  const [calidadTipoAjuste, setCalidadTipoAjuste] = useState("FACTOR");
+  const [calidadValorAjuste, setCalidadValorAjuste] = useState(null);
+
+  const calcularKilosALiquidar = (pesoNetoLlegada, humedad, tipoAjuste, valorAjuste, factorManualFallback, factorCalculadoFallback) => {
+    const humPct = getMermaHumedadPct(movForm.id_especie, humedad !== null ? humedad : 0);
+    const kgSecos = pesoNetoLlegada * (1.0 - (humPct / 100.0));
+    
+    let qFactor = 1.0;
+    let liqKg = kgSecos;
+
+    if (modulo === "INFORMAL") {
+      const tAjuste = tipoAjuste || "FACTOR";
+      const val = valorAjuste !== null && valorAjuste !== undefined ? parseFloat(valorAjuste) : null;
+      if (val !== null) {
+        if (tAjuste === "PORCENTAJE") {
+          qFactor = 1.0 - (val / 100.0);
+          liqKg = kgSecos * qFactor;
+        } else if (tAjuste === "KILOS") {
+          liqKg = Math.max(0, kgSecos - val);
+          qFactor = kgSecos > 0 ? liqKg / kgSecos : 0;
+        } else { // FACTOR
+          qFactor = val;
+          liqKg = kgSecos * qFactor;
+        }
+      } else {
+        qFactor = factorManualFallback !== null && factorManualFallback !== undefined ? parseFloat(factorManualFallback) : 1.0;
+        liqKg = kgSecos * qFactor;
+      }
+    } else {
+      qFactor = factorManualFallback !== null && factorManualFallback !== undefined ? parseFloat(factorManualFallback) : (factorCalculadoFallback || 1.0);
+      liqKg = kgSecos * qFactor;
+    }
+    
+    return { kgSecos, qFactor, liqKg, humPct, humKg: pesoNetoLlegada * (humPct / 100.0) };
+  };
   const [movForm, setMovForm] = useState({
     productor_nombre: globalFiltroProductor || "",
     comprador_nombre: "",
@@ -1808,6 +1843,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   const openModal = (m) => {
     setSelected(m);
     setTempFactor(m ? (m.factor_manual !== null && m.factor_manual !== undefined ? m.factor_manual : 1.0) : 1.0);
+    setCalidadTipoAjuste(m ? m.calidad_tipo_ajuste || "FACTOR" : "FACTOR");
+    setCalidadValorAjuste(m ? (m.calidad_valor_ajuste !== null && m.calidad_valor_ajuste !== undefined ? parseFloat(m.calidad_valor_ajuste) : null) : null);
     setBrutoLlegada(m ? m.peso_bruto_llegada : null);
     setTaraLlegada(m ? m.peso_tara_llegada : null);
     setHumedadLlegada(m ? m.humedad_llegada : null);
@@ -3678,7 +3715,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         <Modal title={selected?`Movimiento ${selected.numero}`:"Nuevo Movimiento"} onClose={()=>setShowForm(false)} width={960}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
             <div className="tab-bar" style={{marginBottom:0,flex:1}}>
-              {["salida","llegada","calidad","liquidacion","flete"].map(t=>(
+              {["salida","llegada", ...(modulo === "FORMAL" ? ["calidad"] : []), "liquidacion","flete"].map(t=>(
                 <button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>
                   {t.charAt(0).toUpperCase()+t.slice(1)}
                 </button>
@@ -3969,11 +4006,14 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             const tol = netoSal * 0.0003;
             const falt = Math.max(0, diff - tol);
             
-            const humPct = getMermaHumedadPct(movForm.id_especie, humedadLlegada !== null ? humedadLlegada : 0);
-            const humKg = neto * (humPct / 100);
-            const kgSecos = neto - humKg;
-            const qFactor = tempFactor !== null ? tempFactor : (selected?.factor_aplicado || 1.0);
-            const liqKg = kgSecos * qFactor;
+            const { kgSecos, qFactor, liqKg, humPct, humKg } = calcularKilosALiquidar(
+              neto,
+              humedadLlegada,
+              calidadTipoAjuste,
+              calidadValorAjuste,
+              tempFactor,
+              selected?.factor_calculado
+            );
             
             return (
               <div>
@@ -3985,6 +4025,43 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                   <FF label="Kg Bruto Llegada"><input type="number" id="input_bruto_llegada" value={brutoLlegada !== null ? brutoLlegada : ""} onChange={e=>setBrutoLlegada(e.target.value === "" ? null : parseFloat(e.target.value))}/></FF>
                   <FF label="Kg Tara Llegada"><input type="number" id="input_tara_llegada" value={taraLlegada !== null ? taraLlegada : ""} onChange={e=>setTaraLlegada(e.target.value === "" ? null : parseFloat(e.target.value))}/></FF>
                   <FF label="Humedad Llegada (%)"><input type="number" step="0.1" id="input_humedad_llegada" value={humedadLlegada !== null ? humedadLlegada : ""} onChange={e=>setHumedadLlegada(e.target.value === "" ? null : parseFloat(e.target.value))}/></FF>
+                  {modulo === "INFORMAL" && (
+                    <>
+                      <FF label="Ajuste Calidad">
+                        <select 
+                          value={calidadTipoAjuste} 
+                          onChange={e => {
+                            setCalidadTipoAjuste(e.target.value);
+                            setCalidadValorAjuste(null);
+                          }}
+                        >
+                          <option value="PORCENTAJE">Deducir % de Merma (ej: 0.6149%)</option>
+                          <option value="KILOS">Deducir kg de Merma (ej: 61.49 kg)</option>
+                          <option value="FACTOR">Factor Directo Coef. (ej: 0.985)</option>
+                        </select>
+                      </FF>
+                      <FF label={
+                        calidadTipoAjuste === "PORCENTAJE" ? "Valor de Merma (%)" :
+                        calidadTipoAjuste === "KILOS" ? "Valor de Merma (kg)" :
+                        "Valor Coeficiente"
+                      }>
+                        <input 
+                          type="number" 
+                          step="0.0001" 
+                          placeholder={
+                            calidadTipoAjuste === "PORCENTAJE" ? "0.6149" :
+                            calidadTipoAjuste === "KILOS" ? "61.49" :
+                            "1.000"
+                          }
+                          value={calidadValorAjuste !== null ? calidadValorAjuste : ""}
+                          onChange={e => {
+                            const val = parseFloat(e.target.value);
+                            setCalidadValorAjuste(isNaN(val) ? null : val);
+                          }}
+                        />
+                      </FF>
+                    </>
+                  )}
                 </div>
                 {neto > 0 && (
                   <div style={{marginTop:16,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e"}}>
@@ -4065,17 +4142,21 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                 </div>
               )}
               {(() => {
-                const humPct = getMermaHumedadPct(movForm.id_especie, humedadLlegada !== null ? humedadLlegada : 0);
                 const neto = (brutoLlegada !== null && taraLlegada !== null) ? (brutoLlegada - taraLlegada) : 0;
-                const qFactor = tempFactor !== null ? tempFactor : (selected?.factor_aplicado || 1.0);
-                const kgSecos = neto * (1.0 - (humPct / 100));
-                const liqKg = kgSecos * qFactor;
+                const { kgSecos, qFactor, liqKg, humPct, humKg } = calcularKilosALiquidar(
+                  neto,
+                  humedadLlegada,
+                  calidadTipoAjuste,
+                  calidadValorAjuste,
+                  tempFactor,
+                  selected?.factor_calculado
+                );
                 
                 return (
                   <div style={{marginTop:16,padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",display:"flex",gap:16,alignItems:"center",flexWrap:"wrap",fontSize:13}}>
                     <div><div style={{fontSize:11,color:"#8890a8"}}>Kg Neto Llegada</div><div className="mono" style={{fontSize:18,fontWeight:600}}>{neto.toLocaleString()}</div></div>
                     <div style={{fontSize:18,color:"#2a2d3e"}}>-</div>
-                    <div><div style={{fontSize:11,color:"#8890a8"}}>Merma Humedad</div><div className="mono" style={{fontSize:18,color:"#e74c3c"}}>{Math.round(neto * humPct / 100).toLocaleString()} kg ({(humPct).toFixed(2)}%)</div></div>
+                    <div><div style={{fontSize:11,color:"#8890a8"}}>Merma Humedad</div><div className="mono" style={{fontSize:18,color:"#e74c3c"}}>{Math.round(humKg).toLocaleString()} kg ({(humPct).toFixed(2)}%)</div></div>
                     <div style={{fontSize:18,color:"#2a2d3e"}}>=</div>
                     <div><div style={{fontSize:11,color:"#8890a8"}}>Kg Secos</div><div className="mono" style={{fontSize:18,fontWeight:600}}>{Math.round(kgSecos).toLocaleString()}</div></div>
                     <div style={{fontSize:18,color:"#2a2d3e"}}>×</div>
@@ -4094,11 +4175,18 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             const precioContrato = contratoAsignado?.precio || 0;
             const precioContratoFormateado = precioContrato > 0 ? `$ ${precioContrato.toLocaleString()} / tn` : "A Fijar (Sin precio fijado)";
             
-            const humPct = getMermaHumedadPct(movForm.id_especie, humedadLlegada !== null ? humedadLlegada : 0);
             const neto = (brutoLlegada !== null && taraLlegada !== null) ? (brutoLlegada - taraLlegada) : 0;
-            const qFactor = tempFactor !== null ? tempFactor : (selected?.factor_aplicado || 1.0);
-            const kgSecos = neto * (1.0 - (humPct / 100));
-            const currentKgLiquidables = kgSecos * qFactor;
+            const { currentKgLiquidables } = (() => {
+              const { liqKg } = calcularKilosALiquidar(
+                neto,
+                humedadLlegada,
+                calidadTipoAjuste,
+                calidadValorAjuste,
+                tempFactor,
+                selected?.factor_calculado
+              );
+              return { currentKgLiquidables: liqKg };
+            })();
 
             const montoBruto = precioContrato > 0 ? (currentKgLiquidables / 1000) * precioContrato : 0;
             const montoBrutoFormateado = precioContrato > 0 ? `$ ${montoBruto.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : "—";
@@ -4244,11 +4332,12 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     });
                   }
                   
-                  // Guardar calidad en modo informal (factor manual)
+                  // Guardar calidad en modo informal (ajuste manual de calidad)
                   if (modulo === "INFORMAL") {
                     await api.put(`/api/movimientos/${movId}/calidad`, {
                       parametros: [],
-                      factor_manual: tempFactor
+                      calidad_tipo_ajuste: calidadTipoAjuste,
+                      calidad_valor_ajuste: calidadValorAjuste
                     });
                   }
                 }
@@ -9171,7 +9260,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.5.4 — GranoSYS - INVDELSAL</div>
+          v2.6.0 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -10121,7 +10210,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.5.4 — GranoSYS - <span
+            v2.6.0 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
