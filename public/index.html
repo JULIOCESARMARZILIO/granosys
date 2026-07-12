@@ -39,6 +39,7 @@ tr:last-child td{border-bottom:none}
 .modal{background:#1a1d27;border-left:1px solid #2a2d3e;border-right:1px solid #2a2d3e;width:100%;max-width:960px;height:100vh;display:flex;flex-direction:column;margin:0 auto;overflow:hidden;border-radius:0}
 .modal-header{padding:14px 20px;border-bottom:1px solid #2a2d3e;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:#1a1d27;z-index:10}
 .modal-body{padding:18px 20px 40px 20px;overflow-y:auto;flex:1;scroll-behavior:smooth}
+.modal-footer{padding:14px 20px;border-top:1px solid #2a2d3e;display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-shrink:0;background:#1a1d27;z-index:10}
 .card{background:#1a1d27;border:1px solid #2a2d3e;border-radius:10px;overflow:hidden}
 .card-header{padding:14px 18px;border-bottom:1px solid #2a2d3e;display:flex;align-items:center;justify-content:space-between}
 .form-field{margin-bottom:11px}
@@ -205,7 +206,7 @@ const Btn = ({children,onClick,variant="primary",size="md",disabled=false,style=
   return <button onClick={onClick} disabled={disabled} style={{...v[variant],...s[size],opacity:disabled?.4:1,display:"inline-flex",alignItems:"center",gap:6,fontWeight:500,...style}}>{children}</button>;
 };
 
-const Modal = ({title,onClose,children,width=600}) => (
+const Modal = ({title,onClose,children,width=600,footer}) => (
   <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)onClose()}}>
     <div className="modal fade-in" style={{maxWidth:width}}>
       <div className="modal-header">
@@ -213,6 +214,7 @@ const Modal = ({title,onClose,children,width=600}) => (
         <button onClick={onClose} style={{background:"none",color:"#8890a8",fontSize:22,lineHeight:1,padding:"0 4px"}}>×</button>
       </div>
       <div className="modal-body">{children}</div>
+      {footer && <div className="modal-footer">{footer}</div>}
     </div>
   </div>
 );
@@ -1828,6 +1830,67 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     }
   };
 
+  const handleGuardarCambios = async () => {
+    try {
+      const payload = {
+        ...movForm,
+        peso_bruto_salida_kg: movForm.peso_bruto_salida_kg ? parseFloat(movForm.peso_bruto_salida_kg) : null,
+        peso_tara_salida_kg: movForm.peso_tara_salida_kg ? parseFloat(movForm.peso_tara_salida_kg) : null,
+        humedad_salida_pct: movForm.humedad_salida_pct ? parseFloat(movForm.humedad_salida_pct) : null,
+        km_a_recorrer: movForm.km_a_recorrer ? parseFloat(movForm.km_a_recorrer) : null,
+        tarifa_catac: movForm.tarifa_catac ? parseFloat(movForm.tarifa_catac) : null,
+        tarifa_flete_real: movForm.tarifa_flete_real ? parseFloat(movForm.tarifa_flete_real) : null,
+      };
+      
+      let movId = null;
+      if (selected) {
+        movId = selected.id;
+        // Guardar datos generales de salida/CPE
+        await api.put(`/api/movimientos/${selected.id}`, payload);
+      } else {
+        // Crear nuevo movimiento
+        const r = await api.post("/api/movimientos", {
+          ...payload,
+          modalidad: modulo,
+          usuario_carga: usuario
+        });
+        if (r && r.id) {
+          movId = r.id;
+        } else {
+          throw new Error("No se pudo crear el movimiento");
+        }
+      }
+
+      if (movId) {
+        // Guardar llegada si se ingresaron pesos
+        if (brutoLlegada !== null && taraLlegada !== null) {
+          await api.put(`/api/movimientos/${movId}/llegada`, {
+            fecha_arribo: fechaArribo || null,
+            fecha_descarga: fechaDescarga || null,
+            nro_turno: nroTurno || null,
+            peso_bruto_llegada_kg: brutoLlegada,
+            peso_tara_llegada_kg: taraLlegada,
+            humedad_llegada_pct: humedadLlegada
+          });
+        }
+        
+        // Guardar calidad en modo informal (ajuste manual de calidad)
+        if (modulo === "INFORMAL") {
+          await api.put(`/api/movimientos/${movId}/calidad`, {
+            parametros: [],
+            calidad_tipo_ajuste: calidadTipoAjuste,
+            calidad_valor_ajuste: calidadValorAjuste
+          });
+        }
+      }
+      alert(selected ? "✓ Cambios guardados" : "✓ Movimiento creado exitosamente");
+      setShowForm(false);
+      cargarMovimientos();
+    } catch(e) {
+      alert("Error: "+e.message);
+    }
+  };
+
   const formatDateTimeLocal = (isoString) => {
     if (!isoString) return "";
     try {
@@ -1972,6 +2035,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
       const data = await api.get(`/api/contratos?modalidad=${modulo}`); // Corregido el parámetro de query
       const mapped = data.map(c => ({
         id: c.id,
+        id_contraparte: c.id_contraparte,
         numero: c.numero_contrato,
         fecha: c.fecha_contrato ? c.fecha_contrato.split('T')[0] : '',
         contraparte: c.contraparte_nombre,
@@ -3238,7 +3302,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             <FF label="Contrato de Compra">
               <select value={rapidoContrato} onChange={e=>setRapidoContrato(e.target.value)}>
                 <option value="">Sin asignar (Posición abierta)</option>
-                {contratos.filter(c=>c.tipo==="COMPRA" && (!rapidoProductor || c.id_contraparte === parseInt(rapidoProductor))).map(c=>(
+                {contratos.filter(c=>c.tipo==="COMPRA" && (!rapidoProductor || c.id_contraparte === parseInt(rapidoProductor) || c.contraparte === contrapartes.find(cp => cp.id === parseInt(rapidoProductor))?.razon_social)).map(c=>(
                   <option key={c.id} value={c.id}>{c.numero} — {c.especie}</option>
                 ))}
               </select>
@@ -3712,7 +3776,17 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
 
       {/* DETALLE MOVIMIENTO */}
       {showForm&&(
-        <Modal title={selected?`Movimiento ${selected.numero}`:"Nuevo Movimiento"} onClose={()=>setShowForm(false)} width={960}>
+        <Modal
+          title={selected?`Movimiento ${selected.numero}`:"Nuevo Movimiento"}
+          onClose={()=>setShowForm(false)}
+          width={960}
+          footer={(
+            <>
+              <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cerrar</Btn>
+              <Btn onClick={handleGuardarCambios}>Guardar Cambios</Btn>
+            </>
+          )}
+        >
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
             <div className="tab-bar" style={{marginBottom:0,flex:1}}>
               {["salida","llegada", ...(modulo === "FORMAL" ? ["calidad"] : []), "liquidacion","flete"].map(t=>(
@@ -3780,7 +3854,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                         remitente_comercial_productor_nombre: prodName,
                         remitente_comercial_productor_cuit: prod ? prod.cuit : "",
                         flete_pagador_nombre: prodName,
-                        flete_pagador_cuit: prod ? prod.cuit : ""
+                        flete_pagador_cuit: prod ? prod.cuit : "",
+                        id_contrato_compra: null
                       });
                     }}
                   >
@@ -3802,7 +3877,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                         destinatario_nombre: compName,
                         destinatario_cuit: comp ? comp.cuit : "",
                         destino_nombre: compName,
-                        destino_cuit: comp ? comp.cuit : ""
+                        destino_cuit: comp ? comp.cuit : "",
+                        id_contrato_venta: null
                       });
                     }}
                   >
@@ -3828,7 +3904,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     }}
                   >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
-                    {contratos.filter(c=>c.tipo==="COMPRA").map(c=>(
+                    {contratos.filter(c=>c.tipo==="COMPRA" && (!movForm.productor_nombre || c.contraparte === movForm.productor_nombre)).map(c=>(
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString())}</option>
                     ))}
                   </select>
@@ -3842,7 +3918,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     }}
                   >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
-                    {contratos.filter(c=>c.tipo==="VENTA").map(c=>(
+                    {contratos.filter(c=>c.tipo==="VENTA" && (!movForm.comprador_nombre || c.contraparte === movForm.comprador_nombre)).map(c=>(
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString())}</option>
                     ))}
                   </select>
@@ -4286,69 +4362,6 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             </div>
           )}
 
-          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20,paddingTop:16,borderTop:"1px solid #2a2d3e"}}>
-            <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cerrar</Btn>
-            <Btn onClick={async()=>{
-              try {
-                const payload = {
-                  ...movForm,
-                  peso_bruto_salida_kg: movForm.peso_bruto_salida_kg ? parseFloat(movForm.peso_bruto_salida_kg) : null,
-                  peso_tara_salida_kg: movForm.peso_tara_salida_kg ? parseFloat(movForm.peso_tara_salida_kg) : null,
-                  humedad_salida_pct: movForm.humedad_salida_pct ? parseFloat(movForm.humedad_salida_pct) : null,
-                  km_a_recorrer: movForm.km_a_recorrer ? parseFloat(movForm.km_a_recorrer) : null,
-                  tarifa_catac: movForm.tarifa_catac ? parseFloat(movForm.tarifa_catac) : null,
-                  tarifa_flete_real: movForm.tarifa_flete_real ? parseFloat(movForm.tarifa_flete_real) : null,
-                };
-                
-                let movId = null;
-                if (selected) {
-                  movId = selected.id;
-                  // Guardar datos generales de salida/CPE
-                  await api.put(`/api/movimientos/${selected.id}`, payload);
-                } else {
-                  // Crear nuevo movimiento
-                  const r = await api.post("/api/movimientos", {
-                    ...payload,
-                    modalidad: modulo,
-                    usuario_carga: usuario
-                  });
-                  if (r && r.id) {
-                    movId = r.id;
-                  } else {
-                    throw new Error("No se pudo crear el movimiento");
-                  }
-                }
-
-                if (movId) {
-                  // Guardar llegada si se ingresaron pesos
-                  if (brutoLlegada !== null && taraLlegada !== null) {
-                    await api.put(`/api/movimientos/${movId}/llegada`, {
-                      fecha_arribo: fechaArribo || null,
-                      fecha_descarga: fechaDescarga || null,
-                      nro_turno: nroTurno || null,
-                      peso_bruto_llegada_kg: brutoLlegada,
-                      peso_tara_llegada_kg: taraLlegada,
-                      humedad_llegada_pct: humedadLlegada
-                    });
-                  }
-                  
-                  // Guardar calidad en modo informal (ajuste manual de calidad)
-                  if (modulo === "INFORMAL") {
-                    await api.put(`/api/movimientos/${movId}/calidad`, {
-                      parametros: [],
-                      calidad_tipo_ajuste: calidadTipoAjuste,
-                      calidad_valor_ajuste: calidadValorAjuste
-                    });
-                  }
-                }
-                alert(selected ? "✓ Cambios guardados" : "✓ Movimiento creado exitosamente");
-                setShowForm(false);
-                cargarMovimientos();
-              } catch(e) {
-                alert("Error: "+e.message);
-              }
-            }}>Guardar Cambios</Btn>
-          </div>
         </Modal>
       )}
     </div>
