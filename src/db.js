@@ -241,6 +241,7 @@ async function initDB() {
         factor_aplicado DECIMAL(8,6),
         kg_liquidables DECIMAL(12,3),
         observaciones TEXT,
+        motivo_pendiente TEXT,
         codigo_preliquidacion VARCHAR(50),
         calidad_tipo_ajuste VARCHAR(20) DEFAULT 'FACTOR',
         calidad_valor_ajuste DECIMAL(12,4),
@@ -382,6 +383,7 @@ async function initDB() {
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS estado_flete VARCHAR(20) DEFAULT 'PENDIENTE';
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS calidad_tipo_ajuste VARCHAR(20) DEFAULT 'FACTOR';
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS calidad_valor_ajuste DECIMAL(12,4);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS motivo_pendiente TEXT;
 
       -- Inicializar estado_flete basado en campos de flete existentes
       UPDATE movimientos SET estado_flete = 'LIQUIDADO' WHERE nro_factura_flete IS NOT NULL AND (estado_flete IS NULL OR estado_flete = 'PENDIENTE');

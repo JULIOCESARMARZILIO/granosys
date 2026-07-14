@@ -4,6 +4,16 @@ const { pool } = require('../db');
 // Reporte de pendientes — el corazón del módulo
 router.get('/pendientes', async (req, res) => {
   try {
+    // 0. Movimientos pendientes de confirmación por faltantes de maestros precargados
+    const { rows: pendientesConfirmacion } = await pool.query(`
+      SELECT m.numero_movimiento, m.modalidad, m.created_at,
+             m.transportista_nombre, m.titular_cpe_nombre, m.destinatario_nombre,
+             m.motivo_pendiente
+      FROM movimientos m
+      WHERE m.estado = 'PENDIENTE'
+      ORDER BY m.created_at ASC
+    `);
+
     // 1. Movimientos en tránsito sin llegada
     const { rows: enTransito } = await pool.query(`
       SELECT m.numero_movimiento, m.modalidad, m.fecha_partida,
@@ -101,6 +111,7 @@ router.get('/pendientes', async (req, res) => {
     `);
 
     res.json({
+      pendientes_confirmacion: pendientesConfirmacion,
       en_transito: enTransito,
       sin_liquidar: sinLiquidar,
       sin_contrato: sinContrato,
@@ -109,6 +120,7 @@ router.get('/pendientes', async (req, res) => {
       a_fijar: aFijar,
       sin_pagar: sinPagar,
       resumen: {
+        total_pendientes_confirmacion: pendientesConfirmacion.length,
         total_en_transito: enTransito.length,
         total_sin_liquidar: sinLiquidar.length,
         total_sin_contrato: sinContrato.length,
