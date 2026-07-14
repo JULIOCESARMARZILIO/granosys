@@ -49,6 +49,10 @@ function normalizarTexto(valor) {
   return (valor || '').toString().trim();
 }
 
+function serializarPendientesAJson(pendientes = []) {
+  return pendientes.length > 0 ? JSON.stringify(pendientes) : null;
+}
+
 async function existeContrapartePrecargada({ cuit, nombre, tipo }) {
   const cuitLimpio = (cuit || '').replace(/[^0-9]/g, '');
   const nombreLimpio = normalizarTexto(nombre);
@@ -264,6 +268,7 @@ router.post('/', async (req, res) => {
       chofer, transportista, nro_factura_flete, fecha_partida
     } = req.body;
 
+    // Se inicializan como let para completar automáticamente el nombre desde IDs precargados cuando venga vacío.
     let finalChofer = chofer_nombre || chofer || null;
     let finalTransportista = transportista_nombre || transportista || null;
 
@@ -306,8 +311,8 @@ router.post('/', async (req, res) => {
       transportista
     });
 
-    const estadoMovimiento = pendientesConfirmacion.length > 0 ? 'PENDIENTE' : 'EN_TRANSITO';
-    const motivoPendiente = pendientesConfirmacion.length > 0 ? JSON.stringify(pendientesConfirmacion) : null;
+    const estado = pendientesConfirmacion.length > 0 ? 'PENDIENTE' : 'EN_TRANSITO';
+    const motivoPendiente = serializarPendientesAJson(pendientesConfirmacion);
     const estado_liquidacion = (id_contrato_compra || id_contrato_venta) ? 'ASIGNADO' : 'SIN_ASIGNAR';
 
     const { rows } = await pool.query(`
@@ -329,29 +334,32 @@ router.post('/', async (req, res) => {
         humedad_salida_pct, observaciones, usuario_carga, chofer_nombre, transportista_nombre,
         nro_factura_flete, fecha_partida, motivo_pendiente
       ) VALUES (
-        $1,$2,$49,$50,
-        $3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-        $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,
-        $37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$51
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+        $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+        $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
+        $31,$32,$33,$34,$35,$36,$37,$38,$39,$40,
+        $41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51
       ) RETURNING *
-    `, [numero_movimiento, modalidad,
-        id_contrato_compra||null, id_contrato_venta||null,
-        nro_cpe||null, nro_ctg||null, fecha_cpe||null, fecha_vencimiento_cpe||null,
-        titular_cpe_cuit||null, titular_cpe_nombre||null,
-        remitente_comercial_productor_cuit||null, remitente_comercial_productor_nombre||null,
-        rte_comercial_venta_primaria_cuit||null, rte_comercial_venta_primaria_nombre||null,
-        destinatario_cuit||null, destinatario_nombre||null,
-        destino_cuit||null, destino_nombre||null,
-        flete_pagador_cuit||null, flete_pagador_nombre||null,
-        id_especie||null, id_campana||null, declaracion_calidad||'CONFORME',
-        renspa||null, localidad_origen||null, provincia_origen||null,
-        latitud||null, longitud||null, descripcion_campo||null,
-        nro_planta_destino||null, localidad_destino||null, provincia_destino||null,
-        patente_chasis||null, patente_acoplado||null, km_a_recorrer||null,
-        tarifa_catac||null, tarifa_flete_real||null, tipo_tarifa||'LLENA',
-        peso_bruto_salida_kg||null, peso_tara_salida_kg||null, peso_neto_salida,
-        humedad_salida_pct||null, observaciones||null, usuario_carga||null, finalChofer, finalTransportista,
-        nro_factura_flete||null, fecha_partida||null, estadoMovimiento, estado_liquidacion, motivoPendiente]);
+    `, [
+      numero_movimiento, modalidad, estado, estado_liquidacion,
+      id_contrato_compra||null, id_contrato_venta||null,
+      nro_cpe||null, nro_ctg||null, fecha_cpe||null, fecha_vencimiento_cpe||null,
+      titular_cpe_cuit||null, titular_cpe_nombre||null,
+      remitente_comercial_productor_cuit||null, remitente_comercial_productor_nombre||null,
+      rte_comercial_venta_primaria_cuit||null, rte_comercial_venta_primaria_nombre||null,
+      destinatario_cuit||null, destinatario_nombre||null,
+      destino_cuit||null, destino_nombre||null,
+      flete_pagador_cuit||null, flete_pagador_nombre||null,
+      id_especie||null, id_campana||null, declaracion_calidad||'CONFORME',
+      renspa||null, localidad_origen||null, provincia_origen||null,
+      latitud||null, longitud||null, descripcion_campo||null,
+      nro_planta_destino||null, localidad_destino||null, provincia_destino||null,
+      patente_chasis||null, patente_acoplado||null, km_a_recorrer||null,
+      tarifa_catac||null, tarifa_flete_real||null, tipo_tarifa||'LLENA',
+      peso_bruto_salida_kg||null, peso_tara_salida_kg||null, peso_neto_salida,
+      humedad_salida_pct||null, observaciones||null, usuario_carga||null, finalChofer, finalTransportista,
+      nro_factura_flete||null, fecha_partida||null, motivoPendiente
+    ]);
 
     // Recalcular toneladas y estado de contratos
     await recalcularContrato(id_contrato_compra);
@@ -390,10 +398,10 @@ router.put('/:id/confirmar', async (req, res) => {
     if (pendientesConfirmacion.length > 0) {
       await pool.query(
         'UPDATE movimientos SET motivo_pendiente = $1, updated_at = NOW() WHERE id = $2',
-        [JSON.stringify(pendientesConfirmacion), req.params.id]
+        [serializarPendientesAJson(pendientesConfirmacion), req.params.id]
       );
       return res.status(400).json({
-        error: 'No se puede confirmar: faltan datos precargados obligatorios',
+        error: `No se puede confirmar: faltan entidades precargadas obligatorias (${pendientesConfirmacion.join(', ')})`,
         pendientes: pendientesConfirmacion
       });
     }
@@ -428,7 +436,18 @@ router.put('/:id/llegada', async (req, res) => {
     const { rows: mov } = await pool.query('SELECT * FROM movimientos WHERE id = $1', [req.params.id]);
     if (!mov[0]) return res.status(404).json({ error: 'No encontrado' });
     if (mov[0].estado === 'PENDIENTE') {
-      return res.status(400).json({ error: 'El movimiento está pendiente de confirmación. Debe confirmarse antes de registrar la llegada.' });
+      let pendientes = [];
+      if (mov[0].motivo_pendiente) {
+        try {
+          pendientes = JSON.parse(mov[0].motivo_pendiente);
+        } catch (e) {
+          pendientes = [mov[0].motivo_pendiente];
+        }
+      }
+      return res.status(400).json({
+        error: `El movimiento ${mov[0].numero_movimiento} está pendiente de confirmación. Complete los datos maestros faltantes y confirme el movimiento antes de registrar la llegada.`,
+        pendientes
+      });
     }
 
     const diferencia = mov[0].peso_neto_salida_kg - peso_neto_llegada;
@@ -693,7 +712,7 @@ router.put('/:id', async (req, res) => {
         transportista_nombre: finalTransportista,
         transportista
       });
-      motivoPendiente = pendientesConfirmacion.length > 0 ? JSON.stringify(pendientesConfirmacion) : null;
+      motivoPendiente = serializarPendientesAJson(pendientesConfirmacion);
     }
 
     const { rows } = await pool.query(`
