@@ -1,5 +1,8 @@
 const router = require('express').Router();
 const { pool } = require('../db');
+const RECONCILIATION_WINDOW_HOURS = 48;
+const RECONCILIATION_FALLBACK_DIFF_HOURS = 999;
+const WEIGHT_TOLERANCE_FACTOR = 0.0003; // 0.3‰
 
 // Recalcula y actualiza la cantidad de toneladas asignadas y el estado de un contrato
 async function recalcularContrato(id_contrato) {
@@ -267,8 +270,8 @@ router.get('/conciliacion/sugerencias', async (req, res) => {
     const sugerencias = rows
       .map((r) => {
         const baseDate = parseFechaReferencia(r.fecha_partida) || parseFechaReferencia(r.created_at);
-        const diffHoras = baseDate ? Math.abs((fechaRef.getTime() - baseDate.getTime()) / 3600000) : 999;
-        const score = Math.max(0, 1 - (diffHoras / 48));
+        const diffHoras = baseDate ? Math.abs((fechaRef.getTime() - baseDate.getTime()) / 3600000) : RECONCILIATION_FALLBACK_DIFF_HOURS;
+        const score = Math.max(0, 1 - (diffHoras / RECONCILIATION_WINDOW_HOURS));
         return {
           ...r,
           diferencia_horas: Number(diffHoras.toFixed(2)),
@@ -312,7 +315,7 @@ router.post('/conciliacion/confirmar', async (req, res) => {
     if (!mov[0]) return res.status(404).json({ error: 'Movimiento de carga no encontrado' });
 
     const diferencia = (mov[0].peso_neto_salida_kg || 0) - pesoNetoLlegada;
-    const tolerancia = (mov[0].peso_neto_salida_kg || 0) * 0.0003;
+    const tolerancia = (mov[0].peso_neto_salida_kg || 0) * WEIGHT_TOLERANCE_FACTOR;
     const faltante = Math.max(0, diferencia - tolerancia);
 
     const { rows } = await pool.query(
@@ -601,7 +604,7 @@ router.put('/:id/llegada', async (req, res) => {
     }
 
     const diferencia = mov[0].peso_neto_salida_kg - peso_neto_llegada;
-    const tolerancia = mov[0].peso_neto_salida_kg * 0.0003; // 0.3‰
+    const tolerancia = mov[0].peso_neto_salida_kg * WEIGHT_TOLERANCE_FACTOR;
     const faltante = Math.max(0, diferencia - tolerancia);
 
     // Obtener la merma de humedad desde la base de datos

@@ -2759,7 +2759,15 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         const s = String(fechaStr).trim();
         if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s;
         const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-        if (m) return `${m[3]}-${m[2]}-${m[1]}T00:00:00`;
+        if (m) {
+          const day = parseInt(m[1], 10);
+          const month = parseInt(m[2], 10);
+          const year = parseInt(m[3], 10);
+          if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+          const probe = new Date(year, month - 1, day);
+          if (probe.getFullYear() !== year || probe.getMonth() !== month - 1 || probe.getDate() !== day) return null;
+          return `${m[3]}-${m[2]}-${m[1]}T00:00:00`;
+        }
         return s;
       };
       const id_campana = mapCampanaToId(data.fecha);
@@ -2774,10 +2782,10 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             elegido = sug.sugerencias[0];
           } else {
             const opciones = sug.sugerencias.slice(0, 5).map((s, i) => `${i + 1}) ${s.numero_movimiento} (${s.diferencia_horas}h)`).join("\n");
-            const seleccion = prompt(`Se detectaron múltiples cargas candidatas para ${data.chasis}. Elegí una opción:\n${opciones}\n\nIngresá el número de opción:`);
+            const seleccion = prompt(`Se detectaron múltiples cargas candidatas para ${data.chasis}. Elija una opción:\n${opciones}\n\nIngrese el número de opción:`);
             const idx = parseInt(seleccion, 10) - 1;
             if (!Number.isNaN(idx) && sug.sugerencias[idx]) elegido = sug.sugerencias[idx];
-            if (!elegido) return alert("Conciliación cancelada: debés elegir manualmente una carga candidata.");
+            if (!elegido) return alert("Conciliación cancelada: debe elegir manualmente una carga candidata.");
           }
 
           const conciliado = await api.post("/api/movimientos/conciliacion/confirmar", {
