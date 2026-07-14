@@ -2754,9 +2754,18 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         if (s.includes("2025") || s.includes("2026")) return 3;
         return 2;
       };
+      const normalizarFechaTicket = (fechaStr) => {
+        if (!fechaStr) return null;
+        const s = String(fechaStr).trim();
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s;
+        const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+        if (m) return `${m[3]}-${m[2]}-${m[1]}T00:00:00`;
+        return s;
+      };
       const id_campana = mapCampanaToId(data.fecha);
 
-      const fechaRef = data.fecha ? String(data.fecha) : new Date().toISOString();
+      const fechaNormalizada = normalizarFechaTicket(data.fecha) || new Date().toISOString();
+      const fechaRef = fechaNormalizada;
       if (data.chasis && data.peso_bruto && data.peso_tara) {
         const sug = await api.get(`/api/movimientos/conciliacion/sugerencias?patente_chasis=${encodeURIComponent(data.chasis)}&fecha_referencia=${encodeURIComponent(fechaRef)}&modalidad=${encodeURIComponent(modulo)}`);
         if (sug && Array.isArray(sug.sugerencias) && sug.sugerencias.length > 0) {
@@ -2773,8 +2782,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
 
           const conciliado = await api.post("/api/movimientos/conciliacion/confirmar", {
             id_movimiento_carga: elegido.id,
-            fecha_arribo: data.fecha || null,
-            fecha_descarga: data.fecha || null,
+            fecha_arribo: fechaNormalizada || null,
+            fecha_descarga: fechaNormalizada || null,
             nro_turno: data.numero || "TICKET-OCR",
             peso_bruto_llegada_kg: parseFloat(data.peso_bruto),
             peso_tara_llegada_kg: parseFloat(data.peso_tara),
@@ -2797,8 +2806,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         modalidad: modulo,
         nro_cpe: data.numero || null,
         nro_ctg: null,
-        fecha_cpe: data.fecha || "2026-06-09",
-        fecha_vencimiento_cpe: data.fecha || "2026-06-09",
+        fecha_cpe: fechaNormalizada ? String(fechaNormalizada).slice(0,10) : "2026-06-09",
+        fecha_vencimiento_cpe: fechaNormalizada ? String(fechaNormalizada).slice(0,10) : "2026-06-09",
         titular_cpe_cuit: data.cuit_prod || "30708925167",
         titular_cpe_nombre: data.productor || "FULL AGRO S.A.",
         remitente_comercial_productor_cuit: data.cuit_prod || "30708925167",
