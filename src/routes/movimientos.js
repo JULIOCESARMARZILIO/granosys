@@ -3,6 +3,7 @@ const { pool } = require('../db');
 const RECONCILIATION_WINDOW_HOURS = 48;
 const RECONCILIATION_FALLBACK_DIFF_HOURS = 999;
 const WEIGHT_TOLERANCE_FACTOR = 0.0003; // 0.3‰
+const MS_PER_HOUR = 3600000;
 
 // Recalcula y actualiza la cantidad de toneladas asignadas y el estado de un contrato
 async function recalcularContrato(id_contrato) {
@@ -270,7 +271,7 @@ router.get('/conciliacion/sugerencias', async (req, res) => {
     const sugerencias = rows
       .map((r) => {
         const baseDate = parseFechaReferencia(r.fecha_partida) || parseFechaReferencia(r.created_at);
-        const diffHoras = baseDate ? Math.abs((fechaRef.getTime() - baseDate.getTime()) / 3600000) : RECONCILIATION_FALLBACK_DIFF_HOURS;
+        const diffHoras = baseDate ? Math.abs((fechaRef.getTime() - baseDate.getTime()) / MS_PER_HOUR) : RECONCILIATION_FALLBACK_DIFF_HOURS;
         const score = Math.max(0, 1 - (diffHoras / RECONCILIATION_WINDOW_HOURS));
         return {
           ...r,
