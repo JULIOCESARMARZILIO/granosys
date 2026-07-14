@@ -242,6 +242,12 @@ async function initDB() {
         kg_liquidables DECIMAL(12,3),
         observaciones TEXT,
         motivo_pendiente TEXT,
+        origen_dato VARCHAR(30) DEFAULT 'MANUAL',
+        estado_revision VARCHAR(30) DEFAULT 'CONFIRMADO_OPERARIO',
+        estado_conciliacion VARCHAR(30) DEFAULT 'SIN_CONCILIAR',
+        id_movimiento_carga INTEGER REFERENCES movimientos(id),
+        conciliacion_metodo VARCHAR(30),
+        conciliacion_confianza DECIMAL(8,4),
         codigo_preliquidacion VARCHAR(50),
         calidad_tipo_ajuste VARCHAR(20) DEFAULT 'FACTOR',
         calidad_valor_ajuste DECIMAL(12,4),
@@ -384,6 +390,12 @@ async function initDB() {
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS calidad_tipo_ajuste VARCHAR(20) DEFAULT 'FACTOR';
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS calidad_valor_ajuste DECIMAL(12,4);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS motivo_pendiente TEXT;
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS origen_dato VARCHAR(30) DEFAULT 'MANUAL';
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS estado_revision VARCHAR(30) DEFAULT 'CONFIRMADO_OPERARIO';
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS estado_conciliacion VARCHAR(30) DEFAULT 'SIN_CONCILIAR';
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_movimiento_carga INTEGER REFERENCES movimientos(id);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS conciliacion_metodo VARCHAR(30);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS conciliacion_confianza DECIMAL(8,4);
 
       -- Inicializar estado_flete basado en campos de flete existentes
       UPDATE movimientos SET estado_flete = 'LIQUIDADO' WHERE nro_factura_flete IS NOT NULL AND (estado_flete IS NULL OR estado_flete = 'PENDIENTE');

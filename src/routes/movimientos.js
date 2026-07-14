@@ -53,6 +53,24 @@ function serializarPendientesAJson(pendientes = []) {
   return pendientes.length > 0 ? JSON.stringify(pendientes) : null;
 }
 
+function parseFechaReferencia(valor) {
+  if (!valor) return null;
+  const d = new Date(valor);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function normalizarOrigenDato(valor) {
+  const v = (valor || '').toString().trim().toUpperCase();
+  if (['MANUAL', 'PDF_CPE', 'OCR_TICKET', 'EXCEL'].includes(v)) return v;
+  return 'MANUAL';
+}
+
+function normalizarEstadoRevision(valor, origenDato = 'MANUAL') {
+  const v = (valor || '').toString().trim().toUpperCase();
+  if (['AUTO', 'SUGERIDO', 'CONFIRMADO_OPERARIO'].includes(v)) return v;
+  return origenDato === 'MANUAL' ? 'CONFIRMADO_OPERARIO' : 'AUTO';
+}
+
 async function existeContrapartePrecargada({ cuit, nombre, tipo }) {
   const cuitLimpio = (cuit || '').replace(/[^0-9]/g, '');
   const nombreLimpio = normalizarTexto(nombre);
@@ -217,6 +235,127 @@ router.get('/mermas', async (req, res) => {
   }
 });
 
+// GET sugerencias de conciliación carga vs descarga
+router.get('/conciliacion/sugerencias', async (req, res) => {
+  try {
+    const { patente_chasis, fecha_referencia, modalidad } = req.query;
+    if (!patente_chasis) {
+      return res.status(400).json({ error: 'patente_chasis es obligatorio' });
+    }
+
+    const fechaRef = parseFechaReferencia(fecha_referencia) || new Date();
+    const params = [patente_chasis.toUpperCase()];
+    let modalidadSql = '';
+    if (modalidad) {
+      params.push(modalidad);
+      modalidadSql = ` AND m.modalidad = $${params.length}`;
+    }
+
+    const { rows } = await pool.query(
+      `SELECT m.id, m.numero_movimiento, m.estado, m.modalidad, m.patente_chasis,
+              m.patente_acoplado, m.fecha_partida, m.created_at, m.titular_cpe_nombre,
+              m.remitente_comercial_productor_nombre, m.destinatario_nombre
+       FROM movimientos m
+       WHERE UPPER(COALESCE(m.patente_chasis, '')) = $1
+         AND m.estado IN ('EN_TRANSITO', 'PENDIENTE')
+         ${modalidadSql}
+       ORDER BY COALESCE(m.fecha_partida, m.created_at) DESC
+       LIMIT 20`,
+      params
+    );
+
+    const sugerencias = rows
+      .map((r) => {
+        const baseDate = parseFechaReferencia(r.fecha_partida) || parseFechaReferencia(r.created_at);
+        const diffHoras = baseDate ? Math.abs((fechaRef.getTime() - baseDate.getTime()) / 3600000) : 999;
+        const score = Math.max(0, 1 - (diffHoras / 48));
+        return {
+          ...r,
+          diferencia_horas: Number(diffHoras.toFixed(2)),
+          score: Number(score.toFixed(4))
+        };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    res.json({
+      patente_chasis: patente_chasis.toUpperCase(),
+      fecha_referencia: fechaRef.toISOString(),
+      sugerencias
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST confirmar conciliación manual carga vs descarga
+router.post('/conciliacion/confirmar', async (req, res) => {
+  try {
+    const {
+      id_movimiento_carga,
+      fecha_arribo,
+      fecha_descarga,
+      nro_turno,
+      peso_bruto_llegada_kg,
+      peso_tara_llegada_kg,
+      humedad_llegada_pct
+    } = req.body;
+
+    if (!id_movimiento_carga) {
+      return res.status(400).json({ error: 'id_movimiento_carga es obligatorio' });
+    }
+    if (peso_bruto_llegada_kg === undefined || peso_tara_llegada_kg === undefined) {
+      return res.status(400).json({ error: 'peso_bruto_llegada_kg y peso_tara_llegada_kg son obligatorios' });
+    }
+
+    const pesoNetoLlegada = parseFloat(peso_bruto_llegada_kg) - parseFloat(peso_tara_llegada_kg);
+    const { rows: mov } = await pool.query('SELECT * FROM movimientos WHERE id = $1', [id_movimiento_carga]);
+    if (!mov[0]) return res.status(404).json({ error: 'Movimiento de carga no encontrado' });
+
+    const diferencia = (mov[0].peso_neto_salida_kg || 0) - pesoNetoLlegada;
+    const tolerancia = (mov[0].peso_neto_salida_kg || 0) * 0.0003;
+    const faltante = Math.max(0, diferencia - tolerancia);
+
+    const { rows } = await pool.query(
+      `UPDATE movimientos
+       SET fecha_arribo = $1,
+           fecha_descarga = $2,
+           nro_turno = $3,
+           peso_bruto_llegada_kg = $4,
+           peso_tara_llegada_kg = $5,
+           peso_neto_llegada_kg = $6,
+           humedad_llegada_pct = $7,
+           diferencia_kg = $8,
+           tolerancia_kg = $9,
+           faltante_kg = $10,
+           estado = 'DESCARGADO',
+           estado_revision = 'CONFIRMADO_OPERARIO',
+           estado_conciliacion = 'CONCILIADO_MANUAL',
+           conciliacion_metodo = 'PATENTE_FECHA_MANUAL',
+           conciliacion_confianza = NULL,
+           updated_at = NOW()
+       WHERE id = $11
+       RETURNING *`,
+      [
+        fecha_arribo || null,
+        fecha_descarga || null,
+        nro_turno || null,
+        peso_bruto_llegada_kg,
+        peso_tara_llegada_kg,
+        pesoNetoLlegada,
+        humedad_llegada_pct || null,
+        diferencia,
+        tolerancia,
+        faltante,
+        id_movimiento_carga
+      ]
+    );
+
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET un movimiento con calidad y servicios
 router.get('/:id', async (req, res) => {
   try {
@@ -265,7 +404,9 @@ router.post('/', async (req, res) => {
       tarifa_catac, tarifa_flete_real, tipo_tarifa,
       peso_bruto_salida_kg, peso_tara_salida_kg, humedad_salida_pct,
       observaciones, usuario_carga, chofer_nombre, transportista_nombre,
-      chofer, transportista, nro_factura_flete, fecha_partida
+      chofer, transportista, nro_factura_flete, fecha_partida,
+      origen_dato, estado_revision, estado_conciliacion,
+      id_movimiento_carga, conciliacion_metodo, conciliacion_confianza
     } = req.body;
 
     // Se inicializan como let para completar automáticamente el nombre desde IDs precargados cuando venga vacío.
@@ -314,6 +455,9 @@ router.post('/', async (req, res) => {
     const estado = pendientesConfirmacion.length > 0 ? 'PENDIENTE' : 'EN_TRANSITO';
     const motivoPendiente = serializarPendientesAJson(pendientesConfirmacion);
     const estado_liquidacion = (id_contrato_compra || id_contrato_venta) ? 'ASIGNADO' : 'SIN_ASIGNAR';
+    const origenDato = normalizarOrigenDato(origen_dato);
+    const estadoRevision = normalizarEstadoRevision(estado_revision, origenDato);
+    const estadoConciliacion = estado_conciliacion || (id_movimiento_carga ? 'CONCILIADO_MANUAL' : 'SIN_CONCILIAR');
 
     const { rows } = await pool.query(`
       INSERT INTO movimientos (
@@ -332,13 +476,16 @@ router.post('/', async (req, res) => {
         tarifa_catac, tarifa_flete_real, tipo_tarifa,
         peso_bruto_salida_kg, peso_tara_salida_kg, peso_neto_salida_kg,
         humedad_salida_pct, observaciones, usuario_carga, chofer_nombre, transportista_nombre,
-        nro_factura_flete, fecha_partida, motivo_pendiente
+        nro_factura_flete, fecha_partida, motivo_pendiente,
+        origen_dato, estado_revision, estado_conciliacion,
+        id_movimiento_carga, conciliacion_metodo, conciliacion_confianza
       ) VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
         $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
         $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
         $31,$32,$33,$34,$35,$36,$37,$38,$39,$40,
-        $41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51
+        $41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,
+        $52,$53,$54,$55,$56,$57
       ) RETURNING *
     `, [
       numero_movimiento, modalidad, estado, estado_liquidacion,
@@ -358,7 +505,9 @@ router.post('/', async (req, res) => {
       tarifa_catac||null, tarifa_flete_real||null, tipo_tarifa||'LLENA',
       peso_bruto_salida_kg||null, peso_tara_salida_kg||null, peso_neto_salida,
       humedad_salida_pct||null, observaciones||null, usuario_carga||null, finalChofer, finalTransportista,
-      nro_factura_flete||null, fecha_partida||null, motivoPendiente
+      nro_factura_flete||null, fecha_partida||null, motivoPendiente,
+      origenDato, estadoRevision, estadoConciliacion,
+      id_movimiento_carga||null, conciliacion_metodo||null, conciliacion_confianza||null
     ]);
 
     // Recalcular toneladas y estado de contratos
@@ -427,7 +576,8 @@ router.put('/:id/llegada', async (req, res) => {
   try {
     const {
       fecha_arribo, fecha_descarga, nro_turno,
-      peso_bruto_llegada_kg, peso_tara_llegada_kg, humedad_llegada_pct
+      peso_bruto_llegada_kg, peso_tara_llegada_kg, humedad_llegada_pct,
+      estado_revision, estado_conciliacion, conciliacion_metodo, conciliacion_confianza
     } = req.body;
 
     const peso_neto_llegada = parseFloat(peso_bruto_llegada_kg) - parseFloat(peso_tara_llegada_kg);
@@ -526,12 +676,21 @@ router.put('/:id/llegada', async (req, res) => {
         peso_neto_llegada_kg=$6, humedad_llegada_pct=$7,
         diferencia_kg=$8, tolerancia_kg=$9, faltante_kg=$10,
         factor_calculado=$11, factor_manual=$12, factor_aplicado=$13, kg_liquidables=$14,
-        estado='DESCARGADO', updated_at=NOW()
-      WHERE id=$15 RETURNING *
+        estado='DESCARGADO',
+        estado_revision=$15,
+        estado_conciliacion=$16,
+        conciliacion_metodo=$17,
+        conciliacion_confianza=$18,
+        updated_at=NOW()
+      WHERE id=$19 RETURNING *
     `, [fecha_arribo||null, fecha_descarga||null, nro_turno||null,
         peso_bruto_llegada_kg, peso_tara_llegada_kg, peso_neto_llegada,
         humedad_llegada_pct||null, diferencia, tolerancia, faltante,
         factor_calculado, db_factor_manual, factor_aplicado, kg_liquidables,
+        normalizarEstadoRevision(estado_revision, mov[0].origen_dato),
+        estado_conciliacion || (mov[0].estado_conciliacion || 'SIN_CONCILIAR'),
+        conciliacion_metodo || mov[0].conciliacion_metodo || null,
+        conciliacion_confianza !== undefined && conciliacion_confianza !== null ? parseFloat(conciliacion_confianza) : (mov[0].conciliacion_confianza || null),
         req.params.id]);
 
     res.json(rows[0]);
@@ -667,7 +826,9 @@ router.put('/:id', async (req, res) => {
       tarifa_catac, tarifa_flete_real, tipo_tarifa,
       peso_bruto_salida_kg, peso_tara_salida_kg, humedad_salida_pct,
       observaciones, chofer_nombre, transportista_nombre,
-      chofer, transportista, nro_factura_flete, fecha_partida
+      chofer, transportista, nro_factura_flete, fecha_partida,
+      origen_dato, estado_revision, estado_conciliacion,
+      id_movimiento_carga, conciliacion_metodo, conciliacion_confianza
     } = req.body;
 
     const finalChofer = chofer_nombre || chofer || null;
@@ -675,7 +836,9 @@ router.put('/:id', async (req, res) => {
 
     // Obtener los datos actuales del movimiento para determinar si cambia de contrato y estado actual
     const { rows: currentMov } = await pool.query(
-      'SELECT estado, estado_liquidacion, id_contrato_compra, id_contrato_venta, motivo_pendiente FROM movimientos WHERE id = $1',
+      `SELECT estado, estado_liquidacion, id_contrato_compra, id_contrato_venta, motivo_pendiente,
+              origen_dato, estado_revision, estado_conciliacion, id_movimiento_carga, conciliacion_metodo, conciliacion_confianza
+       FROM movimientos WHERE id = $1`,
       [req.params.id]
     );
     if (!currentMov[0]) return res.status(404).json({ error: 'No encontrado' });
@@ -687,6 +850,9 @@ router.put('/:id', async (req, res) => {
     if (estado_liq !== 'LIQUIDADO') {
       estado_liq = (id_contrato_compra || id_contrato_venta) ? 'ASIGNADO' : 'SIN_ASIGNAR';
     }
+    const origenDato = normalizarOrigenDato(origen_dato || currentMov[0].origen_dato);
+    const estadoRevision = normalizarEstadoRevision(estado_revision || currentMov[0].estado_revision, origenDato);
+    const estadoConciliacion = estado_conciliacion || currentMov[0].estado_conciliacion || 'SIN_CONCILIAR';
 
     // Calcular kg neto salida
     const peso_neto_salida = peso_bruto_salida_kg && peso_tara_salida_kg
@@ -732,8 +898,11 @@ router.put('/:id', async (req, res) => {
         tarifa_catac=$36, tarifa_flete_real=$37, tipo_tarifa=$38,
         peso_bruto_salida_kg=$39, peso_tara_salida_kg=$40, peso_neto_salida_kg=$41,
         humedad_salida_pct=$42, observaciones=$43, chofer_nombre=$44, transportista_nombre=$45,
-        nro_factura_flete=$46, fecha_partida=$47, estado_liquidacion=$48, motivo_pendiente=$49, updated_at=NOW()
-      WHERE id=$50 RETURNING *
+        nro_factura_flete=$46, fecha_partida=$47, estado_liquidacion=$48, motivo_pendiente=$49,
+        origen_dato=$50, estado_revision=$51, estado_conciliacion=$52,
+        id_movimiento_carga=$53, conciliacion_metodo=$54, conciliacion_confianza=$55,
+        updated_at=NOW()
+      WHERE id=$56 RETURNING *
     `, [
         id_contrato_compra||null, id_contrato_venta||null,
         nro_cpe||null, nro_ctg||null, fecha_cpe||null, fecha_vencimiento_cpe||null,
@@ -751,7 +920,12 @@ router.put('/:id', async (req, res) => {
         tarifa_catac||null, tarifa_flete_real||null, tipo_tarifa||'LLENA',
         peso_bruto_salida_kg||null, peso_tara_salida_kg||null, peso_neto_salida,
         humedad_salida_pct||null, observaciones||null, finalChofer, finalTransportista,
-        nro_factura_flete||null, fecha_partida||null, estado_liq, motivoPendiente, req.params.id
+        nro_factura_flete||null, fecha_partida||null, estado_liq, motivoPendiente,
+        origenDato, estadoRevision, estadoConciliacion,
+        id_movimiento_carga !== undefined ? (id_movimiento_carga || null) : (currentMov[0].id_movimiento_carga || null),
+        conciliacion_metodo !== undefined ? (conciliacion_metodo || null) : (currentMov[0].conciliacion_metodo || null),
+        conciliacion_confianza !== undefined && conciliacion_confianza !== null ? parseFloat(conciliacion_confianza) : (currentMov[0].conciliacion_confianza || null),
+        req.params.id
     ]);
 
     // Recalcular toneladas y estado de contratos involucrados

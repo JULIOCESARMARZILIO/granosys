@@ -1613,9 +1613,12 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
 const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspecie, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec}) => {
   const [showForm,setShowForm]=useState(false);
   const [showImport,setShowImport]=useState(false);
+  const [showImportCenter,setShowImportCenter]=useState(false);
+  const [importFlow,setImportFlow]=useState("CPE");
   const [showRapido,setShowRapido]=useState(false);
   const [selected,setSelected]=useState(null);
   const [tab,setTab]=useState("salida");
+  const [importStage,setImportStage]=useState("extraer");
   const [importing,setImporting]=useState(false);
   const [importResult,setImportResult]=useState(null);
   const [importContratoCompra, setImportContratoCompra] = useState("");
@@ -1632,7 +1635,11 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   const [excelRows, setExcelRows] = useState([]);
   const [importingExcel, setImportingExcel] = useState(false);
   const [excelFileName, setExcelFileName] = useState("");
+  const [guardando,setGuardando]=useState(false);
   const [movsReal,setMovsReal]=useState(null);
+  const [pendingReturnId, setPendingReturnId] = useState(null);
+  const [inlineCliente, setInlineCliente] = useState(null);
+  const [inlineClienteForm, setInlineClienteForm] = useState({ tipo: "PRODUCTOR", razon_social: "", cuit: "", canal_operacion: "AMBOS", condicion_iva: "RI", provincia: "", localidad: "" });
 
   let rawMovs = movsReal !== null ? movsReal : mockMovimientos.filter(m=>m.modalidad===modulo);
   if (globalFiltroProductor) {
@@ -1804,7 +1811,9 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         peso_tara_salida_kg: parseFloat(rapidoTara),
         humedad_salida_pct: rapidoHumedad ? parseFloat(rapidoHumedad) : 13.5,
         localidad_destino: rapidoDestino || "Planta Destino",
-        usuario_carga: usuario
+        usuario_carga: usuario,
+        origen_dato: "MANUAL",
+        estado_revision: "CONFIRMADO_OPERARIO"
       };
 
       const r = await api.post("/api/movimientos", payload);
@@ -2073,6 +2082,13 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         faltante: m.faltante_kg ? parseFloat(m.faltante_kg) : null,
         estado: m.estado,
         estado_liq: m.estado_liquidacion,
+        motivo_pendiente: (() => {
+          if (!m.motivo_pendiente) return [];
+          try { return JSON.parse(m.motivo_pendiente); } catch (_) { return [m.motivo_pendiente]; }
+        })(),
+        origen_dato: m.origen_dato || "MANUAL",
+        estado_revision: m.estado_revision || "AUTO",
+        estado_conciliacion: m.estado_conciliacion || "SIN_CONCILIAR",
         factor_aplicado: m.factor_aplicado ? parseFloat(m.factor_aplicado) : null,
         factor_manual: m.factor_manual ? parseFloat(m.factor_manual) : null,
         factor: m.factor_manual !== null && m.factor_manual !== undefined ? parseFloat(m.factor_manual) : (m.factor_aplicado ? parseFloat(m.factor_aplicado) : null), // Alias para compatibilidad de vistas
@@ -2096,8 +2112,15 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     cargarMermas();
   },[modulo]);
 
-  const estadoColor = e=>({EN_TRANSITO:"orange",DESCARGADO:"blue",LIQUIDADO:"green",ANULADO:"red",BORRADOR:"gray"}[e]||"gray");
+  const estadoColor = e=>({PENDIENTE:"orange",EN_TRANSITO:"orange",DESCARGADO:"blue",LIQUIDADO:"green",ANULADO:"red",BORRADOR:"gray"}[e]||"gray");
   const liqColor = e=>({LIQUIDADO:"green",ASIGNADO:"blue",PRELIQUIDADO:"orange",SIN_ASIGNAR:"gray"}[e]||"gray");
+  const reviewColor = e=>({AUTO:"gray",SUGERIDO:"blue",CONFIRMADO_OPERARIO:"green"}[(e||"").toUpperCase()]||"gray");
+  const sourceLabel = s=>({MANUAL:"Manual",PDF_CPE:"PDF",OCR_TICKET:"OCR",EXCEL:"Excel"}[(s||"").toUpperCase()]||"Manual");
+  const pendingLabel = (code) => ({
+    PRODUCTOR_NO_PRECARGADO: "Productor no precargado",
+    COMPRADOR_NO_PRECARGADO: "Comprador no precargado",
+    TRANSPORTISTA_NO_PRECARGADO: "Transportista no precargado"
+  }[code] || code);
 
   const parseCpeText = (text) => {
     const result = {};
@@ -2427,6 +2450,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         
         const parsed = parseCpeText(fullText);
         setImportResult(parsed);
+        setImportStage("mapear");
         setImportContratoCompra("");
         setImportContratoVenta("");
         setImportTarifaFleteReal(parsed.tarifa || "");
@@ -2624,6 +2648,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         ];
         setMappings(demoMappings);
         setTicketResult(true);
+        setImportStage("mapear");
       }, 1000);
       return;
     }
@@ -2649,6 +2674,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
           const mapped = generateMappings(parsed, fullText);
           setMappings(mapped);
           setTicketResult(true);
+          setImportStage("mapear");
         } catch (err) {
           alert("Error al procesar el ticket PDF: " + err.message);
         } finally {
@@ -2672,6 +2698,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
           const mapped = generateMappings(parsed, text);
           setMappings(mapped);
           setTicketResult(true);
+          setImportStage("mapear");
         } catch (err) {
           alert("Error al procesar el ticket con OCR: " + err.message);
         } finally {
@@ -2729,6 +2756,43 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
       };
       const id_campana = mapCampanaToId(data.fecha);
 
+      const fechaRef = data.fecha ? String(data.fecha) : new Date().toISOString();
+      if (data.chasis && data.peso_bruto && data.peso_tara) {
+        const sug = await api.get(`/api/movimientos/conciliacion/sugerencias?patente_chasis=${encodeURIComponent(data.chasis)}&fecha_referencia=${encodeURIComponent(fechaRef)}&modalidad=${encodeURIComponent(modulo)}`);
+        if (sug && Array.isArray(sug.sugerencias) && sug.sugerencias.length > 0) {
+          let elegido = null;
+          if (sug.sugerencias.length === 1) {
+            elegido = sug.sugerencias[0];
+          } else {
+            const opciones = sug.sugerencias.slice(0, 5).map((s, i) => `${i + 1}) ${s.numero_movimiento} (${s.diferencia_horas}h)`).join("\n");
+            const seleccion = prompt(`Se detectaron múltiples cargas candidatas para ${data.chasis}. Elegí una opción:\n${opciones}\n\nIngresá el número de opción:`);
+            const idx = parseInt(seleccion, 10) - 1;
+            if (!Number.isNaN(idx) && sug.sugerencias[idx]) elegido = sug.sugerencias[idx];
+            if (!elegido) return alert("Conciliación cancelada: debés elegir manualmente una carga candidata.");
+          }
+
+          const conciliado = await api.post("/api/movimientos/conciliacion/confirmar", {
+            id_movimiento_carga: elegido.id,
+            fecha_arribo: data.fecha || null,
+            fecha_descarga: data.fecha || null,
+            nro_turno: data.numero || "TICKET-OCR",
+            peso_bruto_llegada_kg: parseFloat(data.peso_bruto),
+            peso_tara_llegada_kg: parseFloat(data.peso_tara),
+            humedad_llegada_pct: data.humedad ? parseFloat(data.humedad) : null
+          });
+          if (conciliado && conciliado.id) {
+            alert(`✓ Descarga conciliada con ${elegido.numero_movimiento} (${data.chasis}).`);
+            setShowImportTicket(false);
+            setTicketResult(null);
+            setTicketFileUrl(null);
+            setUploadedTicketFile(null);
+            setImportStage("confirmar");
+            await cargarMovimientos();
+            return;
+          }
+        }
+      }
+
       const payload = {
         modalidad: modulo,
         nro_cpe: data.numero || null,
@@ -2763,7 +2827,9 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         peso_bruto_salida_kg: parseFloat(data.peso_bruto) || 0,
         peso_tara_salida_kg: parseFloat(data.peso_tara) || 0,
         humedad_salida_pct: 13.5,
-        usuario_carga: usuario
+        usuario_carga: usuario,
+        origen_dato: "OCR_TICKET",
+        estado_revision: "SUGERIDO"
       };
 
       const r = await api.post("/api/movimientos", payload);
@@ -2782,17 +2848,17 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     try {
       const headers = [
         "Remitente", "Comprador", "Especie", "Campaña", "Patente Chasis", "Patente Acoplado", 
-        "Chofer", "Lugar de Entrega", "Kg Bruto Carga", "Kg Tara Carga", "Humedad Carga %",
+        "Chofer", "Lugar de Entrega", "Fecha Carga", "Fecha Descarga", "Kg Bruto Carga", "Kg Tara Carga", "Humedad Carga %",
         "Kg Bruto Descarga", "Kg Tara Descarga", "Humedad Descarga %", "Factor Calidad"
       ];
       const sampleRow1 = [
         "FULL AGRO S.A.", "BIOGEN21", "Soja", "2024/2025", "LUG-354", "AD846IU", 
-        "MUNARETO OSCAR", "Básculas Santa Fe", 44980, 14900, 13.5, 
+        "MUNARETO OSCAR", "Básculas Santa Fe", "2026-07-10 08:30", "2026-07-10 18:15", 44980, 14900, 13.5, 
         44900, 14900, 13.0, 0.985
       ];
       const sampleRow2 = [
         "Rodríguez Pedro", "BIOGEN21", "Maíz", "2024/2025", "AC234BB", "", 
-        "Sin registrar", "Sin asignar", 48200, 16800, 14.0, 
+        "Sin registrar", "Sin asignar", "2026-07-10 09:10", "", 48200, 16800, 14.0, 
         "", "", "", ""
       ];
       
@@ -2846,6 +2912,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
           acoplado: headers.findIndex(h => h.includes("acoplado") || h.includes("patente acoplado")),
           chofer: headers.findIndex(h => h.includes("chofer") || h.includes("conductor")),
           lugar: headers.findIndex(h => h.includes("lugar") || h.includes("destino") || h.includes("entrega")),
+          fecha_carga: headers.findIndex(h => h.includes("fecha carga") || h.includes("fecha salida") || h === "fecha"),
+          fecha_descarga: headers.findIndex(h => h.includes("fecha descarga") || h.includes("fecha llegada")),
           
           // Departure (Carga)
           bruto_salida: headers.findIndex(h => h.includes("bruto carga") || h.includes("bruto salida")),
@@ -2908,6 +2976,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             acoplado: colMap.acoplado !== -1 ? String(r[colMap.acoplado] || "").trim() : "",
             chofer: colMap.chofer !== -1 ? String(r[colMap.chofer] || "").trim() : "",
             lugar: colMap.lugar !== -1 ? String(r[colMap.lugar] || "").trim() : "",
+            fecha_carga: colMap.fecha_carga !== -1 ? String(r[colMap.fecha_carga] || "").trim() : "",
+            fecha_descarga: colMap.fecha_descarga !== -1 ? String(r[colMap.fecha_descarga] || "").trim() : "",
             
             // Weights
             bruto_salida: brutoSalida,
@@ -2930,6 +3000,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         }
         
         setExcelRows(parsedRows);
+        setImportStage("previsualizar");
       } catch (err) {
         alert("Error al procesar el archivo Excel: " + err.message);
       } finally {
@@ -2988,7 +3059,10 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
           peso_bruto_salida_kg: row.bruto_salida,
           peso_tara_salida_kg: row.tara_salida,
           humedad_salida_pct: row.humedad_salida || 13.5,
-          usuario_carga: usuario
+          fecha_partida: row.fecha_carga || null,
+          usuario_carga: usuario,
+          origen_dato: "EXCEL",
+          estado_revision: "AUTO"
         };
         
         // 1. Create movement
@@ -2998,12 +3072,14 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         // 2. Register arrival if present
         if (row.bruto_llegada !== null && row.tara_llegada !== null && !isNaN(row.bruto_llegada) && !isNaN(row.tara_llegada)) {
           const llegadaPayload = {
-            fecha_arribo: new Date().toISOString(),
-            fecha_descarga: new Date().toISOString(),
+            fecha_arribo: row.fecha_descarga || row.fecha_carga || new Date().toISOString(),
+            fecha_descarga: row.fecha_descarga || row.fecha_carga || new Date().toISOString(),
             nro_turno: "TURNO-EXCEL",
             peso_bruto_llegada_kg: row.bruto_llegada,
             peso_tara_llegada_kg: row.tara_llegada,
-            humedad_llegada_pct: row.humedad_llegada || 13.5
+            humedad_llegada_pct: row.humedad_llegada || 13.5,
+            estado_revision: "AUTO",
+            estado_conciliacion: "SIN_CONCILIAR"
           };
           await api.put(`/api/movimientos/${created.id}/llegada`, llegadaPayload);
           descargaCount++;
@@ -3041,21 +3117,121 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     return false;
   });
 
+  const pendientesMaestros = movs.filter(m => m.estado === "PENDIENTE");
+
+  const abrirPendiente = (m, destinoTab = "salida") => {
+    setPendingReturnId(m.id);
+    openModal(m);
+    setTab(destinoTab);
+    setShowForm(true);
+  };
+
+  const volverAlPendiente = () => {
+    if (!pendingReturnId) return;
+    const actualizado = movs.find(x => x.id === pendingReturnId);
+    if (actualizado) {
+      openModal(actualizado);
+      setShowForm(true);
+    } else {
+      setPendingReturnId(null);
+    }
+  };
+
+  const abrirAltaInline = (tipo) => {
+    setInlineCliente({
+      tipo,
+      targetField: tipo === "PRODUCTOR" ? "productor_nombre" : "comprador_nombre"
+    });
+    setInlineClienteForm({
+      tipo,
+      razon_social: "",
+      cuit: "",
+      canal_operacion: "AMBOS",
+      condicion_iva: "RI",
+      provincia: "",
+      localidad: ""
+    });
+  };
+
+  const guardarClienteInline = async () => {
+    if (!inlineClienteForm.razon_social) return alert("Ingresá razón social");
+    try {
+      const creado = await api.post("/api/contrapartes", {
+        cuit: inlineClienteForm.cuit || null,
+        razon_social: inlineClienteForm.razon_social,
+        tipo_contraparte: inlineClienteForm.tipo,
+        canal_operacion: inlineClienteForm.canal_operacion,
+        condicion_iva: inlineClienteForm.condicion_iva,
+        provincia: inlineClienteForm.provincia || null,
+        localidad: inlineClienteForm.localidad || null
+      });
+      if (!creado || !creado.id) return alert("No se pudo crear el cliente");
+      await cargarContrapartes();
+      if (inlineClienteForm.tipo === "PRODUCTOR") {
+        setMovForm(prev => ({
+          ...prev,
+          productor_nombre: creado.razon_social,
+          titular_cpe_nombre: creado.razon_social,
+          titular_cpe_cuit: creado.cuit || "",
+          remitente_comercial_productor_nombre: creado.razon_social,
+          remitente_comercial_productor_cuit: creado.cuit || "",
+          flete_pagador_nombre: creado.razon_social,
+          flete_pagador_cuit: creado.cuit || ""
+        }));
+      } else {
+        setMovForm(prev => ({
+          ...prev,
+          comprador_nombre: creado.razon_social,
+          destinatario_nombre: creado.razon_social,
+          destinatario_cuit: creado.cuit || "",
+          destino_nombre: creado.razon_social,
+          destino_cuit: creado.cuit || ""
+        }));
+      }
+      setInlineCliente(null);
+    } catch (e) {
+      alert("Error al crear cliente: " + e.message);
+    }
+  };
+
   return (
     <div className="fade-in">
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
         <h2 style={{fontSize:18,fontWeight:700}}>Movimientos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
         <div style={{display:"flex",gap:8}}>
           <Btn variant="secondary" size="sm" onClick={()=>setShowRapido(true)}>⚡ Carga Rápida</Btn>
-          <Btn variant="secondary" size="sm" onClick={()=>setShowImport(true)}>↑ Importar CPE</Btn>
-          {modulo==="INFORMAL"&&<>
-            <Btn variant="secondary" size="sm" onClick={()=>setShowImportTicket(true)}>↑ Importar Ticket</Btn>
-            <Btn variant="secondary" size="sm" onClick={()=>setShowImportExcel(true)}>↑ Importar Excel</Btn>
-            <Btn variant="secondary" size="sm" onClick={downloadExcelTemplate}>📥 Bajar Modelo Excel</Btn>
-          </>}
+          <Btn variant="secondary" size="sm" onClick={()=>{setShowImportCenter(true);setImportFlow("CPE");setImportStage("extraer");}}>📥 Centro de Importación</Btn>
+          {modulo==="INFORMAL"&&<Btn variant="secondary" size="sm" onClick={downloadExcelTemplate}>📄 Plantilla Excel</Btn>}
           <Btn onClick={()=>{setSelected(null);setTempFactor(null);setTab("salida");setShowForm(true);}}>+ Nuevo</Btn>
         </div>
       </div>
+
+      {pendientesMaestros.length > 0 && (
+        <div className="card" style={{marginBottom:16,border:"1px solid rgba(245,166,35,.25)"}}>
+          <div className="card-header" style={{background:"rgba(245,166,35,.06)"}}>
+            <span style={{fontWeight:700,fontSize:13,color:"#ffd280"}}>⚠ Pendientes por maestros ({pendientesMaestros.length})</span>
+          </div>
+          <div style={{padding:12,display:"grid",gap:8}}>
+            {pendientesMaestros.slice(0,6).map(m => (
+              <div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"8px 10px",border:"1px solid #2a2d3e",borderRadius:6}}>
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  <span className="mono" style={{color:"#f5a623",fontWeight:600}}>{m.numero}</span>
+                  <div style={{fontSize:12,color:"#8890a8"}}>
+                    {(m.motivo_pendiente || []).map(x => pendingLabel(x)).join(" · ")}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <Btn size="sm" variant="secondary" onClick={()=>abrirPendiente(m,"salida")}>Cargar movimiento</Btn>
+                  <Btn size="sm" variant="secondary" onClick={()=>abrirPendiente(m,"llegada")}>Cargar descarga</Btn>
+                  <Btn size="sm" onClick={()=>abrirPendiente(m,"salida")}>Completar faltantes</Btn>
+                  {(m.motivo_pendiente || []).includes("PRODUCTOR_NO_PRECARGADO") && <Btn size="sm" variant="ghost" onClick={()=>abrirAltaInline("PRODUCTOR")}>Crear productor</Btn>}
+                  {(m.motivo_pendiente || []).includes("COMPRADOR_NO_PRECARGADO") && <Btn size="sm" variant="ghost" onClick={()=>abrirAltaInline("COMPRADOR")}>Crear comprador</Btn>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {modulo === "INFORMAL" && (() => {
         const transito = movs.filter(m => m.estado === "EN_TRANSITO");
@@ -3169,7 +3345,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         <table><thead><tr>
           <th>N° Mov</th>{modulo==="FORMAL"&&<th>CTG</th>}<th>Especie</th><th>Productor</th>
           <th>Contrato C.</th><th>Kg Salida</th><th>Kg Llegada</th><th>Faltante</th>
-          <th>Kg Liq.</th><th>Estado</th><th>Liq.</th><th></th>
+          <th>Kg Liq.</th><th>Origen</th><th>Revisión</th><th>Estado</th><th>Liq.</th><th></th>
         </tr></thead>
         <tbody>{movs.map(m=>(
           <tr key={m.id}>
@@ -3204,6 +3380,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             <td><span className="mono">{m.peso_neto_llegada?.toLocaleString()||"—"}</span></td>
             <td>{m.faltante===null?"—":m.faltante>0?<span className="mono" style={{color:"#e74c3c"}}>-{m.faltante}</span>:<span style={{color:"#27ae60"}}>✓</span>}</td>
             <td><span className="mono" style={{fontWeight:600}}>{m.kg_liquidables?.toLocaleString()||"—"}</span></td>
+            <td><Badge label={sourceLabel(m.origen_dato)} color="gray"/></td>
+            <td><Badge label={(m.estado_revision||"AUTO").toUpperCase()} color={reviewColor(m.estado_revision)}/></td>
             <td><Badge label={m.estado} color={estadoColor(m.estado)}/></td>
             <td><Badge label={m.estado_liq} color={liqColor(m.estado_liq)}/></td>
             <td><Btn variant="ghost" size="sm" onClick={()=>openModal(m)}>Ver</Btn></td>
@@ -3263,6 +3441,50 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
           <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
             <Btn variant="secondary" onClick={()=>setShowRapido(false)}>Cancelar</Btn>
             <Btn onClick={handleGuardarRapido}>Guardar Movimiento</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {showImportCenter && (
+        <Modal title="Centro de Importación" onClose={()=>setShowImportCenter(false)} width={860}>
+          <div className="tab-bar" style={{marginBottom:14}}>
+            {["CPE","TICKET","EXCEL"].map(f=>(
+              <button key={f} className={`tab ${importFlow===f?"active":""}`} onClick={()=>{setImportFlow(f);setImportStage("extraer");}}>
+                {f==="CPE"?"PDF Carta de Porte":f==="TICKET"?"Ticket Balanza":"Excel"}
+              </button>
+            ))}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
+            {[
+              {id:"extraer",label:"1. Extraer"},
+              {id:"mapear",label:"2. Mapear"},
+              {id:"validar",label:"3. Validar"},
+              {id:"previsualizar",label:"4. Previsualizar"},
+              {id:"confirmar",label:"5. Confirmar"}
+            ].map(s=>(
+              <div key={s.id} style={{padding:"8px 10px",borderRadius:6,border:`1px solid ${importStage===s.id?"#f5a623":"#2a2d3e"}`,color:importStage===s.id?"#ffd280":"#8890a8",fontSize:11,textAlign:"center",fontWeight:600}}>
+                {s.label}
+              </div>
+            ))}
+          </div>
+          <div className="alert-info" style={{marginBottom:14}}>
+            Flujo unificado: extraer → mapear campos → validar → previsualizar → confirmar.
+          </div>
+          <div style={{display:"flex",gap:10,justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontSize:12,color:"#8890a8"}}>
+              {importFlow==="CPE" && "Usá PDF de carta de porte para cargar salida."}
+              {importFlow==="TICKET" && "Usá imagen/PDF de ticket para registrar descarga y calidad."}
+              {importFlow==="EXCEL" && "Importá salidas o descargas masivas con fechas, patentes y pesos."}
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <Btn variant="secondary" onClick={()=>setImportStage("previsualizar")}>Marcar previsualización</Btn>
+              <Btn onClick={()=>{
+                setShowImportCenter(false);
+                if (importFlow==="CPE") setShowImport(true);
+                if (importFlow==="TICKET") setShowImportTicket(true);
+                if (importFlow==="EXCEL") setShowImportExcel(true);
+              }}>Abrir flujo</Btn>
+            </div>
           </div>
         </Modal>
       )}
@@ -3389,6 +3611,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                       peso_tara_salida_kg: parseFloat(importResult.peso_tara) || 0,
                       humedad_salida_pct: parseFloat(importHumedadSalida) || null,
                       usuario_carga: usuario,
+                      origen_dato: "PDF_CPE",
+                      estado_revision: "SUGERIDO",
                       id_contrato_compra: importContratoCompra ? parseInt(importContratoCompra) : null,
                       id_contrato_venta: importContratoVenta ? parseInt(importContratoVenta) : null
                     };
@@ -3415,6 +3639,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     alert(modulo === "INFORMAL" ? msg : `✓ Movimiento ${r.numero_movimiento} creado desde CPE N° ${importResult.nro_cpe}\nEstado: EN_TRÁNSITO`);
                     setShowImport(false);
                     setImportResult(null);
+                    setImportStage("confirmar");
                     cargarMovimientos();
                   } catch(err) {
                     alert("Error al crear movimiento: " + (err.response?.data?.error || err.message));
@@ -3447,7 +3672,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         return (
           <Modal 
             title="Importar Ticket de Balanza (Módulo Informal)" 
-            onClose={() => { setShowImportTicket(false); setTicketResult(null); setTicketFileUrl(null); setUploadedTicketFile(null); }} 
+            onClose={() => { setShowImportTicket(false); setImportStage("confirmar"); setTicketResult(null); setTicketFileUrl(null); setUploadedTicketFile(null); }} 
             width={1000}
           >
             {!ticketResult ? (
@@ -3594,7 +3819,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
       {showImportExcel && (
         <Modal 
           title="Importar Movimientos desde Excel (Módulo Informal)" 
-          onClose={() => { setShowImportExcel(false); setExcelRows([]); setExcelFileName(""); }} 
+          onClose={() => { setShowImportExcel(false); setImportStage("confirmar"); setExcelRows([]); setExcelFileName(""); }} 
           width={900}
         >
           {excelRows.length === 0 ? (
@@ -3758,6 +3983,16 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             )}
           </div>
 
+          {selected?.estado === "PENDIENTE" && (
+            <div style={{padding:"10px 12px",background:"rgba(245,166,35,.08)",border:"1px solid rgba(245,166,35,.25)",borderRadius:6,marginBottom:14}}>
+              <div style={{fontSize:11,color:"#ffd280",fontWeight:700,marginBottom:4}}>DATOS MAESTROS FALTANTES</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {(selected.motivo_pendiente || []).map(p=><Badge key={p} label={pendingLabel(p)} color="orange"/>)}
+              </div>
+              <div style={{fontSize:12,color:"#8890a8",marginTop:6}}>Podés crear productor/comprador con el botón <strong style={{color:"#e8eaf0"}}>Agregar</strong> en esta misma pantalla.</div>
+            </div>
+          )}
+
           {tab==="salida"&&(
             <div>
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>Contratos</div>
@@ -3767,50 +4002,56 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
               </div>
               <div className="form-grid-2" style={{marginBottom:18}}>
                 <FF label="Productor" required>
-                  <select
-                    value={movForm.productor_nombre}
-                    onChange={e => {
-                      const prodName = e.target.value;
-                      const prod = contrapartes.find(c => c.razon_social === prodName);
-                      setMovForm({
-                        ...movForm,
-                        productor_nombre: prodName,
-                        titular_cpe_nombre: prodName,
-                        titular_cpe_cuit: prod ? prod.cuit : "",
-                        remitente_comercial_productor_nombre: prodName,
-                        remitente_comercial_productor_cuit: prod ? prod.cuit : "",
-                        flete_pagador_nombre: prodName,
-                        flete_pagador_cuit: prod ? prod.cuit : ""
-                      });
-                    }}
-                  >
-                    <option value="">Seleccionar productor...</option>
-                    {contrapartes.filter(c=>c.tipo==="PRODUCTOR"||c.tipo==="AMBOS").map(c=>(
-                      <option key={c.id} value={c.razon_social}>{c.codigo} — {c.razon_social} {c.cuit?"("+c.cuit+")":""}</option>
-                    ))}
-                  </select>
+                  <div style={{display:"flex",gap:8}}>
+                    <select
+                      value={movForm.productor_nombre}
+                      onChange={e => {
+                        const prodName = e.target.value;
+                        const prod = contrapartes.find(c => c.razon_social === prodName);
+                        setMovForm({
+                          ...movForm,
+                          productor_nombre: prodName,
+                          titular_cpe_nombre: prodName,
+                          titular_cpe_cuit: prod ? prod.cuit : "",
+                          remitente_comercial_productor_nombre: prodName,
+                          remitente_comercial_productor_cuit: prod ? prod.cuit : "",
+                          flete_pagador_nombre: prodName,
+                          flete_pagador_cuit: prod ? prod.cuit : ""
+                        });
+                      }}
+                    >
+                      <option value="">Seleccionar productor...</option>
+                      {contrapartes.filter(c=>c.tipo==="PRODUCTOR"||c.tipo==="AMBOS").map(c=>(
+                        <option key={c.id} value={c.razon_social}>{c.codigo} — {c.razon_social} {c.cuit?"("+c.cuit+")":""}</option>
+                      ))}
+                    </select>
+                    <Btn size="sm" variant="secondary" onClick={()=>abrirAltaInline("PRODUCTOR")}>Agregar</Btn>
+                  </div>
                 </FF>
                 <FF label="Comprador / Destino" required>
-                  <select
-                    value={movForm.comprador_nombre}
-                    onChange={e => {
-                      const compName = e.target.value;
-                      const comp = contrapartes.find(c => c.razon_social === compName);
-                      setMovForm({
-                        ...movForm,
-                        comprador_nombre: compName,
-                        destinatario_nombre: compName,
-                        destinatario_cuit: comp ? comp.cuit : "",
-                        destino_nombre: compName,
-                        destino_cuit: comp ? comp.cuit : ""
-                      });
-                    }}
-                  >
-                    <option value="">Seleccionar comprador...</option>
-                    {contrapartes.filter(c=>c.tipo==="COMPRADOR"||c.tipo==="AMBOS").map(c=>(
-                      <option key={c.id} value={c.razon_social}>{c.codigo} — {c.razon_social} {c.cuit?"("+c.cuit+")":""}</option>
-                    ))}
-                  </select>
+                  <div style={{display:"flex",gap:8}}>
+                    <select
+                      value={movForm.comprador_nombre}
+                      onChange={e => {
+                        const compName = e.target.value;
+                        const comp = contrapartes.find(c => c.razon_social === compName);
+                        setMovForm({
+                          ...movForm,
+                          comprador_nombre: compName,
+                          destinatario_nombre: compName,
+                          destinatario_cuit: comp ? comp.cuit : "",
+                          destino_nombre: compName,
+                          destino_cuit: comp ? comp.cuit : ""
+                        });
+                      }}
+                    >
+                      <option value="">Seleccionar comprador...</option>
+                      {contrapartes.filter(c=>c.tipo==="COMPRADOR"||c.tipo==="AMBOS").map(c=>(
+                        <option key={c.id} value={c.razon_social}>{c.codigo} — {c.razon_social} {c.cuit?"("+c.cuit+")":""}</option>
+                      ))}
+                    </select>
+                    <Btn size="sm" variant="secondary" onClick={()=>abrirAltaInline("COMPRADOR")}>Agregar</Btn>
+                  </div>
                 </FF>
               </div>
 
@@ -4287,11 +4528,14 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
           )}
 
           <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20,paddingTop:16,borderTop:"1px solid #2a2d3e"}}>
+            {pendingReturnId && <Btn variant="secondary" onClick={volverAlPendiente}>↺ Volver al pendiente</Btn>}
             <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cerrar</Btn>
             <Btn onClick={async()=>{
               try {
                 const payload = {
                   ...movForm,
+                  origen_dato: selected?.origen_dato || "MANUAL",
+                  estado_revision: "CONFIRMADO_OPERARIO",
                   peso_bruto_salida_kg: movForm.peso_bruto_salida_kg ? parseFloat(movForm.peso_bruto_salida_kg) : null,
                   peso_tara_salida_kg: movForm.peso_tara_salida_kg ? parseFloat(movForm.peso_tara_salida_kg) : null,
                   humedad_salida_pct: movForm.humedad_salida_pct ? parseFloat(movForm.humedad_salida_pct) : null,
@@ -4310,7 +4554,9 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                   const r = await api.post("/api/movimientos", {
                     ...payload,
                     modalidad: modulo,
-                    usuario_carga: usuario
+                    usuario_carga: usuario,
+                    origen_dato: "MANUAL",
+                    estado_revision: "CONFIRMADO_OPERARIO"
                   });
                   if (r && r.id) {
                     movId = r.id;
@@ -4343,11 +4589,54 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                 }
                 alert(selected ? "✓ Cambios guardados" : "✓ Movimiento creado exitosamente");
                 setShowForm(false);
-                cargarMovimientos();
+                await cargarMovimientos();
+                if (pendingReturnId) {
+                  setTimeout(() => volverAlPendiente(), 50);
+                }
               } catch(e) {
                 alert("Error: "+e.message);
               }
             }}>Guardar Cambios</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {inlineCliente && (
+        <Modal title={`Agregar ${inlineCliente.tipo === "PRODUCTOR" ? "Productor" : "Comprador"} en línea`} onClose={()=>setInlineCliente(null)} width={620}>
+          <div className="form-grid-2">
+            <FF label="Razón Social" required>
+              <input value={inlineClienteForm.razon_social} onChange={e=>setInlineClienteForm({...inlineClienteForm, razon_social:e.target.value})} placeholder="Nombre o razón social"/>
+            </FF>
+            <FF label="CUIT">
+              <input value={inlineClienteForm.cuit} onChange={e=>setInlineClienteForm({...inlineClienteForm, cuit:e.target.value})} placeholder="20-12345678-9"/>
+            </FF>
+            <FF label="Canal">
+              <select value={inlineClienteForm.canal_operacion} onChange={e=>setInlineClienteForm({...inlineClienteForm, canal_operacion:e.target.value})}>
+                <option value="AMBOS">Ambos</option>
+                <option value="FORMAL">Formal</option>
+                <option value="INFORMAL">Informal</option>
+              </select>
+            </FF>
+            <FF label="Condición IVA">
+              <select value={inlineClienteForm.condicion_iva} onChange={e=>setInlineClienteForm({...inlineClienteForm, condicion_iva:e.target.value})}>
+                <option value="RI">Responsable Inscripto</option>
+                <option value="MONO">Monotributo</option>
+                <option value="EXENTO">Exento</option>
+              </select>
+            </FF>
+            <FF label="Provincia">
+              <select value={inlineClienteForm.provincia} onChange={e=>setInlineClienteForm({...inlineClienteForm, provincia:e.target.value})}>
+                <option value="">Seleccionar...</option>
+                {PROVINCIAS.map(p=><option key={p} value={p}>{p}</option>)}
+              </select>
+            </FF>
+            <FF label="Localidad">
+              <input value={inlineClienteForm.localidad} onChange={e=>setInlineClienteForm({...inlineClienteForm, localidad:e.target.value})} placeholder="Ciudad / localidad"/>
+            </FF>
+          </div>
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14}}>
+            <Btn variant="secondary" onClick={()=>setInlineCliente(null)}>Cancelar</Btn>
+            <Btn onClick={guardarClienteInline}>Guardar y usar en movimiento</Btn>
           </div>
         </Modal>
       )}
