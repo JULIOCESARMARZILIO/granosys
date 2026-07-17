@@ -2028,6 +2028,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   const [rapidoTara, setRapidoTara] = useState("");
   const [rapidoHumedad, setRapidoHumedad] = useState("");
   const [rapidoDestino, setRapidoDestino] = useState("");
+  const rapidoEspecieId = ESPECIES.indexOf(rapidoEspecie) + 1;
   const rapidoProductorNombre = rapidoProductor
     ? contrapartes.find(cp => cp.id === parseInt(rapidoProductor))?.razon_social
     : "";
@@ -2880,13 +2881,14 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
 
     const clienteMatch = text.match(/CLIENTE:[\s\S]*?(?:\n|^)CODIGO:[^\n]*\n([^\n\r]+)/i) || text.match(/CLIENTE:\s*\n([^\n\r]+)/i);
     if (clienteMatch && !result.productor) {
-      result.productor = clienteMatch[1].replace(/[^\wÁÉÍÓÚÑáéíóúñ .'-]/g, "").trim();
+      const ALLOWED_NAME_CHARS_REGEX = /[^\wÁÉÍÓÚÑáéíóúñ .'-]/g;
+      result.productor = clienteMatch[1].replace(ALLOWED_NAME_CHARS_REGEX, "").trim();
     }
 
     const productoMatch = text.match(/PRODUCTO:[\s\S]*?(?:\n|^)CODIGO:[^\n]*\n([^\n\r]+)/i) || text.match(/PRODUCTO:\s*\n([^\n\r]+)/i);
     if (productoMatch && !result.especie) {
       const esp = productoMatch[1].trim().toLowerCase();
-      const mapEsp = { soja: "Soja", trigo: "Trigo", maiz: "Maiz", "maíz": "Maiz", girasol: "Girasol", sorgo: "Sorgo", cebada: "Cebada" };
+      const mapEsp = { soja: "Soja", trigo: "Trigo", maiz: "Maíz", "maíz": "Maíz", girasol: "Girasol", sorgo: "Sorgo", cebada: "Cebada" };
       result.especie = mapEsp[esp] || productoMatch[1].trim();
     }
 
@@ -2898,10 +2900,11 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     const parseDateYY = (rawDate) => {
       if (!rawDate) return "";
       const [d, m, y] = rawDate.split("/");
-      const yy = y.length === 2 ? `20${y}` : y;
+      const yy = y.length === 2 ? (parseInt(y, 10) >= 70 ? `19${y}` : `20${y}`) : y;
       return `${yy}-${m}-${d}`;
     };
 
+    // Distancia máxima entre bloque ENTRADA/SALIDA y la línea de PESO en tickets térmicos escaneados.
     const TICKET_WEIGHT_LOOKAHEAD = 180;
     const entradaRegex = new RegExp(`ENTRADA:\\s*([0-9]{2}\\/[0-9]{2}\\/[0-9]{2,4})[\\s\\S]{0,${TICKET_WEIGHT_LOOKAHEAD}}?PESO[:\\s]*([0-9]{4,6})`, "i");
     const salidaRegex = new RegExp(`SALIDA:\\s*([0-9]{2}\\/[0-9]{2}\\/[0-9]{2,4})[\\s\\S]{0,${TICKET_WEIGHT_LOOKAHEAD}}?PESO[:\\s]*([0-9]{4,6})`, "i");
@@ -2909,20 +2912,20 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     const salidaMatch = text.match(salidaRegex);
     const netoTicketMatch = text.match(/PESO\s+NETO[:\s]*([0-9]{4,6})/i);
 
-    const pesoEntrada = entradaMatch ? parseInt(entradaMatch[2], 10) : null;
-    const pesoSalida = salidaMatch ? parseInt(salidaMatch[2], 10) : null;
+    const pesoBrutoEntrada = entradaMatch ? parseInt(entradaMatch[2], 10) : null;
+    const pesoTaraSalida = salidaMatch ? parseInt(salidaMatch[2], 10) : null;
     const pesoNetoTicket = netoTicketMatch ? parseInt(netoTicketMatch[1], 10) : null;
 
-    if ((!result.peso_bruto || Number(result.peso_bruto) === 0) && pesoEntrada !== null) {
-      result.peso_bruto = String(pesoEntrada);
+    if ((!result.peso_bruto || Number(result.peso_bruto) === 0) && pesoBrutoEntrada !== null) {
+      result.peso_bruto = String(pesoBrutoEntrada);
     }
-    if ((!result.peso_tara || Number(result.peso_tara) === 0) && pesoSalida !== null) {
-      result.peso_tara = String(pesoSalida);
+    if ((!result.peso_tara || Number(result.peso_tara) === 0) && pesoTaraSalida !== null) {
+      result.peso_tara = String(pesoTaraSalida);
     }
     if ((!result.peso_neto || Number(result.peso_neto) === 0) && pesoNetoTicket !== null) {
       result.peso_neto = String(pesoNetoTicket);
-    } else if ((!result.peso_neto || Number(result.peso_neto) === 0) && pesoEntrada !== null && pesoSalida !== null) {
-      result.peso_neto = String(Math.max(0, pesoEntrada - pesoSalida));
+    } else if ((!result.peso_neto || Number(result.peso_neto) === 0) && pesoBrutoEntrada !== null && pesoTaraSalida !== null) {
+      result.peso_neto = String(Math.max(0, pesoBrutoEntrada - pesoTaraSalida));
     }
 
     if (!result.fecha) {
@@ -3623,7 +3626,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             <FF label="Contrato de Compra">
               <select value={rapidoContrato} onChange={e=>setRapidoContrato(e.target.value)}>
                 <option value="">Sin asignar (Posición abierta)</option>
-                {contratos.filter(c=>c.tipo==="COMPRA" && (!rapidoProductor || c.id_contraparte === parseInt(rapidoProductor) || c.contraparte === rapidoProductorNombre) && (!rapidoEspecie || c.id_especie === (ESPECIES.indexOf(rapidoEspecie) + 1))).map(c=>(
+                {contratos.filter(c=>c.tipo==="COMPRA" && (!rapidoProductor || c.id_contraparte === parseInt(rapidoProductor) || c.contraparte === rapidoProductorNombre) && (!rapidoEspecie || c.id_especie === rapidoEspecieId)).map(c=>(
                   <option key={c.id} value={c.id}>{c.numero} — {c.especie}</option>
                 ))}
               </select>
@@ -3839,11 +3842,11 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             base = contrapartes.filter(c => c.tipo === "TRANSPORTISTA" || c.tipo === "AMBOS").map(c => c.razon_social);
           }
           if (!base.length) return [];
-          const unique = Array.from(new Set(base));
-          if (currentValue && !unique.includes(currentValue)) {
-            unique.unshift(currentValue);
+          const uniqueSet = new Set(base);
+          if (currentValue && !uniqueSet.has(currentValue)) {
+            uniqueSet.add(currentValue);
           }
-          return unique;
+          return Array.from(uniqueSet);
         };
         return (
           <Modal 
