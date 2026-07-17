@@ -640,16 +640,89 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
     recepcion_costo_secada_destino_punto: "", recepcion_costo_zarandeo_destino_tn: "", recepcion_costo_paritaria_destino_tn: "", recepcion_costo_fumigacion_destino_fijo: "", recepcion_otros_destino_descripcion: "", recepcion_costo_otros_destino_valor: ""
   });
   const [selectedContract, setSelectedContract] = useState(null);
+  const [fijacionForm, setFijacionForm] = useState({
+    fecha: new Date().toISOString().split('T')[0],
+    cantidad_toneladas: "",
+    precio_fijado: "",
+    observaciones: ""
+  });
 
   const abrirDetalleContrato = async (c) => {
     try {
       const data = await api.get(`/api/contratos/${c.id}`);
       setSelectedContract({
         ...c,
-        movimientos: data.movimientos || []
+        movimientos: data.movimientos || [],
+        fijaciones: data.fijaciones || []
       });
     } catch(err) {
       alert("Error al cargar detalles: " + err.message);
+    }
+  };
+
+  const handleAgregarFijacion = async (e) => {
+    if (e) e.preventDefault();
+    if (!selectedContract) return;
+    if (!fijacionForm.fecha || !fijacionForm.cantidad_toneladas || !fijacionForm.precio_fijado) {
+      alert("Por favor completa los campos obligatorios de la fijación.");
+      return;
+    }
+    try {
+      const res = await api.post(`/api/contratos/${selectedContract.id}/fijaciones`, {
+        fecha: fijacionForm.fecha,
+        cantidad_toneladas: parseFloat(fijacionForm.cantidad_toneladas),
+        precio_fijado: parseFloat(fijacionForm.precio_fijado),
+        observaciones: fijacionForm.observaciones
+      });
+      
+      const updatedFijaciones = [res, ...(selectedContract.fijaciones || [])].sort((a,b) => new Date(b.fecha) - new Date(a.fecha));
+      
+      const totalFixed = updatedFijaciones.reduce((acc, f) => acc + parseFloat(f.cantidad_toneladas), 0);
+      const totalVal = updatedFijaciones.reduce((acc, f) => acc + (parseFloat(f.cantidad_toneladas) * parseFloat(f.precio_fijado)), 0);
+      const avgPrice = totalFixed > 0 ? (totalVal / totalFixed) : null;
+      
+      setSelectedContract({
+        ...selectedContract,
+        precio_fijado: avgPrice,
+        fecha_fijacion: res.fecha,
+        fijaciones: updatedFijaciones
+      });
+
+      setFijacionForm({
+        fecha: new Date().toISOString().split('T')[0],
+        cantidad_toneladas: "",
+        precio_fijado: "",
+        observaciones: ""
+      });
+
+      cargarContratos();
+    } catch(err) {
+      alert("Error al agregar fijación: " + err.message);
+    }
+  };
+
+  const handleEliminarFijacion = async (fijacionId) => {
+    if (!selectedContract) return;
+    if (!confirm("¿Estás seguro de eliminar esta fijación?")) return;
+    try {
+      await api.delete(`/api/contratos/${selectedContract.id}/fijaciones/${fijacionId}`);
+      
+      const updatedFijaciones = (selectedContract.fijaciones || []).filter(f => f.id !== fijacionId);
+      
+      const totalFixed = updatedFijaciones.reduce((acc, f) => acc + parseFloat(f.cantidad_toneladas), 0);
+      const totalVal = updatedFijaciones.reduce((acc, f) => acc + (parseFloat(f.cantidad_toneladas) * parseFloat(f.precio_fijado)), 0);
+      const avgPrice = totalFixed > 0 ? (totalVal / totalFixed) : null;
+
+      setSelectedContract({
+        ...selectedContract,
+        precio_fijado: avgPrice,
+        fecha_fijacion: updatedFijaciones.length > 0 ? updatedFijaciones[0].fecha : null,
+        fijaciones: updatedFijaciones
+      });
+
+      cargarContratos();
+    } catch(err) {
+      alert("Error al eliminar fijación: " + err.message);
     }
   };
 
@@ -1561,7 +1634,10 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
               {selectedContract.tipo_precio !== "A_FIJAR" ? (
                 <div><strong>Precio:</strong> ${selectedContract.precio?.toLocaleString()} ({selectedContract.moneda})</div>
               ) : (
-                <div><strong>Referencia:</strong> {selectedContract.referencia_fijacion} | Diferencial: {selectedContract.diferencial_fijacion} {selectedContract.tipo_diferencial}</div>
+                <>
+                  <div><strong>Referencia:</strong> {selectedContract.referencia_fijacion} | Diferencial: {selectedContract.diferencial_fijacion} {selectedContract.tipo_diferencial}</div>
+                  <div><strong>Precio Promedio Fijado:</strong> {selectedContract.precio_fijado ? `$${parseFloat(selectedContract.precio_fijado).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} (${selectedContract.moneda})` : <span style={{color:"#8890a8",fontStyle:"italic"}}>Sin fijar aún</span>}</div>
+                </>
               )}
               <div><strong>Tipo de Entrega:</strong> {selectedContract.tipo_entrega}</div>
               <div><strong>Forma de Pago:</strong> {selectedContract.forma_pago} (Plazo: {selectedContract.plazo_pago_dias} días)</div>
@@ -1602,6 +1678,134 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
               <div style={{color: "#8890a8", padding: "10px 0", textAlign: "center"}}>No hay movimientos asociados a este contrato.</div>
             )}
           </div>
+          
+          {selectedContract.tipo_precio === "A_FIJAR" && (
+            <div>
+              <div style={{fontSize: 12, color: "#9b59b6", fontWeight: 700, borderBottom: "1px solid #2a2d3e", paddingBottom: 6, marginBottom: 10, marginTop: 20}}>
+                💰 FIJACIONES PARCIALES DE PRECIO
+              </div>
+              <div style={{display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "20px", marginBottom: 15}}>
+                <div>
+                  <h4 style={{fontSize: 12, color: "#8890a8", marginBottom: 8}}>Registrar Nueva Fijación</h4>
+                  <form onSubmit={handleAgregarFijacion} style={{background: "rgba(255,255,255,0.02)", padding: 12, borderRadius: 6, border: "1px solid #2a2d3e", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10}}>
+                    <div>
+                      <label style={{fontSize: 11, color: "#8890a8", display: "block", marginBottom: 4}}>Fecha</label>
+                      <input 
+                        type="date" 
+                        required 
+                        value={fijacionForm.fecha} 
+                        onChange={e => setFijacionForm({...fijacionForm, fecha: e.target.value})} 
+                        style={{width: "100%", padding: "6px 8px", background: "#1a1d26", border: "1px solid #2a2d3e", color: "#e8eaf0", borderRadius: 4}}
+                      />
+                    </div>
+                    <div>
+                      <label style={{fontSize: 11, color: "#8890a8", display: "block", marginBottom: 4}}>Toneladas</label>
+                      <input 
+                        type="number" 
+                        step="0.001" 
+                        required 
+                        placeholder="30.000" 
+                        value={fijacionForm.cantidad_toneladas} 
+                        onChange={e => setFijacionForm({...fijacionForm, cantidad_toneladas: e.target.value})} 
+                        style={{width: "100%", padding: "6px 8px", background: "#1a1d26", border: "1px solid #2a2d3e", color: "#e8eaf0", borderRadius: 4}}
+                      />
+                    </div>
+                    <div>
+                      <label style={{fontSize: 11, color: "#8890a8", display: "block", marginBottom: 4}}>Precio Unitario ({selectedContract.moneda})</label>
+                      <input 
+                        type="number" 
+                        step="0.01" 
+                        required 
+                        placeholder="280000" 
+                        value={fijacionForm.precio_fijado} 
+                        onChange={e => setFijacionForm({...fijacionForm, precio_fijado: e.target.value})} 
+                        style={{width: "100%", padding: "6px 8px", background: "#1a1d26", border: "1px solid #2a2d3e", color: "#e8eaf0", borderRadius: 4}}
+                      />
+                    </div>
+                    <div>
+                      <label style={{fontSize: 11, color: "#8890a8", display: "block", marginBottom: 4}}>Observaciones</label>
+                      <input 
+                        type="text" 
+                        placeholder="Fijación" 
+                        value={fijacionForm.observaciones} 
+                        onChange={e => setFijacionForm({...fijacionForm, observaciones: e.target.value})} 
+                        style={{width: "100%", padding: "6px 8px", background: "#1a1d26", border: "1px solid #2a2d3e", color: "#e8eaf0", borderRadius: 4}}
+                      />
+                    </div>
+                    <div style={{gridColumn: "span 2", display: "flex", justifyContent: "flex-end", marginTop: 4}}>
+                      <Btn type="submit" size="sm" variant="success">Registrar Fijación</Btn>
+                    </div>
+                  </form>
+                </div>
+                <div>
+                  <h4 style={{fontSize: 12, color: "#8890a8", marginBottom: 8}}>Historial de Fijaciones</h4>
+                  <div style={{maxHeight: 180, overflowY: "auto", border: "1px solid #2a2d3e", borderRadius: 6, background: "rgba(0,0,0,0.1)", padding: 6}}>
+                    {selectedContract.fijaciones && selectedContract.fijaciones.length > 0 ? (
+                      <table style={{width: "100%", fontSize: 11, borderCollapse: "collapse"}}>
+                        <thead>
+                          <tr style={{borderBottom: "1px solid #2a2d3e", textAlign: "left"}}>
+                            <th style={{padding: 4}}>Fecha</th>
+                            <th style={{padding: 4}}>Tn</th>
+                            <th style={{padding: 4}}>Precio</th>
+                            <th style={{padding: 4}}>Obs</th>
+                            <th style={{padding: 4}}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedContract.fijaciones.map(f => (
+                            <tr key={f.id} style={{borderBottom: "1px solid rgba(255,255,255,0.02)"}}>
+                              <td style={{padding: 4}}>{f.fecha}</td>
+                              <td style={{padding: 4}}><span className="mono">{parseFloat(f.cantidad_toneladas).toFixed(3)} tn</span></td>
+                              <td style={{padding: 4}}><span className="mono">${parseFloat(f.precio_fijado).toLocaleString()}</span></td>
+                              <td style={{padding: 4, color: "#8890a8"}} title={f.observaciones}>{f.observaciones || "—"}</td>
+                              <td style={{padding: 4, textAlign: "right"}}>
+                                <button 
+                                  type="button"
+                                  onClick={() => handleEliminarFijacion(f.id)} 
+                                  style={{background: "none", color: "#e74c3c", border: "none", cursor: "pointer", padding: "2px 4px", fontSize: 13}}
+                                  title="Eliminar fijación"
+                                >
+                                  🗑️
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div style={{color: "#8890a8", fontSize: 11, textAlign: "center", padding: "20px 0"}}>Aún no hay fijaciones registradas.</div>
+                    )}
+                  </div>
+                  
+                  {selectedContract.fijaciones && selectedContract.fijaciones.length > 0 && (() => {
+                    const totalFixed = selectedContract.fijaciones.reduce((acc, f) => acc + parseFloat(f.cantidad_toneladas), 0);
+                    const remTons = Math.max(0, selectedContract.toneladas - totalFixed);
+                    return (
+                      <div style={{fontSize: 11, marginTop: 10, padding: 8, background: "rgba(155, 89, 182, 0.05)", border: "1px solid rgba(155, 89, 182, 0.15)", borderRadius: 6}}>
+                        <div style={{display: "flex", justifyContent: "space-between", marginBottom: 2}}>
+                          <span>Total Contrato:</span>
+                          <strong className="mono">{selectedContract.toneladas} tn</strong>
+                        </div>
+                        <div style={{display: "flex", justifyContent: "space-between", marginBottom: 2}}>
+                          <span>Total Fijado:</span>
+                          <strong className="mono" style={{color: "#9b59b6"}}>{totalFixed.toFixed(3)} tn</strong>
+                        </div>
+                        <div style={{display: "flex", justifyContent: "space-between", marginBottom: 2}}>
+                          <span>Pendiente de Fijar:</span>
+                          <strong className="mono" style={{color: remTons > 0 ? "#f5a623" : "#2ecc71"}}>{remTons.toFixed(3)} tn</strong>
+                        </div>
+                        <div style={{display: "flex", justifyContent: "space-between", borderTop: "1px solid rgba(155, 89, 182, 0.2)", paddingTop: 4, marginTop: 4}}>
+                          <span>Precio Ponderado Fijado:</span>
+                          <strong className="mono" style={{color: "#2ecc71"}}>${(selectedContract.precio_fijado || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} {selectedContract.moneda}</strong>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div style={{display: "flex", justifyContent: "flex-end", marginTop: 20}}>
             <Btn variant="secondary" onClick={() => setSelectedContract(null)}>Cerrar</Btn>
           </div>

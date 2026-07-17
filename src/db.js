@@ -413,6 +413,16 @@ async function initDB() {
         activo BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS fijaciones_contrato (
+        id SERIAL PRIMARY KEY,
+        id_contrato INTEGER NOT NULL REFERENCES contratos(id) ON DELETE CASCADE,
+        fecha DATE NOT NULL,
+        cantidad_toneladas DECIMAL(12,3) NOT NULL,
+        precio_fijado DECIMAL(14,4) NOT NULL,
+        observaciones VARCHAR(255),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
     `);
 
     // Sembrar usuario administrador por defecto

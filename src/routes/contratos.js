@@ -193,7 +193,14 @@ router.get('/:id', async (req, res) => {
       ORDER BY m.created_at DESC
     `, [contractIds]);
 
-    res.json({ ...rows[0], movimientos: movs });
+    const { rows: fijaciones } = await pool.query(`
+      SELECT id, TO_CHAR(fecha, 'YYYY-MM-DD') as fecha, cantidad_toneladas, precio_fijado, observaciones, created_at 
+      FROM fijaciones_contrato 
+      WHERE id_contrato = $1 
+      ORDER BY fecha DESC, id DESC
+    `, [req.params.id]);
+
+    res.json({ ...rows[0], movimientos: movs, fijaciones });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -651,6 +658,104 @@ router.delete('/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/contratos/:id/fijaciones
+router.get('/:id/fijaciones', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query(
+      'SELECT id, id_contrato, TO_CHAR(fecha, \'YYYY-MM-DD\') as fecha, cantidad_toneladas, precio_fijado, observaciones, created_at FROM fijaciones_contrato WHERE id_contrato = $1 ORDER BY fecha DESC, id DESC',
+      [id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/contratos/:id/fijaciones
+router.post('/:id/fijaciones', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    const { fecha, cantidad_toneladas, precio_fijado, observaciones } = req.body;
+
+    if (!fecha || !cantidad_toneladas || !precio_fijado) {
+      return res.status(400).json({ error: 'Faltan datos obligatorios (fecha, toneladas, precio).' });
+    }
+
+    await client.query('BEGIN');
+
+    // Insertar fijacion
+    const { rows } = await client.query(
+      'INSERT INTO fijaciones_contrato (id_contrato, fecha, cantidad_toneladas, precio_fijado, observaciones) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [id, fecha, cantidad_toneladas, precio_fijado, observaciones]
+    );
+
+    // Recalcular promedio ponderado y fecha de la ultima fijacion
+    const { rows: sumRows } = await client.query(
+      'SELECT COALESCE(SUM(cantidad_toneladas), 0) as total_fixed, COALESCE(SUM(cantidad_toneladas * precio_fijado), 0) as total_val, MAX(fecha) as last_date FROM fijaciones_contrato WHERE id_contrato = $1',
+      [id]
+    );
+    const totalFixed = parseFloat(sumRows[0].total_fixed);
+    const totalVal = parseFloat(sumRows[0].total_val);
+    const lastDate = sumRows[0].last_date;
+
+    const avgPrice = totalFixed > 0 ? (totalVal / totalFixed) : null;
+
+    await client.query(
+      'UPDATE contratos SET precio_fijado = $1, fecha_fijacion = $2, updated_at = NOW() WHERE id = $3',
+      [avgPrice, lastDate, id]
+    );
+
+    await client.query('COMMIT');
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/contratos/:id/fijaciones/:fijacionId
+router.delete('/:id/fijaciones/:fijacionId', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id, fijacionId } = req.params;
+
+    await client.query('BEGIN');
+
+    await client.query(
+      'DELETE FROM fijaciones_contrato WHERE id = $1 AND id_contrato = $2',
+      [fijacionId, id]
+    );
+
+    // Recalcular promedio ponderado
+    const { rows: sumRows } = await client.query(
+      'SELECT COALESCE(SUM(cantidad_toneladas), 0) as total_fixed, COALESCE(SUM(cantidad_toneladas * precio_fijado), 0) as total_val, MAX(fecha) as last_date FROM fijaciones_contrato WHERE id_contrato = $1',
+      [id]
+    );
+    const totalFixed = parseFloat(sumRows[0].total_fixed);
+    const totalVal = parseFloat(sumRows[0].total_val);
+    const lastDate = sumRows[0].last_date;
+
+    const avgPrice = totalFixed > 0 ? (totalVal / totalFixed) : null;
+
+    await client.query(
+      'UPDATE contratos SET precio_fijado = $1, fecha_fijacion = $2, updated_at = NOW() WHERE id = $3',
+      [avgPrice, lastDate, id]
+    );
+
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
