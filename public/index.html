@@ -2881,15 +2881,17 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
 
     const clienteMatch = text.match(/CLIENTE:[\s\S]*?(?:\n|^)CODIGO:[^\n]*\n([^\n\r]+)/i) || text.match(/CLIENTE:\s*\n([^\n\r]+)/i);
     if (clienteMatch && !result.productor) {
-      const ALLOWED_NAME_CHARS_REGEX = /[^\wÁÉÍÓÚÑáéíóúñ .'-]/g;
-      result.productor = clienteMatch[1].replace(ALLOWED_NAME_CHARS_REGEX, "").trim();
+      const INVALID_NAME_CHARS_REGEX = /[^\wÁÉÍÓÚÑáéíóúñ .'-]/g;
+      result.productor = clienteMatch[1].replace(INVALID_NAME_CHARS_REGEX, "").trim();
     }
 
     const productoMatch = text.match(/PRODUCTO:[\s\S]*?(?:\n|^)CODIGO:[^\n]*\n([^\n\r]+)/i) || text.match(/PRODUCTO:\s*\n([^\n\r]+)/i);
     if (productoMatch && !result.especie) {
       const esp = productoMatch[1].trim().toLowerCase();
-      const mapEsp = { soja: "Soja", trigo: "Trigo", maiz: "Maíz", "maíz": "Maíz", girasol: "Girasol", sorgo: "Sorgo", cebada: "Cebada" };
-      result.especie = mapEsp[esp] || productoMatch[1].trim();
+      const espNorm = esp.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const mapEsp = { soja: "Soja", trigo: "Trigo", maiz: "Maíz", girasol: "Girasol", sorgo: "Sorgo", cebada: "Cebada" };
+      const especieMapeada = mapEsp[espNorm];
+      result.especie = especieMapeada || mapEsp[esp] || productoMatch[1].trim();
     }
 
     const patChasisMatch = text.match(/PAT\.?\s*CHASIS[:\s]*([A-Z0-9-]+)/i);
@@ -2904,7 +2906,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
       return `${yy}-${m}-${d}`;
     };
 
-    // Distancia máxima entre bloque ENTRADA/SALIDA y la línea de PESO en tickets térmicos escaneados.
+    // 180 chars ≈ 5-7 líneas OCR: cubre el bloque típico entre ENTRADA/SALIDA y su línea PESO en tickets térmicos.
     const TICKET_WEIGHT_LOOKAHEAD = 180;
     const entradaRegex = new RegExp(`ENTRADA:\\s*([0-9]{2}\\/[0-9]{2}\\/[0-9]{2,4})[\\s\\S]{0,${TICKET_WEIGHT_LOOKAHEAD}}?PESO[:\\s]*([0-9]{4,6})`, "i");
     const salidaRegex = new RegExp(`SALIDA:\\s*([0-9]{2}\\/[0-9]{2}\\/[0-9]{2,4})[\\s\\S]{0,${TICKET_WEIGHT_LOOKAHEAD}}?PESO[:\\s]*([0-9]{4,6})`, "i");
