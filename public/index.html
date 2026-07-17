@@ -632,6 +632,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
   const [guardando,setGuardando]=useState(false);
   const [form,setForm]=useState({
     tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",base_calculo_peso: "BRUTO_CAMPO",
+    fecha_entrega_desde: "", fecha_entrega_hasta: "",
     entrega_id_especie: 1, entrega_toneladas: "", entrega_localidad_entrega: "",
     entrega_costo_secada_punto: "", entrega_costo_zarandeo_tn: "", entrega_costo_paritaria_tn: "", entrega_costo_fumigacion_fijo: "", entrega_humedad_max_seco: "13.5", entrega_otros_descripcion: "",
     entrega_costo_secada_destino_punto: "", entrega_costo_zarandeo_destino_tn: "", entrega_costo_paritaria_destino_tn: "", entrega_costo_fumigacion_destino_fijo: "", entrega_otros_destino_descripcion: "", entrega_costo_otros_destino_valor: "",
@@ -797,6 +798,9 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
         diferencial: c.diferencial_fijacion || "",
         tipo_diferencial: c.tipo_diferencial || "ARS",
         referencia: c.referencia_fijacion || "MATBA_ROFEX",
+        fecha_contrato: c.fecha ? c.fecha.split('T')[0] : new Date().toISOString().split("T")[0],
+        fecha_entrega_desde: c.fecha_entrega_desde ? String(c.fecha_entrega_desde).split('T')[0] : "",
+        fecha_entrega_hasta: c.fecha_entrega_hasta ? String(c.fecha_entrega_hasta).split('T')[0] : "",
         toneladas: c.toneladas || "",
         tipo_entrega: c.tipo_entrega || "A_RETIRAR",
         tipo_liq: c.tipo_liq || "INCISO_A",
@@ -872,6 +876,8 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
             id: c.id,
             numero: c.numero_contrato,
             fecha: c.fecha_contrato ? c.fecha_contrato.split('T')[0] : '',
+            fecha_entrega_desde: c.fecha_entrega_desde ? c.fecha_entrega_desde.split('T')[0] : '',
+            fecha_entrega_hasta: c.fecha_entrega_hasta ? c.fecha_entrega_hasta.split('T')[0] : '',
             contraparte: c.contraparte_nombre,
             campana: c.campana_desc,
             estado: c.estado,
@@ -883,6 +889,8 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
           id: c.id,
           numero: c.numero_contrato,
           fecha: c.fecha_contrato ? c.fecha_contrato.split('T')[0] : '',
+          fecha_entrega_desde: c.fecha_entrega_desde ? c.fecha_entrega_desde.split('T')[0] : '',
+          fecha_entrega_hasta: c.fecha_entrega_hasta ? c.fecha_entrega_hasta.split('T')[0] : '',
           contraparte: c.contraparte_nombre,
           especie: c.especie_nombre,
           campana: c.campana_desc,
@@ -966,6 +974,16 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
     } catch(e) {}
   };
   const estadoColor = e=>({EN_CURSO:"green",CONFIRMADO:"blue",CUMPLIDO:"gray",CANCELADO:"red",BORRADOR:"gray"}[e]||"gray");
+  const formatDateEs = (dateValue) => {
+    if (!dateValue) return "—";
+    if (typeof dateValue === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+      const [y, m, d] = dateValue.split("-");
+      return `${d}/${m}/${y}`;
+    }
+    const d = new Date(dateValue);
+    if (isNaN(d.getTime())) return String(dateValue);
+    return d.toLocaleDateString("es-AR");
+  };
   return (
     <div className="fade-in">
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
@@ -981,6 +999,8 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
             recepcion_costo_secada_punto: "", recepcion_costo_zarandeo_tn: "", recepcion_costo_paritaria_tn: "", recepcion_costo_fumigacion_fijo: "", recepcion_humedad_max_seco: "13.5", recepcion_otros_descripcion: "",
             recepcion_costo_secada_destino_punto: "", recepcion_costo_zarandeo_destino_tn: "", recepcion_costo_paritaria_destino_tn: "", recepcion_costo_fumigacion_destino_fijo: "", recepcion_otros_destino_descripcion: "", recepcion_costo_otros_destino_valor: "",
             fecha_contrato: new Date().toISOString().split("T")[0],
+            fecha_entrega_desde: "",
+            fecha_entrega_hasta: "",
             observaciones: "",
             _editando:false,_id:null
           });
@@ -1027,7 +1047,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                         {c.numero}
                       </span>
                     </td>
-                    <td style={{color:"#8890a8",fontSize:12}}>{c.fecha}</td>
+                    <td style={{color:"#8890a8",fontSize:12}}>{formatDateEs(c.fecha)}</td>
                     <td style={{fontWeight:500}}>{c.contraparte}</td>
                     <td style={{fontSize:13,color:"#e8eaf0",fontWeight:600}}>{c.descripcion_relacion_canje}</td>
                     <td style={{fontSize:12,color:"#8890a8"}}>
@@ -1072,7 +1092,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                       {c.numero}
                     </span>
                   </td>
-                  <td style={{color:"#8890a8",fontSize:12}}>{c.fecha}</td>
+                  <td style={{color:"#8890a8",fontSize:12}}>{formatDateEs(c.fecha)}</td>
                   <td style={{fontWeight:500,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.contraparte}</td>
                   <td>{c.especie}</td>
                   <td><span className="mono" style={{fontSize:11}}>{c.campana}</span></td>
@@ -1286,8 +1306,8 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                   onChange={v=>setForm({...form,tipo_liq:v})}
                 />
               </FF>}
-              <FF label="Entrega Desde"><input type="date"/></FF>
-              <FF label="Entrega Hasta"><input type="date"/></FF>
+              <FF label="Entrega Desde"><input type="date" value={form.fecha_entrega_desde || ""} onChange={e=>setForm({...form,fecha_entrega_desde:e.target.value})}/></FF>
+              <FF label="Entrega Hasta"><input type="date" value={form.fecha_entrega_hasta || ""} onChange={e=>setForm({...form,fecha_entrega_hasta:e.target.value})}/></FF>
               <FF label="Forma de Pago">
                 <SelectorFlechas
                   opciones={[
@@ -1411,7 +1431,9 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                   tipo_contrato: form.tipo,
                   modalidad: modulo,
                   tipo_liquidacion: modulo==="FORMAL"?form.tipo_liq:null,
-                  fecha_contrato: new Date().toISOString().split("T")[0],
+                  fecha_contrato: form.fecha_contrato || new Date().toISOString().split("T")[0],
+                  fecha_entrega_desde: form.fecha_entrega_desde || null,
+                  fecha_entrega_hasta: form.fecha_entrega_hasta || null,
                   id_contraparte: parseInt(form.id_contraparte),
                   id_especie: form.id_especie,
                   id_campana: form.id_campana,
@@ -1545,7 +1567,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
               <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 20px", marginBottom: 20, paddingBottom: 12, borderBottom: "1px solid #2a2d3e"}}>
                 <div><strong>Contraparte:</strong> {selectedContract.contraparte}</div>
                 <div><strong>Campaña:</strong> {selectedContract.campana}</div>
-                <div><strong>Fecha:</strong> {selectedContract.fecha}</div>
+                <div><strong>Fecha:</strong> {formatDateEs(selectedContract.fecha)}</div>
                 <div><strong>Estado:</strong> {selectedContract.estado}</div>
                 <div style={{gridColumn: "span 2"}}><strong>Relación:</strong> <span style={{color: "#e8eaf0", fontWeight: 600}}>{selectedContract.descripcion_relacion_canje}</span></div>
                 {selectedContract.observaciones && <div style={{gridColumn: "span 2"}}><strong>Observaciones:</strong> {selectedContract.observaciones}</div>}
@@ -1643,7 +1665,9 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
               <div><strong>Número de Contrato:</strong> <span className="mono" style={{color:"#f5a623"}}>{selectedContract.numero}</span></div>
               <div><strong>Tipo:</strong> {selectedContract.tipo_contrato}</div>
               <div><strong>Contraparte:</strong> {selectedContract.contraparte}</div>
-              <div><strong>Fecha:</strong> {selectedContract.fecha}</div>
+              <div><strong>Fecha:</strong> {formatDateEs(selectedContract.fecha)}</div>
+              <div><strong>Entrega Desde:</strong> {formatDateEs(selectedContract.fecha_entrega_desde)}</div>
+              <div><strong>Entrega Hasta:</strong> {formatDateEs(selectedContract.fecha_entrega_hasta)}</div>
               <div><strong>Especie:</strong> {selectedContract.especie}</div>
               <div><strong>Campaña:</strong> {selectedContract.campana}</div>
               <div><strong>Toneladas Pactadas:</strong> {selectedContract.toneladas} tn</div>
@@ -2264,6 +2288,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
       const mapped = data.map(c => ({
         id: c.id,
         id_contraparte: c.id_contraparte,
+        id_especie: c.id_especie,
         numero: c.numero_contrato,
         fecha: c.fecha_contrato ? c.fecha_contrato.split('T')[0] : '',
         contraparte: c.contraparte_nombre,
@@ -2835,6 +2860,61 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     const dateMatch = text.match(/(\d{2})[\/\-\.](\d{2})[\/\-\.](\d{4})/);
     if (dateMatch) {
       result.fecha = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`;
+    }
+
+    // Fallbacks para tickets de balanza (cliente/producto/entrada/salida)
+    const numeroTicketMatch = text.match(/NUMERO\s+TICKET[:\s]*([A-Z0-9-]+)/i);
+    if (!result.numero && numeroTicketMatch) {
+      result.numero = numeroTicketMatch[1].trim();
+    }
+
+    const clienteMatch = text.match(/CLIENTE:[\s\S]*?(?:\n|^)CODIGO:[^\n]*\n([^\n\r]+)/i) || text.match(/CLIENTE:\s*\n([^\n\r]+)/i);
+    if (clienteMatch && !result.productor) {
+      result.productor = clienteMatch[1].replace(/[^\wÁÉÍÓÚÑáéíóúñ .'-]/g, "").trim();
+    }
+
+    const productoMatch = text.match(/PRODUCTO:[\s\S]*?(?:\n|^)CODIGO:[^\n]*\n([^\n\r]+)/i) || text.match(/PRODUCTO:\s*\n([^\n\r]+)/i);
+    if (productoMatch && !result.especie) {
+      const esp = productoMatch[1].trim().toLowerCase();
+      const mapEsp = { soja: "Soja", trigo: "Trigo", maiz: "Maiz", "maíz": "Maiz", girasol: "Girasol", sorgo: "Sorgo", cebada: "Cebada" };
+      result.especie = mapEsp[esp] || productoMatch[1].trim();
+    }
+
+    const patChasisMatch = text.match(/PAT\.?\s*CHASIS[:\s]*([A-Z0-9-]+)/i);
+    if (!result.chasis && patChasisMatch) {
+      result.chasis = patChasisMatch[1].trim().toUpperCase();
+    }
+
+    const parseDateYY = (rawDate) => {
+      if (!rawDate) return "";
+      const [d, m, y] = rawDate.split("/");
+      const yy = y.length === 2 ? `20${y}` : y;
+      return `${yy}-${m}-${d}`;
+    };
+
+    const entradaMatch = text.match(/ENTRADA:\s*([0-9]{2}\/[0-9]{2}\/[0-9]{2,4})[\s\S]{0,120}?PESO[:\s]*([0-9]{4,6})/i);
+    const salidaMatch = text.match(/SALIDA:\s*([0-9]{2}\/[0-9]{2}\/[0-9]{2,4})[\s\S]{0,120}?PESO[:\s]*([0-9]{4,6})/i);
+    const netoTicketMatch = text.match(/PESO\s+NETO[:\s]*([0-9]{4,6})/i);
+
+    const pesoEntrada = entradaMatch ? parseInt(entradaMatch[2], 10) : null;
+    const pesoSalida = salidaMatch ? parseInt(salidaMatch[2], 10) : null;
+    const pesoNetoTicket = netoTicketMatch ? parseInt(netoTicketMatch[1], 10) : null;
+
+    if ((!result.peso_bruto || Number(result.peso_bruto) === 0) && pesoEntrada !== null) {
+      result.peso_bruto = String(pesoEntrada);
+    }
+    if ((!result.peso_tara || Number(result.peso_tara) === 0) && pesoSalida !== null) {
+      result.peso_tara = String(pesoSalida);
+    }
+    if ((!result.peso_neto || Number(result.peso_neto) === 0) && pesoNetoTicket !== null) {
+      result.peso_neto = String(pesoNetoTicket);
+    } else if ((!result.peso_neto || Number(result.peso_neto) === 0) && pesoEntrada !== null && pesoSalida !== null) {
+      result.peso_neto = String(Math.max(0, pesoEntrada - pesoSalida));
+    }
+
+    if (!result.fecha) {
+      if (salidaMatch) result.fecha = parseDateYY(salidaMatch[1]);
+      else if (entradaMatch) result.fecha = parseDateYY(entradaMatch[1]);
     }
 
     // Destino
@@ -3530,7 +3610,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             <FF label="Contrato de Compra">
               <select value={rapidoContrato} onChange={e=>setRapidoContrato(e.target.value)}>
                 <option value="">Sin asignar (Posición abierta)</option>
-                {contratos.filter(c=>c.tipo==="COMPRA" && (!rapidoProductor || c.id_contraparte === parseInt(rapidoProductor) || c.contraparte === contrapartes.find(cp => cp.id === parseInt(rapidoProductor))?.razon_social)).map(c=>(
+                {contratos.filter(c=>c.tipo==="COMPRA" && (!rapidoProductor || c.id_contraparte === parseInt(rapidoProductor) || c.contraparte === contrapartes.find(cp => cp.id === parseInt(rapidoProductor))?.razon_social) && (!rapidoEspecie || c.id_especie === (ESPECIES.indexOf(rapidoEspecie) + 1))).map(c=>(
                   <option key={c.id} value={c.id}>{c.numero} — {c.especie}</option>
                 ))}
               </select>
@@ -3736,6 +3816,22 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
           { value: "destino", label: "Destino" },
           { value: "ignorar", label: "❌ Ignorar" }
         ];
+        const getPreloadedOptions = (field, currentValue) => {
+          let base = [];
+          if (field === "productor") {
+            base = contrapartes.filter(c => c.tipo === "PRODUCTOR" || c.tipo === "AMBOS").map(c => c.razon_social);
+          } else if (field === "comprador" || field === "destino") {
+            base = contrapartes.filter(c => c.tipo === "COMPRADOR" || c.tipo === "AMBOS").map(c => c.razon_social);
+          } else if (field === "transportista") {
+            base = contrapartes.filter(c => c.tipo === "TRANSPORTISTA" || c.tipo === "AMBOS").map(c => c.razon_social);
+          }
+          if (!base.length) return [];
+          const unique = Array.from(new Set(base));
+          if (currentValue && !unique.includes(currentValue)) {
+            unique.unshift(currentValue);
+          }
+          return unique;
+        };
         return (
           <Modal 
             title="Importar Ticket de Balanza (Módulo Informal)" 
@@ -3844,23 +3940,40 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                                 </select>
                               </td>
                               <td style={{padding:"8px 10px"}}>
-                                <input 
-                                  type="text" 
-                                  value={m.value} 
-                                  onChange={(e) => updateMappingValue(index, e.target.value)}
-                                  disabled={m.field === "ignorar"}
-                                  style={{
-                                    padding:"6px 8px",
-                                    fontSize:12,
-                                    height:"32px",
-                                    borderRadius:"6px",
-                                    border:"1px solid #2a2d3e",
-                                    background: m.field === "ignorar" ? "rgba(255,255,255,0.02)" : "#0f1117",
-                                    color: m.field === "ignorar" ? "#565d7a" : "#e8eaf0",
-                                    textDecoration: m.field === "ignorar" ? "line-through" : "none",
-                                    width:"100%"
-                                  }}
-                                />
+                                {(() => {
+                                  const options = getPreloadedOptions(m.field, m.value);
+                                  if (options.length > 0 && m.field !== "ignorar") {
+                                    return (
+                                      <select
+                                        value={m.value || ""}
+                                        onChange={(e) => updateMappingValue(index, e.target.value)}
+                                        style={{padding:"6px 8px",fontSize:12,height:"32px",borderRadius:"6px",border:"1px solid #2a2d3e",background:"#0f1117",color:"#e8eaf0",width:"100%"}}
+                                      >
+                                        <option value="">Seleccionar...</option>
+                                        {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                      </select>
+                                    );
+                                  }
+                                  return (
+                                    <input 
+                                      type="text" 
+                                      value={m.value} 
+                                      onChange={(e) => updateMappingValue(index, e.target.value)}
+                                      disabled={m.field === "ignorar"}
+                                      style={{
+                                        padding:"6px 8px",
+                                        fontSize:12,
+                                        height:"32px",
+                                        borderRadius:"6px",
+                                        border:"1px solid #2a2d3e",
+                                        background: m.field === "ignorar" ? "rgba(255,255,255,0.02)" : "#0f1117",
+                                        color: m.field === "ignorar" ? "#565d7a" : "#e8eaf0",
+                                        textDecoration: m.field === "ignorar" ? "line-through" : "none",
+                                        width:"100%"
+                                      }}
+                                    />
+                                  );
+                                })()}
                               </td>
                             </tr>
                           ))}
@@ -4132,7 +4245,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     }}
                   >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
-                    {contratos.filter(c=>c.tipo==="COMPRA" && (!movForm.productor_nombre || c.contraparte === movForm.productor_nombre)).map(c=>(
+                    {contratos.filter(c=>c.tipo==="COMPRA" && (!movForm.productor_nombre || c.contraparte === movForm.productor_nombre) && (!movForm.id_especie || c.id_especie === parseInt(movForm.id_especie))).map(c=>(
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString())}</option>
                     ))}
                   </select>
@@ -4146,7 +4259,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     }}
                   >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
-                    {contratos.filter(c=>c.tipo==="VENTA" && (!movForm.comprador_nombre || c.contraparte === movForm.comprador_nombre)).map(c=>(
+                    {contratos.filter(c=>c.tipo==="VENTA" && (!movForm.comprador_nombre || c.contraparte === movForm.comprador_nombre) && (!movForm.id_especie || c.id_especie === parseInt(movForm.id_especie))).map(c=>(
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString())}</option>
                     ))}
                   </select>
