@@ -582,7 +582,8 @@ async function initDB() {
       { name: "costo_otros_destino_valor", type: "DECIMAL(14,4) DEFAULT 0" },
       { name: "es_canje", type: "BOOLEAN DEFAULT FALSE" },
       { name: "id_contrato_canje_relacionado", type: "INTEGER REFERENCES contratos(id)" },
-      { name: "descripcion_relacion_canje", type: "VARCHAR(200)" }
+      { name: "descripcion_relacion_canje", type: "VARCHAR(200)" },
+      { name: "base_calculo_peso", type: "VARCHAR(30) DEFAULT 'BRUTO_CAMPO'" }
     ];
     for (const col of columnsContratos) {
       try {

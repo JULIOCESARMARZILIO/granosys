@@ -7,17 +7,24 @@ async function recalcularContrato(id_contrato) {
   const client = await pool.connect();
   try {
     const { rows: contractRows } = await client.query(
-      'SELECT tipo_contrato, cantidad_toneladas_pactadas FROM contratos WHERE id = $1',
+      'SELECT tipo_contrato, cantidad_toneladas_pactadas, base_calculo_peso FROM contratos WHERE id = $1',
       [id_contrato]
     );
     if (contractRows.length === 0) return;
-    const { tipo_contrato, cantidad_toneladas_pactadas } = contractRows[0];
+    const { tipo_contrato, cantidad_toneladas_pactadas, base_calculo_peso } = contractRows[0];
+
+    let fieldToSum = 'peso_neto_salida_kg';
+    if (base_calculo_peso === 'BRUTO_DESCARGA') {
+      fieldToSum = 'peso_neto_llegada_kg';
+    } else if (base_calculo_peso === 'NETO_ACONDICIONADO') {
+      fieldToSum = 'kg_liquidables';
+    }
 
     let sumQuery = '';
     if (tipo_contrato === 'COMPRA') {
-      sumQuery = 'SELECT COALESCE(SUM(peso_neto_salida_kg), 0) as total_kg FROM movimientos WHERE id_contrato_compra = $1';
+      sumQuery = `SELECT COALESCE(SUM(${fieldToSum}), 0) as total_kg FROM movimientos WHERE id_contrato_compra = $1`;
     } else {
-      sumQuery = 'SELECT COALESCE(SUM(peso_neto_salida_kg), 0) as total_kg FROM movimientos WHERE id_contrato_venta = $1';
+      sumQuery = `SELECT COALESCE(SUM(${fieldToSum}), 0) as total_kg FROM movimientos WHERE id_contrato_venta = $1`;
     }
 
     const { rows: sumRows } = await client.query(sumQuery, [id_contrato]);
@@ -111,7 +118,8 @@ router.get('/', async (req, res) => {
               costo_paritaria_destino_tn: parseFloat(compra.costo_paritaria_destino_tn) || 0,
               costo_fumigacion_destino_fijo: parseFloat(compra.costo_fumigacion_destino_fijo) || 0,
               otros_destino_descripcion: compra.otros_destino_descripcion,
-              costo_otros_destino_valor: parseFloat(compra.costo_otros_destino_valor) || 0
+              costo_otros_destino_valor: parseFloat(compra.costo_otros_destino_valor) || 0,
+              base_calculo_peso: compra.base_calculo_peso || "BRUTO_CAMPO"
             },
             venta: {
               id: venta.id,
@@ -132,7 +140,8 @@ router.get('/', async (req, res) => {
               costo_paritaria_destino_tn: parseFloat(venta.costo_paritaria_destino_tn) || 0,
               costo_fumigacion_destino_fijo: parseFloat(venta.costo_fumigacion_destino_fijo) || 0,
               otros_destino_descripcion: venta.otros_destino_descripcion,
-              costo_otros_destino_valor: parseFloat(venta.costo_otros_destino_valor) || 0
+              costo_otros_destino_valor: parseFloat(venta.costo_otros_destino_valor) || 0,
+              base_calculo_peso: venta.base_calculo_peso || "BRUTO_CAMPO"
             }
           });
         }
@@ -221,7 +230,8 @@ router.post('/', async (req, res) => {
       costo_secada_punto, costo_zarandeo_tn, costo_paritaria_tn, costo_fumigacion_fijo,
       humedad_max_seco, otros_descripcion,
       costo_secada_destino_punto, costo_zarandeo_destino_tn, costo_paritaria_destino_tn,
-      costo_fumigacion_destino_fijo, otros_destino_descripcion, costo_otros_destino_valor
+      costo_fumigacion_destino_fijo, otros_destino_descripcion, costo_otros_destino_valor,
+      base_calculo_peso
     } = req.body;
 
     // Generar número de contrato
@@ -250,13 +260,13 @@ router.post('/', async (req, res) => {
         humedad_max_seco, otros_descripcion,
         costo_secada_destino_punto, costo_zarandeo_destino_tn, costo_paritaria_destino_tn,
         costo_fumigacion_destino_fijo, otros_destino_descripcion, costo_otros_destino_valor,
-        observaciones, estado
+        observaciones, base_calculo_peso, estado
       ) VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
         $16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,
         $28,$29,$30,$31,
         $32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,
-        $44,'CONFIRMADO'
+        $44,$45,'CONFIRMADO'
       ) RETURNING *
     `, [numero_contrato, tipo_contrato, modalidad, tipo_liquidacion,
         fecha_contrato, fecha_entrega_desde||null, fecha_entrega_hasta||null,
@@ -275,7 +285,7 @@ router.post('/', async (req, res) => {
         humedad_max_seco||13.5, otros_descripcion||null,
         costo_secada_destino_punto||0, costo_zarandeo_destino_tn||0, costo_paritaria_destino_tn||0,
         costo_fumigacion_destino_fijo||0, otros_destino_descripcion||null, costo_otros_destino_valor||0,
-        observaciones]);
+        observaciones, base_calculo_peso||'BRUTO_CAMPO']);
 
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -537,7 +547,8 @@ router.put('/:id', async (req, res) => {
       costo_secada_punto, costo_zarandeo_tn, costo_paritaria_tn, costo_fumigacion_fijo,
       humedad_max_seco, otros_descripcion,
       costo_secada_destino_punto, costo_zarandeo_destino_tn, costo_paritaria_destino_tn,
-      costo_fumigacion_destino_fijo, otros_destino_descripcion, costo_otros_destino_valor
+      costo_fumigacion_destino_fijo, otros_destino_descripcion, costo_otros_destino_valor,
+      base_calculo_peso
     } = req.body;
 
     // Actualizar contrato
@@ -585,8 +596,9 @@ router.put('/:id', async (req, res) => {
         costo_fumigacion_destino_fijo = $40,
         otros_destino_descripcion = $41,
         costo_otros_destino_valor = $42,
+        base_calculo_peso = COALESCE($43, base_calculo_peso),
         updated_at = NOW()
-      WHERE id = $43 RETURNING *
+      WHERE id = $44 RETURNING *
     `, [
       tipo_contrato, modalidad, tipo_liquidacion, fecha_contrato,
       fecha_entrega_desde, fecha_entrega_hasta, id_contraparte,
@@ -602,6 +614,7 @@ router.put('/:id', async (req, res) => {
       humedad_max_seco, otros_descripcion,
       costo_secada_destino_punto, costo_zarandeo_destino_tn, costo_paritaria_destino_tn,
       costo_fumigacion_destino_fijo, otros_destino_descripcion, costo_otros_destino_valor,
+      base_calculo_peso,
       id
     ]);
 

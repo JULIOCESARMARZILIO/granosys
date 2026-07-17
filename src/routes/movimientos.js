@@ -7,17 +7,24 @@ async function recalcularContrato(id_contrato) {
   const client = await pool.connect();
   try {
     const { rows: contractRows } = await client.query(
-      'SELECT tipo_contrato, cantidad_toneladas_pactadas FROM contratos WHERE id = $1',
+      'SELECT tipo_contrato, cantidad_toneladas_pactadas, base_calculo_peso FROM contratos WHERE id = $1',
       [id_contrato]
     );
     if (contractRows.length === 0) return;
-    const { tipo_contrato, cantidad_toneladas_pactadas } = contractRows[0];
+    const { tipo_contrato, cantidad_toneladas_pactadas, base_calculo_peso } = contractRows[0];
+
+    let fieldToSum = 'peso_neto_salida_kg';
+    if (base_calculo_peso === 'BRUTO_DESCARGA') {
+      fieldToSum = 'peso_neto_llegada_kg';
+    } else if (base_calculo_peso === 'NETO_ACONDICIONADO') {
+      fieldToSum = 'kg_liquidables';
+    }
 
     let sumQuery = '';
     if (tipo_contrato === 'COMPRA') {
-      sumQuery = 'SELECT COALESCE(SUM(peso_neto_salida_kg), 0) as total_kg FROM movimientos WHERE id_contrato_compra = $1';
+      sumQuery = `SELECT COALESCE(SUM(${fieldToSum}), 0) as total_kg FROM movimientos WHERE id_contrato_compra = $1`;
     } else {
-      sumQuery = 'SELECT COALESCE(SUM(peso_neto_salida_kg), 0) as total_kg FROM movimientos WHERE id_contrato_venta = $1';
+      sumQuery = `SELECT COALESCE(SUM(${fieldToSum}), 0) as total_kg FROM movimientos WHERE id_contrato_venta = $1`;
     }
 
     const { rows: sumRows } = await client.query(sumQuery, [id_contrato]);
@@ -375,6 +382,11 @@ router.put('/:id/llegada', async (req, res) => {
         humedad_llegada_pct||null, diferencia, tolerancia, faltante,
         factor_calculado, db_factor_manual, factor_aplicado, kg_liquidables,
         req.params.id]);
+    
+    if (rows[0]) {
+      await recalcularContrato(rows[0].id_contrato_compra);
+      await recalcularContrato(rows[0].id_contrato_venta);
+    }
 
     res.json(rows[0]);
   } catch (err) {
@@ -483,6 +495,11 @@ router.put('/:id/calidad', async (req, res) => {
         calidad_tipo_ajuste || 'FACTOR',
         calidad_valor_ajuste !== undefined && calidad_valor_ajuste !== null ? parseFloat(calidad_valor_ajuste) : null,
         id]);
+    
+    if (rows[0]) {
+      await recalcularContrato(rows[0].id_contrato_compra);
+      await recalcularContrato(rows[0].id_contrato_venta);
+    }
 
     res.json(rows[0]);
   } catch (err) {

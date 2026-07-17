@@ -631,7 +631,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
   const [campanas,setCampanas]=useState(CAMPANAS.map((d,i)=>({id:i+1,descripcion:d})));
   const [guardando,setGuardando]=useState(false);
   const [form,setForm]=useState({
-    tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",
+    tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",base_calculo_peso: "BRUTO_CAMPO",
     entrega_id_especie: 1, entrega_toneladas: "", entrega_localidad_entrega: "",
     entrega_costo_secada_punto: "", entrega_costo_zarandeo_tn: "", entrega_costo_paritaria_tn: "", entrega_costo_fumigacion_fijo: "", entrega_humedad_max_seco: "13.5", entrega_otros_descripcion: "",
     entrega_costo_secada_destino_punto: "", entrega_costo_zarandeo_destino_tn: "", entrega_costo_paritaria_destino_tn: "", entrega_costo_fumigacion_destino_fijo: "", entrega_otros_destino_descripcion: "", entrega_costo_otros_destino_valor: "",
@@ -817,10 +817,8 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
         otros_descripcion: c.otros_descripcion || "",
         costo_secada_destino_punto: c.costo_secada_destino_punto !== undefined ? c.costo_secada_destino_punto : "",
         costo_zarandeo_destino_tn: c.costo_zarandeo_destino_tn !== undefined ? c.costo_zarandeo_destino_tn : "",
-        costo_paritaria_destino_tn: c.costo_paritaria_destino_tn !== undefined ? c.costo_paritaria_destino_tn : "",
-        costo_fumigacion_destino_fijo: c.costo_fumigacion_destino_fijo !== undefined ? c.costo_fumigacion_destino_fijo : "",
-        otros_destino_descripcion: c.otros_destino_descripcion || "",
         costo_otros_destino_valor: c.costo_otros_destino_valor !== undefined ? c.costo_otros_destino_valor : "",
+        base_calculo_peso: c.base_calculo_peso || "BRUTO_CAMPO",
         
         entrega_id_especie: 1, entrega_toneladas: "", entrega_localidad_entrega: "",
         entrega_costo_secada_punto: "", entrega_costo_zarandeo_tn: "", entrega_costo_paritaria_tn: "", entrega_costo_fumigacion_fijo: "", entrega_humedad_max_seco: "13.5", entrega_otros_descripcion: "",
@@ -1262,6 +1260,13 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                   </div>
                 </FF>
               </>}
+              <FF label="Base de Cálculo de Peso" required>
+                <select value={form.base_calculo_peso} onChange={e=>setForm({...form,base_calculo_peso:e.target.value})}>
+                  <option value="BRUTO_CAMPO">Kg Brutos de Campo (Origen)</option>
+                  <option value="BRUTO_DESCARGA">Kg Brutos de Descarga (Destino sin mermas)</option>
+                  <option value="NETO_ACONDICIONADO">Kg Netos Acondicionados en Destino</option>
+                </select>
+              </FF>
               <FF label="Tipo de Entrega">
                 <SelectorFlechas
                   opciones={[{value:"A_RETIRAR",label:"A Retirar"},{value:"PUESTO_DESTINO",label:"Puesto en Destino"}]}
@@ -1434,7 +1439,8 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                   costo_paritaria_destino_tn: form.costo_paritaria_destino_tn ? parseFloat(form.costo_paritaria_destino_tn) : 0,
                   costo_fumigacion_destino_fijo: form.costo_fumigacion_destino_fijo ? parseFloat(form.costo_fumigacion_destino_fijo) : 0,
                   otros_destino_descripcion: form.otros_destino_descripcion || null,
-                  costo_otros_destino_valor: form.costo_otros_destino_valor ? parseFloat(form.costo_otros_destino_valor) : 0
+                  costo_otros_destino_valor: form.costo_otros_destino_valor ? parseFloat(form.costo_otros_destino_valor) : 0,
+                  base_calculo_peso: form.base_calculo_peso || "BRUTO_CAMPO"
                 };
                 if (form._editando && form._id) {
                   await api.put(`/api/contratos/${form._id}`, payload);
@@ -1556,6 +1562,12 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                     <div><strong>Toneladas Pactadas:</strong> {selectedContract.venta?.toneladas} tn</div>
                     <div><strong>Toneladas Asignadas:</strong> {selectedContract.venta?.asignadas} tn</div>
                     <div><strong>Destino Pactado:</strong> {selectedContract.venta?.localidad_entrega || "—"}</div>
+                    <div><strong>Base Cálculo de Peso:</strong> {
+                      selectedContract.venta?.base_calculo_peso === "BRUTO_CAMPO" ? "Kg Brutos de Campo" :
+                      selectedContract.venta?.base_calculo_peso === "BRUTO_DESCARGA" ? "Kg Brutos de Descarga (Destino)" :
+                      selectedContract.venta?.base_calculo_peso === "NETO_ACONDICIONADO" ? "Kg Netos Acondicionados" :
+                      "Kg Brutos de Campo"
+                    }</div>
                     
                     {/* Costos */}
                     <div style={{marginTop: 8, padding: 8, background: "#0a0c12", borderRadius: 4}}>
@@ -1592,6 +1604,12 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                     <div><strong>Toneladas Pactadas:</strong> {selectedContract.compra?.toneladas} tn</div>
                     <div><strong>Toneladas Asignadas:</strong> {selectedContract.compra?.asignadas} tn</div>
                     <div><strong>Destino Pactado:</strong> {selectedContract.compra?.localidad_entrega || "—"}</div>
+                    <div><strong>Base Cálculo de Peso:</strong> {
+                      selectedContract.compra?.base_calculo_peso === "BRUTO_CAMPO" ? "Kg Brutos de Campo" :
+                      selectedContract.compra?.base_calculo_peso === "BRUTO_DESCARGA" ? "Kg Brutos de Descarga (Destino)" :
+                      selectedContract.compra?.base_calculo_peso === "NETO_ACONDICIONADO" ? "Kg Netos Acondicionados" :
+                      "Kg Brutos de Campo"
+                    }</div>
                     
                     {/* Costos */}
                     <div style={{marginTop: 8, padding: 8, background: "#0a0c12", borderRadius: 4}}>
@@ -1642,6 +1660,12 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
               <div><strong>Tipo de Entrega:</strong> {selectedContract.tipo_entrega}</div>
               <div><strong>Forma de Pago:</strong> {selectedContract.forma_pago} (Plazo: {selectedContract.plazo_pago_dias} días)</div>
               <div><strong>Estado:</strong> {selectedContract.estado}</div>
+              <div><strong>Base Cálculo de Peso:</strong> {
+                selectedContract.base_calculo_peso === "BRUTO_CAMPO" ? "Kg Brutos de Campo (Origen)" :
+                selectedContract.base_calculo_peso === "BRUTO_DESCARGA" ? "Kg Brutos de Descarga (Destino sin mermas)" :
+                selectedContract.base_calculo_peso === "NETO_ACONDICIONADO" ? "Kg Netos Acondicionados en Destino" :
+                "Kg Brutos de Campo"
+              }</div>
             </div>
           )}
           
