@@ -2028,6 +2028,16 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   const [rapidoTara, setRapidoTara] = useState("");
   const [rapidoHumedad, setRapidoHumedad] = useState("");
   const [rapidoDestino, setRapidoDestino] = useState("");
+  const rapidoProductorNombre = rapidoProductor
+    ? contrapartes.find(cp => cp.id === parseInt(rapidoProductor))?.razon_social
+    : "";
+  const filtrarContratosPorParteYEspecie = (tipo, contraparteNombre) => {
+    return contratos.filter(c =>
+      c.tipo === tipo &&
+      (!contraparteNombre || c.contraparte === contraparteNombre) &&
+      (!movForm.id_especie || c.id_especie === parseInt(movForm.id_especie))
+    );
+  };
 
   const handleGuardarRapido = async () => {
     if (!rapidoProductor) return alert("Por favor, selecciona un productor");
@@ -2892,8 +2902,11 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
       return `${yy}-${m}-${d}`;
     };
 
-    const entradaMatch = text.match(/ENTRADA:\s*([0-9]{2}\/[0-9]{2}\/[0-9]{2,4})[\s\S]{0,120}?PESO[:\s]*([0-9]{4,6})/i);
-    const salidaMatch = text.match(/SALIDA:\s*([0-9]{2}\/[0-9]{2}\/[0-9]{2,4})[\s\S]{0,120}?PESO[:\s]*([0-9]{4,6})/i);
+    const TICKET_WEIGHT_LOOKAHEAD = 180;
+    const entradaRegex = new RegExp(`ENTRADA:\\s*([0-9]{2}\\/[0-9]{2}\\/[0-9]{2,4})[\\s\\S]{0,${TICKET_WEIGHT_LOOKAHEAD}}?PESO[:\\s]*([0-9]{4,6})`, "i");
+    const salidaRegex = new RegExp(`SALIDA:\\s*([0-9]{2}\\/[0-9]{2}\\/[0-9]{2,4})[\\s\\S]{0,${TICKET_WEIGHT_LOOKAHEAD}}?PESO[:\\s]*([0-9]{4,6})`, "i");
+    const entradaMatch = text.match(entradaRegex);
+    const salidaMatch = text.match(salidaRegex);
     const netoTicketMatch = text.match(/PESO\s+NETO[:\s]*([0-9]{4,6})/i);
 
     const pesoEntrada = entradaMatch ? parseInt(entradaMatch[2], 10) : null;
@@ -3610,7 +3623,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             <FF label="Contrato de Compra">
               <select value={rapidoContrato} onChange={e=>setRapidoContrato(e.target.value)}>
                 <option value="">Sin asignar (Posición abierta)</option>
-                {contratos.filter(c=>c.tipo==="COMPRA" && (!rapidoProductor || c.id_contraparte === parseInt(rapidoProductor) || c.contraparte === contrapartes.find(cp => cp.id === parseInt(rapidoProductor))?.razon_social) && (!rapidoEspecie || c.id_especie === (ESPECIES.indexOf(rapidoEspecie) + 1))).map(c=>(
+                {contratos.filter(c=>c.tipo==="COMPRA" && (!rapidoProductor || c.id_contraparte === parseInt(rapidoProductor) || c.contraparte === rapidoProductorNombre) && (!rapidoEspecie || c.id_especie === (ESPECIES.indexOf(rapidoEspecie) + 1))).map(c=>(
                   <option key={c.id} value={c.id}>{c.numero} — {c.especie}</option>
                 ))}
               </select>
@@ -4245,7 +4258,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     }}
                   >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
-                    {contratos.filter(c=>c.tipo==="COMPRA" && (!movForm.productor_nombre || c.contraparte === movForm.productor_nombre) && (!movForm.id_especie || c.id_especie === parseInt(movForm.id_especie))).map(c=>(
+                    {filtrarContratosPorParteYEspecie("COMPRA", movForm.productor_nombre).map(c=>(
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString())}</option>
                     ))}
                   </select>
@@ -4259,7 +4272,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     }}
                   >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
-                    {contratos.filter(c=>c.tipo==="VENTA" && (!movForm.comprador_nombre || c.contraparte === movForm.comprador_nombre) && (!movForm.id_especie || c.id_especie === parseInt(movForm.id_especie))).map(c=>(
+                    {filtrarContratosPorParteYEspecie("VENTA", movForm.comprador_nombre).map(c=>(
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString())}</option>
                     ))}
                   </select>
