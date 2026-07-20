@@ -395,6 +395,15 @@ async function initDB() {
           END 
       WHERE (estado_liquidacion = 'PRELIQUIDADO' OR (estado_liquidacion = 'LIQUIDADO' AND id NOT IN (SELECT id_movimiento FROM liquidacion_movimientos)));
 
+      -- Vínculo entre movimiento INFORMAL y su espejo FORMAL (y viceversa)
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_movimiento_espejo INTEGER REFERENCES movimientos(id);
+
+      -- Marca el contrato de compra de blanqueo informal (ej. "INVERSIONES CP")
+      ALTER TABLE contratos ADD COLUMN IF NOT EXISTS es_blanqueo BOOLEAN DEFAULT FALSE;
+
+      -- Permiso de usuario para ver el origen informal de movimientos formales
+      ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ver_informal BOOLEAN DEFAULT FALSE;
+
       CREATE TABLE IF NOT EXISTS reportes_ia (
         id SERIAL PRIMARY KEY,
         titulo VARCHAR(200) NOT NULL,

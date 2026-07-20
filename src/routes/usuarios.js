@@ -17,7 +17,7 @@ router.post('/login', async (req, res) => {
     const hash = hashPassword(contrasena);
 
     const { rows } = await pool.query(
-      'SELECT id, usuario, nombre, rol, activo FROM usuarios WHERE usuario = $1 AND contrasena = $2',
+      'SELECT id, usuario, nombre, rol, activo, ver_informal FROM usuarios WHERE usuario = $1 AND contrasena = $2',
       [usuario, hash]
     );
 
@@ -39,7 +39,7 @@ router.post('/login', async (req, res) => {
 // GET / - Listar todos los usuarios
 router.get('/', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT id, usuario, nombre, rol, activo, created_at FROM usuarios ORDER BY id ASC');
+    const { rows } = await pool.query('SELECT id, usuario, nombre, rol, activo, ver_informal, created_at FROM usuarios ORDER BY id ASC');
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -49,7 +49,7 @@ router.get('/', async (req, res) => {
 // POST / - Crear usuario nuevo
 router.post('/', async (req, res) => {
   try {
-    const { usuario, contrasena, nombre, rol } = req.body;
+    const { usuario, contrasena, nombre, rol, ver_informal } = req.body;
     if (!usuario || !contrasena || !nombre || !rol) {
       return res.status(400).json({ error: 'Todos los campos son obligatorios' });
     }
@@ -57,9 +57,9 @@ router.post('/', async (req, res) => {
     const hash = hashPassword(contrasena);
 
     const { rows } = await pool.query(`
-      INSERT INTO usuarios (usuario, contrasena, nombre, rol, activo)
-      VALUES ($1, $2, $3, $4, TRUE) RETURNING id, usuario, nombre, rol, activo
-    `, [usuario, hash, nombre, rol]);
+      INSERT INTO usuarios (usuario, contrasena, nombre, rol, activo, ver_informal)
+      VALUES ($1, $2, $3, $4, TRUE, $5) RETURNING id, usuario, nombre, rol, activo, ver_informal
+    `, [usuario, hash, nombre, rol, ver_informal || false]);
 
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -74,14 +74,14 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { usuario, contrasena, nombre, rol, activo } = req.body;
+    const { usuario, contrasena, nombre, rol, activo, ver_informal } = req.body;
 
     if (!usuario || !nombre || !rol) {
       return res.status(400).json({ error: 'Usuario, Nombre y Rol son requeridos' });
     }
 
-    let query = 'UPDATE usuarios SET usuario=$1, nombre=$2, rol=$3, activo=$4';
-    const params = [usuario, nombre, rol, activo];
+    let query = 'UPDATE usuarios SET usuario=$1, nombre=$2, rol=$3, activo=$4, ver_informal=$5';
+    const params = [usuario, nombre, rol, activo, ver_informal !== undefined ? ver_informal : false];
 
     if (contrasena && contrasena.trim() !== '') {
       const hash = hashPassword(contrasena);
@@ -90,7 +90,7 @@ router.put('/:id', async (req, res) => {
     }
 
     params.push(id);
-    query += ` WHERE id=$${params.length} RETURNING id, usuario, nombre, rol, activo`;
+    query += ` WHERE id=$${params.length} RETURNING id, usuario, nombre, rol, activo, ver_informal`;
 
     const { rows } = await pool.query(query, params);
     if (rows.length === 0) {
