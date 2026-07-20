@@ -81,6 +81,14 @@ const ESPECIES = ["Soja","Trigo","Maíz","Girasol","Sorgo","Cebada"];
 const CAMPANAS = ["2023/2024","2024/2025","2025/2026"];
 const PROVINCIAS = ["Buenos Aires","Córdoba","Santa Fe","Entre Ríos","Santiago del Estero","Chaco","La Pampa","Salta","Tucumán"];
 
+// Helper: formato fecha ISO (YYYY-MM-DD) → DD/MM/YYYY
+const formatFechaAR = (fechaISO) => {
+  if (!fechaISO) return "";
+  const parts = String(fechaISO).split("T")[0].split("-");
+  if (parts.length !== 3) return fechaISO;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+};
+
 // ── API CONFIG ──
 const API_URL = window.location.hostname === "localhost"
   ? "http://localhost:3000"
@@ -1027,7 +1035,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                         {c.numero}
                       </span>
                     </td>
-                    <td style={{color:"#8890a8",fontSize:12}}>{c.fecha}</td>
+                    <td style={{color:"#8890a8",fontSize:12}}>{formatFechaAR(c.fecha)}</td>
                     <td style={{fontWeight:500}}>{c.contraparte}</td>
                     <td style={{fontSize:13,color:"#e8eaf0",fontWeight:600}}>{c.descripcion_relacion_canje}</td>
                     <td style={{fontSize:12,color:"#8890a8"}}>
@@ -1072,7 +1080,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                       {c.numero}
                     </span>
                   </td>
-                  <td style={{color:"#8890a8",fontSize:12}}>{c.fecha}</td>
+                  <td style={{color:"#8890a8",fontSize:12}}>{formatFechaAR(c.fecha)}</td>
                   <td style={{fontWeight:500,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.contraparte}</td>
                   <td>{c.especie}</td>
                   <td><span className="mono" style={{fontSize:11}}>{c.campana}</span></td>
@@ -1545,7 +1553,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
               <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 20px", marginBottom: 20, paddingBottom: 12, borderBottom: "1px solid #2a2d3e"}}>
                 <div><strong>Contraparte:</strong> {selectedContract.contraparte}</div>
                 <div><strong>Campaña:</strong> {selectedContract.campana}</div>
-                <div><strong>Fecha:</strong> {selectedContract.fecha}</div>
+                <div><strong>Fecha:</strong> {formatFechaAR(selectedContract.fecha)}</div>
                 <div><strong>Estado:</strong> {selectedContract.estado}</div>
                 <div style={{gridColumn: "span 2"}}><strong>Relación:</strong> <span style={{color: "#e8eaf0", fontWeight: 600}}>{selectedContract.descripcion_relacion_canje}</span></div>
                 {selectedContract.observaciones && <div style={{gridColumn: "span 2"}}><strong>Observaciones:</strong> {selectedContract.observaciones}</div>}
@@ -1643,7 +1651,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
               <div><strong>Número de Contrato:</strong> <span className="mono" style={{color:"#f5a623"}}>{selectedContract.numero}</span></div>
               <div><strong>Tipo:</strong> {selectedContract.tipo_contrato}</div>
               <div><strong>Contraparte:</strong> {selectedContract.contraparte}</div>
-              <div><strong>Fecha:</strong> {selectedContract.fecha}</div>
+              <div><strong>Fecha:</strong> {formatFechaAR(selectedContract.fecha)}</div>
               <div><strong>Especie:</strong> {selectedContract.especie}</div>
               <div><strong>Campaña:</strong> {selectedContract.campana}</div>
               <div><strong>Toneladas Pactadas:</strong> {selectedContract.toneladas} tn</div>
@@ -1853,6 +1861,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   const [importTarifaFleteReal, setImportTarifaFleteReal] = useState("");
   const [importHumedadSalida, setImportHumedadSalida] = useState("");
   const [showImportTicket, setShowImportTicket] = useState(false);
+  const [ticketContratoCompra, setTicketContratoCompra] = useState("");
+  const [ticketContratoVenta, setTicketContratoVenta] = useState("");
   const [ticketResult, setTicketResult] = useState(null);
   const [importingTicket, setImportingTicket] = useState(false);
   const [mappings, setMappings] = useState([]);
@@ -2747,14 +2757,20 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
       peso_tara: "",
       peso_neto: "",
       fecha: "",
-      destino: ""
+      destino: "",
+      humedad: "",
+      chofer: ""
     };
 
-    // Robust number matching
+    // ── NUMERO DE TICKET ──
     const nroMatch = text.match(/(?:N[°\*\._\s]*ro:?|N[°\*\._\s:]+)\s*(\d+)/i);
     if (nroMatch) result.numero = nroMatch[1];
+    if (!result.numero) {
+      const ticketMatch = text.match(/TICKET:?\s*[\d-]*?(\d{4,})/i);
+      if (ticketMatch) result.numero = ticketMatch[1];
+    }
 
-    // Robust Remitente matching
+    // ── PRODUCTOR / CLIENTE ──
     const remMatch = text.match(/Remitente:\s*([^C\n\r\t!]+)(?:!|\s|-)*(?:C\.?U\.?[IL]\.?T\.?|C\.?U\.?L\.?T|CUIT):?\s*([\d-]+)/i);
     if (remMatch) {
       result.productor = remMatch[1].trim();
@@ -2770,8 +2786,21 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
       const cuitMatch = text.match(/(?:C\.?U\.?[IL]\.?T\.?|C\.?U\.?L\.?T|CUIT):?\s*([\d-]+)/i);
       if (cuitMatch) result.cuit_prod = cuitMatch[1].trim();
     }
+    // BALANZA GR format: CLIENTE: seguido de CODIGO (XXXXXX) y luego el nombre
+    if (!result.productor) {
+      const clienteIdx = lines.findIndex(l => /^CLIENTE/i.test(l));
+      if (clienteIdx !== -1) {
+        for (let i = clienteIdx + 1; i < Math.min(clienteIdx + 4, lines.length); i++) {
+          if (/^CODIGO/i.test(lines[i])) continue;
+          if (lines[i].length > 2 && !/^TRANSPORTE/i.test(lines[i]) && !/^PRODUCTO/i.test(lines[i])) {
+            result.productor = lines[i].replace(/[!_:]/g, "").trim();
+            break;
+          }
+        }
+      }
+    }
 
-    // Robust Destinatario matching
+    // ── DESTINATARIO / COMPRADOR ──
     const destMatch = text.match(/Destinatario:\s*([^\n\r\t_]+)/i);
     if (destMatch) {
       result.comprador = destMatch[1]
@@ -2780,7 +2809,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         .trim();
     }
 
-    // Robust Transporte matching
+    // ── TRANSPORTE ──
     const transMatch = text.match(/Transporte:\s*([^\n\r\t_]+)/i);
     if (transMatch) {
       result.transportista = transMatch[1]
@@ -2789,25 +2818,30 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         .trim();
     }
 
-    // Patent matching
-    const chasisMatch = text.match(/Patente Chasis:\s*([A-Z0-9\-]+)/i);
-    if (chasisMatch) result.chasis = chasisMatch[1].trim();
+    // ── PATENTE ──
+    const chasisMatch = text.match(/Patente\s*Chasis:\s*([A-Z0-9\-]+)/i);
+    if (chasisMatch) {
+      result.chasis = chasisMatch[1].trim();
+    } else {
+      // BALANZA GR format: PAT. CHASIS   KPD281
+      const patMatch = text.match(/PAT\.?\s*CHASIS:?\s+([A-Z0-9]{3,})/i);
+      if (patMatch) result.chasis = patMatch[1].trim();
+    }
     
     const acopladoMatch = text.match(/Patente Acoplado:\s*([A-Z0-9\-\/]+)/i);
     if (acopladoMatch) {
       const rawAcop = acopladoMatch[1].trim().toUpperCase();
-      // Argentine patent pattern (AAA111 or AA111AA or AAA-111) or general length filter
       const patentRegex = /^[A-Z]{3}\d{3}$|^[A-Z]{2}\d{3}[A-Z]{2}$|^[A-Z]{3}-\d{3}$/;
       if (patentRegex.test(rawAcop) || (rawAcop.length >= 6 && rawAcop.length <= 9)) {
         result.acoplado = rawAcop;
       }
     }
 
-    // Product / Species
-    const prodMatch = text.match(/Producto:\s*([^\n\r\t]+)/i);
+    // ── PRODUCTO / ESPECIE ──
+    const granos = ["soja", "trigo", "maíz", "maiz", "girasol", "sorgo", "cebada", "vacunos", "expeller"];
+    const prodMatch = text.match(/Producto:?\s*([^\n\r\t]+)/i);
     if (prodMatch) {
       const rawProd = prodMatch[1].trim().toLowerCase();
-      const granos = ["soja", "trigo", "maíz", "maiz", "girasol", "sorgo", "cebada", "vacunos"];
       for (const g of granos) {
         if (rawProd.includes(g)) {
           result.especie = g.charAt(0).toUpperCase() + g.slice(1).replace("í", "i");
@@ -2816,28 +2850,99 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
       }
       if (!result.especie) result.especie = prodMatch[1].trim();
     }
+    // BALANZA GR: PRODUCTO: en una línea, luego CODIGO: (0002), luego SOJA
+    if (!result.especie) {
+      const prodIdx = lines.findIndex(l => /^PRODUCTO/i.test(l));
+      if (prodIdx !== -1) {
+        for (let i = prodIdx + 1; i < Math.min(prodIdx + 4, lines.length); i++) {
+          if (/^CODIGO/i.test(lines[i])) continue;
+          const lineLC = lines[i].toLowerCase();
+          for (const g of granos) {
+            if (lineLC.includes(g)) {
+              result.especie = g.charAt(0).toUpperCase() + g.slice(1).replace("í", "i");
+              break;
+            }
+          }
+          if (result.especie) break;
+          if (lines[i].length > 1 && !/^DATOS/i.test(lines[i])) {
+            result.especie = lines[i].trim();
+            break;
+          }
+        }
+      }
+    }
 
-    // Bruto, Neto, Tara (B?RUTO matches BRUTO and RUTO)
+    // ── PESOS ──
+    // Formato estándar: BRUTO: XXXXX, TARA: XXXXX, NETO: XXXXX
     const brutoMatch = text.match(/(?:B?RUTO|PRUTO):\s*(\d+)/i);
     if (brutoMatch) result.peso_bruto = brutoMatch[1];
     
-    const netoMatch = text.match(/NET[O0]:\s*(\d+)/i);
+    const netoMatch = text.match(/PESO\s*NET[O0]:?\s*(\d+)/i);
     if (netoMatch) result.peso_neto = netoMatch[1];
+    if (!result.peso_neto) {
+      const netoMatch2 = text.match(/NET[O0]:\s*(\d+)/i);
+      if (netoMatch2) result.peso_neto = netoMatch2[1];
+    }
 
     const taraMatch = text.match(/TARA:\s*(\d+)/i);
-    if (taraMatch) {
-      result.peso_tara = taraMatch[1];
-    } else if (result.peso_bruto && result.peso_neto) {
+    if (taraMatch) result.peso_tara = taraMatch[1];
+
+    // BALANZA GR format: ENTRADA: ... PESO: 44860, SALIDA: ... PESO: 13880
+    if (!result.peso_bruto || !result.peso_tara) {
+      const pesoMatches = [];
+      const pesoRegex = /PESO:?\s*(\d{4,})/gi;
+      let pm;
+      while ((pm = pesoRegex.exec(text)) !== null) {
+        pesoMatches.push(parseInt(pm[1]));
+      }
+      if (pesoMatches.length >= 2) {
+        // El mayor es bruto de entrada, el menor es tara de salida
+        const sorted = [...pesoMatches].sort((a, b) => b - a);
+        if (!result.peso_bruto) result.peso_bruto = String(sorted[0]);
+        if (!result.peso_tara) result.peso_tara = String(sorted[sorted.length - 1]);
+      }
+    }
+
+    // Calcular neto si falta
+    if (!result.peso_neto && result.peso_bruto && result.peso_tara) {
+      result.peso_neto = String(parseInt(result.peso_bruto) - parseInt(result.peso_tara));
+    }
+    if (!result.peso_tara && result.peso_bruto && result.peso_neto) {
       result.peso_tara = String(parseInt(result.peso_bruto) - parseInt(result.peso_neto));
     }
 
-    // Date
-    const dateMatch = text.match(/(\d{2})[\/\-\.](\d{2})[\/\-\.](\d{4})/);
-    if (dateMatch) {
-      result.fecha = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`;
+    // ── FECHA ──
+    // Primero intentar formato DD/MM/YYYY (4 dígitos año)
+    const dateMatch4 = text.match(/(\d{2})[\/\-\.](\d{2})[\/\-\.](\d{4})/);
+    if (dateMatch4) {
+      result.fecha = `${dateMatch4[3]}-${dateMatch4[2]}-${dateMatch4[1]}`;
+    } else {
+      // Formato DD/MM/YY (2 dígitos año) — BALANZA GR
+      const dateMatch2 = text.match(/(\d{2})[\/\-\.](\d{2})[\/\-\.](\d{2})(?!\d)/);
+      if (dateMatch2) {
+        const year = parseInt(dateMatch2[3]) < 50 ? `20${dateMatch2[3]}` : `19${dateMatch2[3]}`;
+        result.fecha = `${year}-${dateMatch2[2]}-${dateMatch2[1]}`;
+      }
     }
 
-    // Destino
+    // ── HUMEDAD ──
+    const humMatch = text.match(/HUMEDAD:?\s*([\d.,]+)/i);
+    if (humMatch) result.humedad = humMatch[1].replace(",", ".");
+
+    // ── CHOFER / DATOS ADICIONALES ──
+    // BALANZA GR: después de HUMEDAD XX aparece un nombre (ej: HERNANDEZ JUAN)
+    const datosIdx = lines.findIndex(l => /^DATOS\s*ADICIONALES/i.test(l));
+    if (datosIdx !== -1) {
+      for (let i = datosIdx + 1; i < Math.min(datosIdx + 5, lines.length); i++) {
+        if (/^HUMEDAD/i.test(lines[i])) continue;
+        if (/^ENTRADA/i.test(lines[i]) || /^SALIDA/i.test(lines[i]) || /^PESO/i.test(lines[i])) break;
+        if (/^[A-ZÁÉÍÓÚÑ]{2,}\s+[A-ZÁÉÍÓÚÑ]{2,}/i.test(lines[i]) && !result.chofer) {
+          result.chofer = lines[i].replace(/[!_:]/g, "").trim();
+        }
+      }
+    }
+
+    // ── DESTINO ──
     const dests = ["Básculas Santa Fe", "Básculas Banja Fe", "Básculas de Santa Fe"];
     for (const d of dests) {
       if (text.toLowerCase().includes(d.toLowerCase())) {
@@ -2854,9 +2959,15 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         }
       }
     }
+    // BALANZA GR: si dice "INGRESO DE PRODUCTO" es una descarga/recepción → destino es "BALANZA GR" o la empresa
+    if (!result.destino) {
+      const balanzaMatch = text.match(/BALANZA\s+([\w\s]+)/i);
+      if (balanzaMatch) result.destino = "Balanza " + balanzaMatch[1].trim();
+    }
 
     return result;
   };
+
 
   const generateMappings = (parsed, fullText) => {
     const lines = fullText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
@@ -3054,7 +3165,10 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         tarifa_flete_real: 0,
         peso_bruto_salida_kg: parseFloat(data.peso_bruto) || 0,
         peso_tara_salida_kg: parseFloat(data.peso_tara) || 0,
-        humedad_salida_pct: 13.5,
+        humedad_salida_pct: data.humedad ? parseFloat(data.humedad) : 13.5,
+        id_contrato_compra: ticketContratoCompra ? parseInt(ticketContratoCompra) : null,
+        id_contrato_venta: ticketContratoVenta ? parseInt(ticketContratoVenta) : null,
+        chofer_nombre: data.chofer || null,
         usuario_carga: usuario
       };
 
@@ -3341,7 +3455,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
           <Btn variant="secondary" size="sm" onClick={()=>setShowRapido(true)}>⚡ Carga Rápida</Btn>
           <Btn variant="secondary" size="sm" onClick={()=>setShowImport(true)}>↑ Importar CPE</Btn>
           {modulo==="INFORMAL"&&<>
-            <Btn variant="secondary" size="sm" onClick={()=>setShowImportTicket(true)}>↑ Importar Ticket</Btn>
+            <Btn variant="secondary" size="sm" onClick={()=>{ setTicketContratoCompra(""); setTicketContratoVenta(""); setShowImportTicket(true); }}>↑ Importar Ticket</Btn>
             <Btn variant="secondary" size="sm" onClick={()=>setShowImportExcel(true)}>↑ Importar Excel</Btn>
             <Btn variant="secondary" size="sm" onClick={downloadExcelTemplate}>📥 Bajar Modelo Excel</Btn>
           </>}
@@ -3739,7 +3853,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         return (
           <Modal 
             title="Importar Ticket de Balanza (Módulo Informal)" 
-            onClose={() => { setShowImportTicket(false); setTicketResult(null); setTicketFileUrl(null); setUploadedTicketFile(null); }} 
+            onClose={() => { setShowImportTicket(false); setTicketResult(null); setTicketFileUrl(null); setUploadedTicketFile(null); setTicketContratoCompra(""); setTicketContratoVenta(""); }} 
             width={1000}
           >
             {!ticketResult ? (
@@ -3844,23 +3958,96 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                                 </select>
                               </td>
                               <td style={{padding:"8px 10px"}}>
-                                <input 
-                                  type="text" 
-                                  value={m.value} 
-                                  onChange={(e) => updateMappingValue(index, e.target.value)}
-                                  disabled={m.field === "ignorar"}
-                                  style={{
-                                    padding:"6px 8px",
-                                    fontSize:12,
-                                    height:"32px",
-                                    borderRadius:"6px",
-                                    border:"1px solid #2a2d3e",
-                                    background: m.field === "ignorar" ? "rgba(255,255,255,0.02)" : "#0f1117",
-                                    color: m.field === "ignorar" ? "#565d7a" : "#e8eaf0",
-                                    textDecoration: m.field === "ignorar" ? "line-through" : "none",
-                                    width:"100%"
-                                  }}
-                                />
+                                {m.field === "productor" ? (
+                                  <select
+                                    value={m.value}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      updateMappingValue(index, val);
+                                      // Auto map CUIT if available
+                                      const selectedProd = contrapartes.find(c => c.razon_social === val);
+                                      if (selectedProd && selectedProd.cuit) {
+                                        const cuitIdx = mappings.findIndex(item => item.field === "cuit_prod");
+                                        if (cuitIdx !== -1) {
+                                          updateMappingValue(cuitIdx, selectedProd.cuit);
+                                        }
+                                      }
+                                    }}
+                                    style={{
+                                      padding:"6px 8px",
+                                      fontSize:12,
+                                      height:"32px",
+                                      borderRadius:"6px",
+                                      border:"1px solid #2a2d3e",
+                                      background:"#0f1117",
+                                      color:"#e8eaf0",
+                                      width:"100%"
+                                    }}
+                                  >
+                                    <option value={m.value}>{m.value || "Seleccionar..."} (Detectado)</option>
+                                    {contrapartes.filter(c => c.tipo === "PRODUCTOR" || c.tipo === "AMBOS").map(c => (
+                                      <option key={c.id} value={c.razon_social}>{c.razon_social} {c.cuit ? `(${c.cuit})` : ""}</option>
+                                    ))}
+                                  </select>
+                                ) : m.field === "comprador" || m.field === "destino" ? (
+                                  <select
+                                    value={m.value}
+                                    onChange={(e) => updateMappingValue(index, e.target.value)}
+                                    style={{
+                                      padding:"6px 8px",
+                                      fontSize:12,
+                                      height:"32px",
+                                      borderRadius:"6px",
+                                      border:"1px solid #2a2d3e",
+                                      background:"#0f1117",
+                                      color:"#e8eaf0",
+                                      width:"100%"
+                                    }}
+                                  >
+                                    <option value={m.value}>{m.value || "Seleccionar..."} (Detectado)</option>
+                                    {contrapartes.filter(c => c.tipo === "COMPRADOR" || c.tipo === "AMBOS").map(c => (
+                                      <option key={c.id} value={c.razon_social}>{c.razon_social} {c.cuit ? `(${c.cuit})` : ""}</option>
+                                    ))}
+                                  </select>
+                                ) : m.field === "especie" ? (
+                                  <select
+                                    value={m.value}
+                                    onChange={(e) => updateMappingValue(index, e.target.value)}
+                                    style={{
+                                      padding:"6px 8px",
+                                      fontSize:12,
+                                      height:"32px",
+                                      borderRadius:"6px",
+                                      border:"1px solid #2a2d3e",
+                                      background:"#0f1117",
+                                      color:"#e8eaf0",
+                                      width:"100%"
+                                    }}
+                                  >
+                                    <option value={m.value}>{m.value || "Seleccionar..."} (Detectado)</option>
+                                    {ESPECIES.map(esp => (
+                                      <option key={esp} value={esp}>{esp}</option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <input 
+                                    type="text" 
+                                    value={m.value} 
+                                    onChange={(e) => updateMappingValue(index, e.target.value)}
+                                    disabled={m.field === "ignorar"}
+                                    style={{
+                                      padding:"6px 8px",
+                                      fontSize:12,
+                                      height:"32px",
+                                      borderRadius:"6px",
+                                      border:"1px solid #2a2d3e",
+                                      background: m.field === "ignorar" ? "rgba(255,255,255,0.02)" : "#0f1117",
+                                      color: m.field === "ignorar" ? "#565d7a" : "#e8eaf0",
+                                      textDecoration: m.field === "ignorar" ? "line-through" : "none",
+                                      width:"100%"
+                                    }}
+                                  />
+                                )}
                               </td>
                             </tr>
                           ))}
@@ -3869,6 +4056,55 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     </div>
                   </div>
 
+                </div>
+
+                {/* Asignación de Contratos */}
+                <div style={{marginTop:16, marginBottom:16, border:"1px solid #2a2d3e", borderRadius:8, background:"#1a1d27", padding:16}}>
+                  <div style={{fontSize:11, fontWeight:700, color:"#f5a623", textTransform:"uppercase", letterSpacing:".08em", marginBottom:12, paddingBottom:6, borderBottom:"1px solid #2a2d3e"}}>
+                    Asignación de Contratos (Opcional - Filtrado por contraparte y grano detectados)
+                  </div>
+                  <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:16}}>
+                    <FF label="Contrato de Compra">
+                      <select
+                        value={ticketContratoCompra}
+                        onChange={(e) => setTicketContratoCompra(e.target.value)}
+                        style={{width:"100%", height:"36px", borderRadius:"6px", border:"1px solid #2a2d3e", background:"#0f1117", color:"#e8eaf0", padding:"0 8px"}}
+                      >
+                        <option value="">Sin contrato (Posición Abierta A Fijar)</option>
+                        {(() => {
+                          const mappedProd = mappings.find(m => m.field === "productor")?.value || "";
+                          const mappedEsp = mappings.find(m => m.field === "especie")?.value || "";
+                          return contratos.filter(c => 
+                            c.tipo === "COMPRA" && 
+                            (!mappedProd || c.contraparte === mappedProd) && 
+                            (!mappedEsp || c.especie.toLowerCase() === mappedEsp.toLowerCase())
+                          ).map(c => (
+                            <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio === "A_FIJAR" ? "(A FIJAR)" : `$ ${c.precio?.toLocaleString()}`)}</option>
+                          ));
+                        })()}
+                      </select>
+                    </FF>
+                    <FF label="Contrato de Venta">
+                      <select
+                        value={ticketContratoVenta}
+                        onChange={(e) => setTicketContratoVenta(e.target.value)}
+                        style={{width:"100%", height:"36px", borderRadius:"6px", border:"1px solid #2a2d3e", background:"#0f1117", color:"#e8eaf0", padding:"0 8px"}}
+                      >
+                        <option value="">Sin contrato (Posición Abierta A Fijar)</option>
+                        {(() => {
+                          const mappedComp = mappings.find(m => m.field === "comprador")?.value || "";
+                          const mappedEsp = mappings.find(m => m.field === "especie")?.value || "";
+                          return contratos.filter(c => 
+                            c.tipo === "VENTA" && 
+                            (!mappedComp || c.contraparte === mappedComp) && 
+                            (!mappedEsp || c.especie.toLowerCase() === mappedEsp.toLowerCase())
+                          ).map(c => (
+                            <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio === "A_FIJAR" ? "(A FIJAR)" : `$ ${c.precio?.toLocaleString()}`)}</option>
+                          ));
+                        })()}
+                      </select>
+                    </FF>
+                  </div>
                 </div>
 
                 {/* Action Buttons */}
@@ -4132,7 +4368,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     }}
                   >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
-                    {contratos.filter(c=>c.tipo==="COMPRA" && (!movForm.productor_nombre || c.contraparte === movForm.productor_nombre)).map(c=>(
+                    {contratos.filter(c=>c.tipo==="COMPRA" && (!movForm.productor_nombre || c.contraparte === movForm.productor_nombre) && (!movForm.id_especie || !c.especie || c.especie === (ESPECIES[movForm.id_especie - 1] || ""))).map(c=>(
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString())}</option>
                     ))}
                   </select>
@@ -4146,7 +4382,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     }}
                   >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
-                    {contratos.filter(c=>c.tipo==="VENTA" && (!movForm.comprador_nombre || c.contraparte === movForm.comprador_nombre)).map(c=>(
+                    {contratos.filter(c=>c.tipo==="VENTA" && (!movForm.comprador_nombre || c.contraparte === movForm.comprador_nombre) && (!movForm.id_especie || !c.especie || c.especie === (ESPECIES[movForm.id_especie - 1] || ""))).map(c=>(
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString())}</option>
                     ))}
                   </select>
