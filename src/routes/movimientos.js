@@ -365,7 +365,7 @@ router.put('/:id/llegada', async (req, res) => {
     // Si es un movimiento INFORMAL con espejo, la descarga se gestiona únicamente desde el FORMAL
     if (mov[0].modalidad === 'INFORMAL' && mov[0].id_movimiento_espejo) {
       return res.status(403).json({
-        error: 'La descarga de este movimiento informal se gestiona desde su movimiento formal espejo. No se puede registrar directamente.'
+        error: `La descarga de este movimiento informal se gestiona desde su movimiento formal espejo (ID: ${mov[0].id_movimiento_espejo}). No se puede registrar directamente.`
       });
     }
 
@@ -474,6 +474,7 @@ router.put('/:id/llegada', async (req, res) => {
           factor_calculado, db_factor_manual, factor_aplicado, kg_liquidables,
           espejo_id
         ];
+        const espejo_id_pos = espParams.length; // posición de espejo_id en el array ($15)
 
         let espQuery = `
           UPDATE movimientos SET
@@ -490,7 +491,7 @@ router.put('/:id/llegada', async (req, res) => {
           espQuery += `, id_contrato_compra=$${espParams.length}, estado_liquidacion='ASIGNADO'`;
         }
 
-        espQuery += ` WHERE id=$15`;
+        espQuery += ` WHERE id=$${espejo_id_pos}`;
 
         await pool.query(espQuery, espParams);
 
