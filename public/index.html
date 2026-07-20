@@ -1864,6 +1864,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   const [ticketContratoCompra, setTicketContratoCompra] = useState("");
   const [ticketContratoVenta, setTicketContratoVenta] = useState("");
   const [ticketResult, setTicketResult] = useState(null);
+  const [calidadParametros, setCalidadParametros] = useState([]);
+  const [calidadModo, setCalidadModo] = useState("RUBROS"); // "RUBROS" or "FACTOR"
   const [importingTicket, setImportingTicket] = useState(false);
   const [mappings, setMappings] = useState([]);
   const [ticketFileUrl, setTicketFileUrl] = useState(null);
@@ -1939,8 +1941,22 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         liqKg = kgSecos * qFactor;
       }
     } else {
-      qFactor = factorManualFallback !== null && factorManualFallback !== undefined ? parseFloat(factorManualFallback) : (factorCalculadoFallback || 1.0);
-      liqKg = kgSecos * qFactor;
+      if (calidadModo === "RUBROS") {
+        let descuento_calidad_pct = 0.0;
+        if (calidadParametros && calidadParametros.length > 0) {
+          calidadParametros.forEach(p => {
+            const exceso = Math.max(0, p.valor_declarado - p.tolerancia);
+            if (exceso > 0) {
+              descuento_calidad_pct += -(exceso * (p.descuento_por_punto || 0)) + (exceso * (p.bonificacion_por_punto || 0));
+            }
+          });
+        }
+        qFactor = 1.0 + (descuento_calidad_pct / 100.0);
+        liqKg = kgSecos * qFactor;
+      } else {
+        qFactor = tempFactor !== null && tempFactor !== undefined ? parseFloat(tempFactor) : (factorManualFallback !== null && factorManualFallback !== undefined ? parseFloat(factorManualFallback) : 1.0);
+        liqKg = kgSecos * qFactor;
+      }
     }
     
     return { kgSecos, qFactor, liqKg, humPct, humKg: pesoNetoLlegada * (humPct / 100.0) };
@@ -2112,8 +2128,29 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
           });
         }
         
-        // Guardar calidad en modo informal (ajuste manual de calidad)
-        if (modulo === "INFORMAL") {
+        // Guardar calidad (tanto formal como informal)
+        if (modulo === "FORMAL") {
+          if (calidadModo === "RUBROS") {
+            await api.put(`/api/movimientos/${movId}/calidad`, {
+              parametros: calidadParametros.map(p => ({
+                id_parametro: p.id_parametro,
+                valor_declarado: p.valor_declarado,
+                tolerancia: p.tolerancia,
+                descuento_por_punto: p.descuento_por_punto,
+                bonificacion_por_punto: p.bonificacion_por_punto
+              })),
+              calidad_tipo_ajuste: null,
+              calidad_valor_ajuste: null
+            });
+          } else {
+            await api.put(`/api/movimientos/${movId}/calidad`, {
+              parametros: [],
+              factor_manual: tempFactor,
+              calidad_tipo_ajuste: "FACTOR",
+              calidad_valor_ajuste: tempFactor
+            });
+          }
+        } else if (modulo === "INFORMAL") {
           await api.put(`/api/movimientos/${movId}/calidad`, {
             parametros: [],
             calidad_tipo_ajuste: calidadTipoAjuste,
@@ -2127,6 +2164,35 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     } catch(e) {
       alert("Error: "+e.message);
     }
+  };
+
+  const cargarParametrosCalidadEspecie = async (especieId, savedCalidad = []) => {
+    try {
+      const params = await api.get(`/api/especies/${especieId}/parametros`);
+      const merged = params.map(p => {
+        const saved = savedCalidad.find(sc => sc.id_parametro === p.id);
+        return {
+          id_parametro: p.id,
+          nombre_parametro: p.nombre_parametro,
+          valor_base: parseFloat(p.valor_base),
+          tolerancia: parseFloat(p.tolerancia),
+          descuento_por_punto: parseFloat(p.descuento_por_punto || 0),
+          bonificacion_por_punto: parseFloat(p.bonificacion_por_punto || 0),
+          unidad: p.unidad || '%',
+          valor_declarado: saved ? parseFloat(saved.valor_declarado_pct) : parseFloat(p.valor_base)
+        };
+      });
+      setCalidadParametros(merged);
+    } catch(e) {
+      console.error("Error al cargar parámetros de especie:", e);
+      setCalidadParametros([]);
+    }
+  };
+
+  const updateParamValue = (idx, val) => {
+    const next = [...calidadParametros];
+    next[idx].valor_declarado = val;
+    setCalidadParametros(next);
   };
 
   const formatDateTimeLocal = (isoString) => {
@@ -2146,6 +2212,21 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     setTempFactor(m ? (m.factor_manual !== null && m.factor_manual !== undefined ? m.factor_manual : 1.0) : 1.0);
     setCalidadTipoAjuste(m ? m.calidad_tipo_ajuste || "FACTOR" : "FACTOR");
     setCalidadValorAjuste(m ? (m.calidad_valor_ajuste !== null && m.calidad_valor_ajuste !== undefined ? parseFloat(m.calidad_valor_ajuste) : null) : null);
+    setCalidadModo(m ? (m.tipo_factor === "MANUAL" || m.tipo_factor === "PORCENTAJE" || m.tipo_factor === "KILOS" || m.tipo_factor === "FACTOR" ? "FACTOR" : "RUBROS") : "RUBROS");
+    
+    if (m) {
+      api.get(`/api/movimientos/${m.id}`).then(res => {
+        const savedCalidad = res.calidad || [];
+        cargarParametrosCalidadEspecie(m.id_especie || 1, savedCalidad);
+      }).catch(err => {
+        console.error("Error al cargar detalle de calidad:", err);
+        cargarParametrosCalidadEspecie(m.id_especie || 1, []);
+      });
+    } else {
+      const defaultEspId = globalFiltroEspecie ? (ESPECIES.indexOf(globalFiltroEspecie) !== -1 ? ESPECIES.indexOf(globalFiltroEspecie) + 1 : 1) : 1;
+      cargarParametrosCalidadEspecie(defaultEspId, []);
+    }
+
     setBrutoLlegada(m ? m.peso_bruto_llegada : null);
     setTaraLlegada(m ? m.peso_tara_llegada : null);
     setHumedadLlegada(m ? m.humedad_llegada : null);
@@ -4427,7 +4508,9 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     value={ESPECIES[movForm.id_especie - 1] || "Soja"}
                     onChange={e => {
                       const idx = ESPECIES.indexOf(e.target.value);
-                      setMovForm({...movForm, id_especie: idx !== -1 ? idx + 1 : 1});
+                      const newEspId = idx !== -1 ? idx + 1 : 1;
+                      setMovForm({...movForm, id_especie: newEspId});
+                      cargarParametrosCalidadEspecie(newEspId, []);
                     }}
                   >
                     {ESPECIES.map(e=><option key={e} value={e}>{e}</option>)}
@@ -4646,21 +4729,88 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
               {modulo === "FORMAL" ? (
                 <div>
                   <div style={{display:"flex",gap:8,marginBottom:16}}>
-                    <Btn variant="primary" size="sm">Rubro por rubro</Btn>
-                    <Btn variant="secondary" size="sm">Factor directo</Btn>
+                    <Btn 
+                      variant={calidadModo === "RUBROS" ? "primary" : "secondary"} 
+                      size="sm"
+                      onClick={() => setCalidadModo("RUBROS")}
+                    >
+                      Rubro por rubro
+                    </Btn>
+                    <Btn 
+                      variant={calidadModo === "FACTOR" ? "primary" : "secondary"} 
+                      size="sm"
+                      onClick={() => setCalidadModo("FACTOR")}
+                    >
+                      Factor directo
+                    </Btn>
                   </div>
-                  <table><thead><tr><th>Parámetro</th><th>Tolerancia</th><th>Valor Declarado</th><th>Exceso</th><th>Ajuste</th></tr></thead>
-                  <tbody>
-                    {[{p:"Humedad",t:"13.0%",v:"13.0",e:"0.0",a:"0.00%"},{p:"Materia Extraña",t:"0.5%",v:"0.3",e:"0.0",a:"0.00%"},{p:"Grano Dañado",t:"3.0%",v:"5.0",e:"2.0",a:"-1.00%"},{p:"Grano Verde",t:"1.0%",v:"0.8",e:"0.0",a:"0.00%"}].map(r=>(
-                      <tr key={r.p}>
-                        <td>{r.p}</td>
-                        <td><span className="mono" style={{color:"#8890a8"}}>{r.t}</span></td>
-                        <td><input type="number" step="0.1" defaultValue={r.v} style={{width:80}}/></td>
-                        <td><span className="mono" style={{color:parseFloat(r.e)>0?"#e74c3c":"#565d7a"}}>{r.e}</span></td>
-                        <td><span className="mono" style={{color:r.a.startsWith("-")?"#e74c3c":"#27ae60"}}>{r.a}</span></td>
-                      </tr>
-                    ))}
-                  </tbody></table>
+                  {calidadModo === "RUBROS" ? (
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Parámetro</th>
+                          <th>Tolerancia</th>
+                          <th>Valor Declarado</th>
+                          <th>Exceso</th>
+                          <th>Ajuste</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {calidadParametros.length === 0 ? (
+                          <tr>
+                            <td colSpan="5" style={{textAlign:"center",color:"#8890a8",padding:"20px 0"}}>
+                              No hay parámetros definidos para esta especie o cargando...
+                            </td>
+                          </tr>
+                        ) : (
+                          calidadParametros.map((p, idx) => {
+                            const exceso = Math.max(0, p.valor_declarado - p.tolerancia);
+                            const ajuste = exceso > 0 
+                              ? -(exceso * (p.descuento_por_punto || 0)) + (exceso * (p.bonificacion_por_punto || 0))
+                              : 0.0;
+                            return (
+                              <tr key={p.id_parametro}>
+                                <td>{p.nombre_parametro}</td>
+                                <td><span className="mono" style={{color:"#8890a8"}}>{p.tolerancia.toFixed(1)}{p.unidad}</span></td>
+                                <td>
+                                  <input 
+                                    type="number" 
+                                    step="0.01" 
+                                    value={p.valor_declarado} 
+                                    style={{width:80}}
+                                    onChange={e => {
+                                      const val = parseFloat(e.target.value);
+                                      updateParamValue(idx, isNaN(val) ? 0.0 : val);
+                                    }}
+                                  />
+                                </td>
+                                <td><span className="mono" style={{color:exceso>0?"#e74c3c":"#565d7a"}}>{exceso.toFixed(2)}{p.unidad}</span></td>
+                                <td><span className="mono" style={{color:ajuste<0?"#e74c3c":(ajuste>0?"#27ae60":"#565d7a")}}>{ajuste.toFixed(2)}%</span></td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div style={{padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",marginBottom:16}}>
+                      <div style={{fontWeight:600,color:"#f5a623",marginBottom:10,fontSize:13}}>🔬 Factor de Calidad Directo (Formal)</div>
+                      <p style={{color:"#8890a8",fontSize:12,marginBottom:14}}>Se aplica un factor único directo sobre los kilos de llegada.</p>
+                      <FF label="Factor de Calidad (manual)">
+                        <input 
+                          type="number" 
+                          step="0.001" 
+                          placeholder="1.000" 
+                          value={tempFactor !== null ? tempFactor : ""}
+                          id="factor-calidad-directo-input"
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            setTempFactor(isNaN(val) ? null : val);
+                          }}
+                        />
+                      </FF>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div style={{padding:"14px 16px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",marginBottom:16}}>
