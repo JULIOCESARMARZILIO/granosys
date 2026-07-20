@@ -2170,7 +2170,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     try {
       const params = await api.get(`/api/especies/${especieId}/parametros`);
       const merged = params.map(p => {
-        const saved = savedCalidad.find(sc => sc.id_parametro === p.id);
+        const saved = savedCalidad.find(sc => Number(sc.id_parametro) === Number(p.id));
         return {
           id_parametro: p.id,
           nombre_parametro: p.nombre_parametro,

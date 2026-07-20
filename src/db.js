@@ -518,6 +518,45 @@ async function initDB() {
       console.log('Semilla de mermas_humedad completada.');
     }
 
+    // Sembrar tabla parametros_calidad_especie si no existen
+    const { rows: paramsExist } = await client.query('SELECT id FROM parametros_calidad_especie LIMIT 1');
+    if (paramsExist.length === 0) {
+      console.log('Sembrando tabla parametros_calidad_especie...');
+      // Soja (id_especie = 1)
+      await client.query(`
+        INSERT INTO parametros_calidad_especie (id_especie, nombre_parametro, valor_base, tolerancia, descuento_por_punto, bonificacion_por_punto, orden) VALUES
+        (1, 'Humedad', 13.5, 13.5, 1.0, 0.0, 1),
+        (1, 'Materia Extraña', 1.0, 1.0, 1.0, 0.0, 2),
+        (1, 'Grano Dañado', 3.0, 3.0, 1.0, 0.0, 3),
+        (1, 'Grano Verde', 5.0, 5.0, 1.0, 0.0, 4);
+      `);
+
+      // Trigo (id_especie = 2)
+      await client.query(`
+        INSERT INTO parametros_calidad_especie (id_especie, nombre_parametro, valor_base, tolerancia, descuento_por_punto, bonificacion_por_punto, orden) VALUES
+        (2, 'Humedad', 14.0, 14.0, 1.0, 0.0, 1),
+        (2, 'Materia Extraña', 0.75, 0.75, 1.0, 0.0, 2),
+        (2, 'Grano Dañado', 1.0, 1.0, 1.0, 0.0, 3);
+      `);
+
+      // Maíz (id_especie = 3)
+      await client.query(`
+        INSERT INTO parametros_calidad_especie (id_especie, nombre_parametro, valor_base, tolerancia, descuento_por_punto, bonificacion_por_punto, orden) VALUES
+        (3, 'Humedad', 14.5, 14.5, 1.0, 0.0, 1),
+        (3, 'Materia Extraña', 1.5, 1.5, 1.0, 0.0, 2),
+        (3, 'Grano Dañado', 3.0, 3.0, 1.0, 0.0, 3),
+        (3, 'Quebrados', 3.0, 3.0, 0.5, 0.0, 4);
+      `);
+
+      // Girasol (id_especie = 4)
+      await client.query(`
+        INSERT INTO parametros_calidad_especie (id_especie, nombre_parametro, valor_base, tolerancia, descuento_por_punto, bonificacion_por_punto, orden) VALUES
+        (4, 'Humedad', 11.0, 11.0, 1.0, 0.0, 1),
+        (4, 'Materia Extraña', 1.5, 1.5, 1.0, 0.0, 2);
+      `);
+      console.log('Semilla de parametros_calidad_especie completada.');
+    }
+
     // Sembrar transportistas y choferes si no existen
     const { rows: tExist } = await client.query('SELECT id FROM transportistas LIMIT 1');
     if (tExist.length === 0) {
