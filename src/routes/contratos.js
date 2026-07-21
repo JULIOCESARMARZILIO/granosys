@@ -56,7 +56,7 @@ async function recalcularContrato(id_contrato) {
 router.get('/', async (req, res) => {
   try {
     const modalidad = req.query.modalidad || req.query.modulo;
-    const { tipo, estado } = req.query;
+    const { tipo, estado, id_especie, id_contraparte } = req.query;
 
     if (tipo === 'CANJE') {
       const { rows } = await pool.query(`
@@ -165,6 +165,8 @@ router.get('/', async (req, res) => {
       query += ` AND c.tipo_contrato = $${params.length} AND c.es_canje = FALSE`;
     }
     if (estado) { params.push(estado); query += ` AND c.estado = $${params.length}`; }
+    if (id_especie) { params.push(id_especie); query += ` AND c.id_especie = $${params.length}`; }
+    if (id_contraparte) { params.push(id_contraparte); query += ` AND c.id_contraparte = $${params.length}`; }
     query += ' ORDER BY c.created_at DESC';
 
     const { rows } = await pool.query(query, params);
