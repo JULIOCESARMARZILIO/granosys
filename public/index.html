@@ -1914,6 +1914,20 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   const [tempFactor, setTempFactor] = useState(null);
   const [calidadTipoAjuste, setCalidadTipoAjuste] = useState("FACTOR");
   const [calidadValorAjuste, setCalidadValorAjuste] = useState(null);
+  // Estado para la feature de espejo FORMAL desde INFORMAL
+  const [crearEspejo, setCrearEspejo] = useState(false);
+  const [espejoProductorNombre, setEspejoProductorNombre] = useState("");
+  const [espejoProductorCuit, setEspejoProductorCuit] = useState("");
+  const [espejoContratoCompra, setEspejoContratoCompra] = useState("");
+  const [espejoContratoVenta, setEspejoContratoVenta] = useState("");
+  const [contratosEspejo, setContratosEspejo] = useState([]);
+  // Estado para la pestaña de vincular espejo en el modal
+  const [movEspejo, setMovEspejo] = useState(null);
+  const [movimientosOpuestos, setMovimientosOpuestos] = useState([]);
+  const [espejoSearchFilter, setEspejoSearchFilter] = useState("");
+  const [loadingEspejo, setLoadingEspejo] = useState(false);
+  // Estado para el checkbox en el importador de CPE
+  const [importCrearEspejo, setImportCrearEspejo] = useState(false);
 
   const calcularKilosALiquidar = (pesoNetoLlegada, humedad, tipoAjuste, valorAjuste, factorManualFallback, factorCalculadoFallback) => {
     const humPct = getMermaHumedadPct(movForm.id_especie, humedad !== null ? humedad : 0);
@@ -2103,11 +2117,22 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         await api.put(`/api/movimientos/${selected.id}`, payload);
       } else {
         // Crear nuevo movimiento
-        const r = await api.post("/api/movimientos", {
+        const postPayload = {
           ...payload,
           modalidad: modulo,
           usuario_carga: usuario
-        });
+        };
+        // Para movimientos INFORMAL: incluir parámetros de espejo si el checkbox está activo
+        if (modulo === "INFORMAL" && crearEspejo) {
+          postPayload.crear_espejo = true;
+          postPayload.espejo_id_contrato_compra = espejoContratoCompra ? parseInt(espejoContratoCompra) : null;
+          postPayload.espejo_id_contrato_venta = espejoContratoVenta ? parseInt(espejoContratoVenta) : null;
+          postPayload.espejo_titular_cpe_cuit = espejoProductorCuit || null;
+          postPayload.espejo_titular_cpe_nombre = espejoProductorNombre || null;
+          postPayload.espejo_remitente_cuit = espejoProductorCuit || null;
+          postPayload.espejo_remitente_nombre = espejoProductorNombre || null;
+        }
+        const r = await api.post("/api/movimientos", postPayload);
         if (r && r.id) {
           movId = r.id;
         } else {
@@ -2213,11 +2238,24 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     setCalidadTipoAjuste(m ? m.calidad_tipo_ajuste || "FACTOR" : "FACTOR");
     setCalidadValorAjuste(m ? (m.calidad_valor_ajuste !== null && m.calidad_valor_ajuste !== undefined ? parseFloat(m.calidad_valor_ajuste) : null) : null);
     setCalidadModo(m ? (m.tipo_factor === "MANUAL" || m.tipo_factor === "PORCENTAJE" || m.tipo_factor === "KILOS" || m.tipo_factor === "FACTOR" ? "FACTOR" : "RUBROS") : "RUBROS");
+    // Resetear estados de espejo
+    setCrearEspejo(false);
+    setEspejoProductorNombre("");
+    setEspejoProductorCuit("");
+    setEspejoContratoCompra("");
+    setEspejoContratoVenta("");
+    setMovEspejo(null);
+    setMovimientosOpuestos([]);
+    setEspejoSearchFilter("");
     
     if (m) {
       api.get(`/api/movimientos/${m.id}`).then(res => {
         const savedCalidad = res.calidad || [];
         cargarParametrosCalidadEspecie(m.id_especie || 1, savedCalidad);
+        // Cargar datos del espejo si existe
+        if (res.espejo) {
+          setMovEspejo(res.espejo);
+        }
       }).catch(err => {
         console.error("Error al cargar detalle de calidad:", err);
         cargarParametrosCalidadEspecie(m.id_especie || 1, []);
@@ -3842,6 +3880,20 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                   </select>
                 </FF>
               </div>
+              {modulo === "INFORMAL" && (
+                <div style={{padding:"10px 14px",background:"rgba(155,89,182,.06)",border:"1px solid rgba(155,89,182,.2)",borderRadius:6,marginBottom:14}}>
+                  <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:13}}>
+                    <input
+                      type="checkbox"
+                      checked={importCrearEspejo}
+                      onChange={e => setImportCrearEspejo(e.target.checked)}
+                      style={{width:16,height:16,accentColor:"#9b59b6"}}
+                    />
+                    <span style={{color:"#e8eaf0",fontWeight:600}}>🔗 Crear movimiento espejo en el módulo Formal</span>
+                  </label>
+                  <div style={{fontSize:11,color:"#8890a8",marginTop:4,marginLeft:24}}>El productor de la CPE se usa como titular del movimiento formal. Podés ajustar el contrato luego desde la pestaña Espejo.</div>
+                </div>
+              )}
               <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
                 <Btn variant="secondary" onClick={()=>setImportResult(null)}>← Volver</Btn>
                 <Btn onClick={async()=>{
@@ -3890,31 +3942,21 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                       humedad_salida_pct: parseFloat(importHumedadSalida) || null,
                       usuario_carga: usuario,
                       id_contrato_compra: importContratoCompra ? parseInt(importContratoCompra) : null,
-                      id_contrato_venta: importContratoVenta ? parseInt(importContratoVenta) : null
+                      id_contrato_venta: importContratoVenta ? parseInt(importContratoVenta) : null,
+                      // Espejo FORMAL para el caso INFORMAL con checkbox activo
+                      crear_espejo: modulo === "INFORMAL" && importCrearEspejo ? true : undefined
                     };
-
-                    let crearEnFormal = false;
-                    if (modulo === "INFORMAL") {
-                      crearEnFormal = confirm("¿Desea crear este movimiento también en el módulo Formal?");
-                    }
 
                     const r = await api.post("/api/movimientos", payload);
                     let msg = `✓ Movimiento ${r.numero_movimiento} creado desde CPE N° ${importResult.nro_cpe}\nEstado: EN_TRÁNSITO`;
-
-                    if (crearEnFormal) {
-                      const formalPayload = { 
-                        ...payload, 
-                        modalidad: "FORMAL",
-                        id_contrato_compra: null,
-                        id_contrato_venta: null
-                      };
-                      const rFormal = await api.post("/api/movimientos", formalPayload);
-                      msg += `\n✓ Movimiento ${rFormal.numero_movimiento} duplicado creado también en el Módulo Formal.`;
+                    if (modulo === "INFORMAL" && importCrearEspejo) {
+                      msg += `\n🔗 Movimiento formal espejo creado y vinculado automáticamente.`;
                     }
 
                     alert(modulo === "INFORMAL" ? msg : `✓ Movimiento ${r.numero_movimiento} creado desde CPE N° ${importResult.nro_cpe}\nEstado: EN_TRÁNSITO`);
                     setShowImport(false);
                     setImportResult(null);
+                    setImportCrearEspejo(false);
                     cargarMovimientos();
                   } catch(err) {
                     alert("Error al crear movimiento: " + (err.response?.data?.error || err.message));
@@ -4347,9 +4389,21 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         >
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
             <div className="tab-bar" style={{marginBottom:0,flex:1}}>
-              {["salida","llegada", ...(modulo === "FORMAL" ? ["calidad"] : []), "liquidacion","flete"].map(t=>(
-                <button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>
-                  {t.charAt(0).toUpperCase()+t.slice(1)}
+              {["salida","llegada", ...(modulo === "FORMAL" ? ["calidad"] : []), "liquidacion","flete", ...(selected ? ["espejo"] : [])].map(t=>(
+                <button key={t} className={`tab ${tab===t?"active":""}`} onClick={async()=>{
+                  setTab(t);
+                  // Al abrir la pestaña espejo por primera vez, cargar movimientos de modalidad opuesta
+                  if (t === "espejo" && selected && movimientosOpuestos.length === 0 && !movEspejo) {
+                    try {
+                      setLoadingEspejo(true);
+                      const opuesta = modulo === "INFORMAL" ? "FORMAL" : "INFORMAL";
+                      const data = await api.get(`/api/movimientos?modalidad=${opuesta}`);
+                      setMovimientosOpuestos(data);
+                    } catch(e) { setMovimientosOpuestos([]); }
+                    finally { setLoadingEspejo(false); }
+                  }
+                }}>
+                  {t === "espejo" ? (movEspejo ? "🔗 Espejo ✓" : "🔗 Espejo") : t.charAt(0).toUpperCase()+t.slice(1)}
                 </button>
               ))}
             </div>
@@ -4510,9 +4564,78 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                 </div>
               </>}
               {modulo==="INFORMAL"&&(
-                <div style={{padding:"10px 14px",background:"rgba(245,166,35,.06)",border:"1px solid rgba(245,166,35,.15)",borderRadius:6,marginBottom:18,fontSize:12,color:"#8890a8"}}>
-                  📝 Operación <strong style={{color:"#f5a623"}}>Informal</strong> — sin CTG ni intervinientes de CPE
-                </div>
+                <>
+                  <div style={{padding:"10px 14px",background:"rgba(245,166,35,.06)",border:"1px solid rgba(245,166,35,.15)",borderRadius:6,marginBottom:14,fontSize:12,color:"#8890a8"}}>
+                    📝 Operación <strong style={{color:"#f5a623"}}>Informal</strong> — sin CTG ni intervinientes de CPE
+                  </div>
+                  {!selected && (
+                    <div style={{padding:"12px 14px",background:"rgba(155,89,182,.06)",border:"1px solid rgba(155,89,182,.2)",borderRadius:6,marginBottom:18}}>
+                      <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:13,marginBottom:crearEspejo?10:0}}>
+                        <input
+                          type="checkbox"
+                          checked={crearEspejo}
+                          onChange={async e => {
+                            setCrearEspejo(e.target.checked);
+                            if (e.target.checked && contratosEspejo.length === 0) {
+                              try {
+                                const data = await api.get("/api/contratos?modalidad=FORMAL");
+                                const mapped = data.map(c => ({
+                                  id: c.id,
+                                  numero: c.numero_contrato,
+                                  contraparte: c.contraparte_nombre,
+                                  especie: c.especie_nombre,
+                                  tipo: c.tipo_contrato
+                                }));
+                                setContratosEspejo(mapped);
+                              } catch(e) { setContratosEspejo([]); }
+                            }
+                          }}
+                          style={{width:16,height:16,accentColor:"#9b59b6"}}
+                        />
+                        <span style={{color:"#e8eaf0",fontWeight:600}}>🔗 Crear movimiento espejo en el módulo Formal</span>
+                      </label>
+                      {crearEspejo && (
+                        <div style={{paddingLeft:24}}>
+                          <div style={{fontSize:11,color:"#8890a8",marginBottom:10}}>El movimiento formal espejo heredará los datos de la CPE. Podés elegir un productor diferente (el que figura en la CPE como titular) y asignarle contratos del módulo formal.</div>
+                          <div className="form-grid-2">
+                            <FF label="Productor en el FORMAL (Titular CPE)">
+                              <select
+                                value={espejoProductorNombre}
+                                onChange={e => {
+                                  const n = e.target.value;
+                                  const p = contrapartes.find(c => c.razon_social === n);
+                                  setEspejoProductorNombre(n);
+                                  setEspejoProductorCuit(p ? p.cuit || "" : "");
+                                }}
+                              >
+                                <option value="">Igual que el INFORMAL ({movForm.titular_cpe_nombre || movForm.productor_nombre || "productor"})</option>
+                                {contrapartes.filter(c=>c.tipo==="PRODUCTOR"||c.tipo==="AMBOS").map(c=>(
+                                  <option key={c.id} value={c.razon_social}>{c.razon_social} {c.cuit?"("+c.cuit+")":""}</option>
+                                ))}
+                              </select>
+                            </FF>
+                            <FF label="Contrato de Compra (FORMAL)">
+                              <select value={espejoContratoCompra} onChange={e=>setEspejoContratoCompra(e.target.value)}>
+                                <option value="">Sin asignar</option>
+                                {contratosEspejo.filter(c=>c.tipo==="COMPRA").map(c=>(
+                                  <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie}</option>
+                                ))}
+                              </select>
+                            </FF>
+                            <FF label="Contrato de Venta (FORMAL)">
+                              <select value={espejoContratoVenta} onChange={e=>setEspejoContratoVenta(e.target.value)}>
+                                <option value="">Sin asignar</option>
+                                {contratosEspejo.filter(c=>c.tipo==="VENTA").map(c=>(
+                                  <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie}</option>
+                                ))}
+                              </select>
+                            </FF>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>{modulo==="FORMAL"?"B — Grano / Especie":"Grano / Especie"}</div>
               <div className="form-grid-2" style={{marginBottom:18}}>
@@ -4986,6 +5109,115 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                 </div>
               )}
               <Btn variant="success" size="sm">Generar Preliquidación</Btn>
+            </div>
+          )}
+
+          {tab==="espejo"&&selected&&(
+            <div>
+              <div style={{fontSize:11,color:"#9b59b6",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:12,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>
+                🔗 Vínculo Espejo — {modulo === "INFORMAL" ? "Formal" : "Informal"}
+              </div>
+              {movEspejo ? (
+                <div>
+                  <div style={{padding:"14px 16px",background:"rgba(155,89,182,.06)",border:"1px solid rgba(155,89,182,.3)",borderRadius:8,marginBottom:16}}>
+                    <div style={{fontSize:12,color:"#9b59b6",fontWeight:700,marginBottom:10}}>✓ Movimiento vinculado</div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,fontSize:12}}>
+                      {[
+                        ["Número", movEspejo.numero_movimiento],
+                        ["Modalidad", movEspejo.modalidad],
+                        ["Estado", movEspejo.estado],
+                        ["Liq.", movEspejo.estado_liquidacion],
+                        ["Productor", movEspejo.productor_nombre || "—"],
+                      ].map(([l,v])=>(
+                        <div key={l}>
+                          <div style={{color:"#8890a8",fontSize:10,marginBottom:2}}>{l}</div>
+                          <div style={{color:"#e8eaf0",fontWeight:600}}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <Btn
+                    variant="secondary"
+                    size="sm"
+                    onClick={async () => {
+                      if (!confirm("¿Desvincular el espejo? Esta acción no elimina ningún movimiento, solo rompe el vínculo.")) return;
+                      try {
+                        await api.put(`/api/movimientos/${selected.id}/vincular-espejo`, { id_espejo: null });
+                        setMovEspejo(null);
+                        alert("✓ Espejo desvinculado correctamente");
+                        cargarMovimientos();
+                      } catch(e) { alert("Error: " + (e.response?.data?.error || e.message)); }
+                    }}
+                  >
+                    🔓 Desvincular Espejo
+                  </Btn>
+                </div>
+              ) : (
+                <div>
+                  <div className="alert-info" style={{marginBottom:14}}>
+                    💡 Este movimiento no tiene un espejo vinculado. Buscá un movimiento <strong>{modulo === "INFORMAL" ? "FORMAL" : "INFORMAL"}</strong> para relacionarlo.
+                  </div>
+                  <input
+                    type="text"
+                    placeholder={`Filtrar por N° movimiento o productor...`}
+                    value={espejoSearchFilter}
+                    onChange={e => {
+                      setEspejoSearchFilter(e.target.value);
+                      if (movimientosOpuestos.length === 0 && !loadingEspejo) {
+                        setLoadingEspejo(true);
+                        const opuesta = modulo === "INFORMAL" ? "FORMAL" : "INFORMAL";
+                        api.get(`/api/movimientos?modalidad=${opuesta}`)
+                          .then(d => setMovimientosOpuestos(d))
+                          .catch(() => setMovimientosOpuestos([]))
+                          .finally(() => setLoadingEspejo(false));
+                      }
+                    }}
+                    style={{width:"100%",padding:"8px 10px",background:"#1a1d26",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:6,fontSize:13,marginBottom:10}}
+                  />
+                  {loadingEspejo ? (
+                    <div style={{textAlign:"center",color:"#8890a8",padding:"20px 0"}}>Cargando movimientos...</div>
+                  ) : (
+                    <div style={{maxHeight:260,overflowY:"auto",border:"1px solid #2a2d3e",borderRadius:6}}>
+                      {movimientosOpuestos
+                        .filter(m => !espejoSearchFilter || 
+                          (m.numero_movimiento||"").toLowerCase().includes(espejoSearchFilter.toLowerCase()) ||
+                          (m.remitente_comercial_productor_nombre||m.titular_cpe_nombre||"").toLowerCase().includes(espejoSearchFilter.toLowerCase())
+                        )
+                        .slice(0, 50)
+                        .map(m => (
+                          <div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",borderBottom:"1px solid #1e2133",fontSize:12}}>
+                            <div>
+                              <span className="mono" style={{color:"#f5a623",fontWeight:600,marginRight:8}}>{m.numero_movimiento}</span>
+                              <span style={{color:"#e8eaf0"}}>{m.remitente_comercial_productor_nombre||m.titular_cpe_nombre||"—"}</span>
+                              <span style={{color:"#8890a8",marginLeft:8,fontSize:11}}>{m.especie_nombre||""} · {m.estado}</span>
+                            </div>
+                            <Btn
+                              size="sm"
+                              onClick={async () => {
+                                if (!confirm(`¿Vincular como espejo con ${m.numero_movimiento}?`)) return;
+                                try {
+                                  await api.put(`/api/movimientos/${selected.id}/vincular-espejo`, { id_espejo: m.id });
+                                  setMovEspejo({ id: m.id, numero_movimiento: m.numero_movimiento, modalidad: m.modalidad, estado: m.estado, estado_liquidacion: m.estado_liquidacion, productor_nombre: m.remitente_comercial_productor_nombre||m.titular_cpe_nombre||"—" });
+                                  alert(`✓ Movimientos ${selected.numero} ↔ ${m.numero_movimiento} vinculados como espejo`);
+                                  cargarMovimientos();
+                                } catch(e) { alert("Error: " + (e.response?.data?.error || e.message)); }
+                              }}
+                            >Vincular</Btn>
+                          </div>
+                        ))
+                      }
+                      {movimientosOpuestos.filter(m => !espejoSearchFilter || 
+                          (m.numero_movimiento||"").toLowerCase().includes(espejoSearchFilter.toLowerCase()) ||
+                          (m.remitente_comercial_productor_nombre||m.titular_cpe_nombre||"").toLowerCase().includes(espejoSearchFilter.toLowerCase())
+                        ).length === 0 && (
+                        <div style={{textAlign:"center",color:"#8890a8",padding:"20px 0",fontSize:12}}>
+                          {movimientosOpuestos.length === 0 ? `No hay movimientos ${modulo === "INFORMAL" ? "formales" : "informales"} disponibles` : "Sin resultados para el filtro"}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

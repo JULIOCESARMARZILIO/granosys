@@ -174,7 +174,10 @@ router.get('/:id', async (req, res) => {
     let espejo = null;
     if (rows[0].id_movimiento_espejo) {
       const { rows: espejoRows } = await pool.query(
-        'SELECT id, numero_movimiento, modalidad, estado, estado_liquidacion FROM movimientos WHERE id = $1',
+        `SELECT id, numero_movimiento, modalidad, estado, estado_liquidacion,
+                COALESCE(remitente_comercial_productor_nombre, titular_cpe_nombre) as productor_nombre,
+                id_contrato_compra, id_contrato_venta
+         FROM movimientos WHERE id = $1`,
         [rows[0].id_movimiento_espejo]
       );
       if (espejoRows[0]) espejo = espejoRows[0];
@@ -204,7 +207,12 @@ router.post('/', async (req, res) => {
       tarifa_catac, tarifa_flete_real, tipo_tarifa,
       peso_bruto_salida_kg, peso_tara_salida_kg, humedad_salida_pct,
       observaciones, usuario_carga, chofer_nombre, transportista_nombre,
-      chofer, transportista, nro_factura_flete, fecha_partida
+      chofer, transportista, nro_factura_flete, fecha_partida,
+      // Parámetros para creación de espejo FORMAL desde un movimiento INFORMAL
+      crear_espejo,
+      espejo_id_contrato_compra, espejo_id_contrato_venta,
+      espejo_titular_cpe_cuit, espejo_titular_cpe_nombre,
+      espejo_remitente_cuit, espejo_remitente_nombre
     } = req.body;
 
     const finalChofer = chofer_nombre || chofer || null;
@@ -288,8 +296,8 @@ router.post('/', async (req, res) => {
     await recalcularContrato(id_contrato_compra);
     await recalcularContrato(id_contrato_venta);
 
-    // Si es INFORMAL con datos de CPE, crear automáticamente el movimiento FORMAL espejo
-    if (modalidad === 'INFORMAL' && (nro_cpe || fecha_cpe)) {
+    // Si se solicitó crear espejo FORMAL para este movimiento INFORMAL
+    if (modalidad === 'INFORMAL' && crear_espejo === true) {
       const informalId = rows[0].id;
 
       const { rows: lastMov } = await pool.query(
@@ -297,6 +305,16 @@ router.post('/', async (req, res) => {
       );
       const numF = lastMov[0] ? parseInt(lastMov[0].numero_movimiento.split('-')[1]) + 1 : 1;
       const numero_movimiento_formal = `MOV-${String(numF).padStart(4, '0')}`;
+
+      // Usar datos de productor específicos del espejo si fueron proporcionados,
+      // de lo contrario heredar del informal
+      const fEspejoTitularCuit = espejo_titular_cpe_cuit || titular_cpe_cuit || null;
+      const fEspejoTitularNombre = espejo_titular_cpe_nombre || titular_cpe_nombre || null;
+      const fEspejoRemitenteCuit = espejo_remitente_cuit || remitente_comercial_productor_cuit || null;
+      const fEspejoRemitenteNombre = espejo_remitente_nombre || remitente_comercial_productor_nombre || null;
+      const fEspejoContratCompra = espejo_id_contrato_compra || null;
+      const fEspejoContratVenta = espejo_id_contrato_venta || null;
+      const fEspejoEstadoLiq = (fEspejoContratCompra || fEspejoContratVenta) ? 'ASIGNADO' : 'SIN_ASIGNAR';
 
       const { rows: formalRows } = await pool.query(`
         INSERT INTO movimientos (
@@ -311,17 +329,19 @@ router.post('/', async (req, res) => {
           renspa, localidad_origen, provincia_origen, latitud, longitud, descripcion_campo,
           nro_planta_destino, localidad_destino, provincia_destino,
           peso_bruto_salida_kg, peso_tara_salida_kg, peso_neto_salida_kg,
-          humedad_salida_pct, fecha_partida, usuario_carga, id_movimiento_espejo
+          humedad_salida_pct, fecha_partida, usuario_carga,
+          id_contrato_compra, id_contrato_venta,
+          id_movimiento_espejo
         ) VALUES (
-          $1, 'FORMAL', 'EN_TRANSITO', 'SIN_ASIGNAR',
+          $1, 'FORMAL', 'EN_TRANSITO', $38,
           $2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
           $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
-          $30,$31,$32,$33,$34,$35,$36
+          $30,$31,$32,$33,$34,$35,$36,$37,$39
         ) RETURNING id
       `, [numero_movimiento_formal,
           nro_cpe||null, nro_ctg||null, fecha_cpe||null, fecha_vencimiento_cpe||null,
-          titular_cpe_cuit||null, titular_cpe_nombre||null,
-          remitente_comercial_productor_cuit||null, remitente_comercial_productor_nombre||null,
+          fEspejoTitularCuit, fEspejoTitularNombre,
+          fEspejoRemitenteCuit, fEspejoRemitenteNombre,
           rte_comercial_venta_primaria_cuit||null, rte_comercial_venta_primaria_nombre||null,
           destinatario_cuit||null, destinatario_nombre||null,
           destino_cuit||null, destino_nombre||null,
@@ -332,13 +352,18 @@ router.post('/', async (req, res) => {
           nro_planta_destino||null, localidad_destino||null, provincia_destino||null,
           peso_bruto_salida_kg||null, peso_tara_salida_kg||null, peso_neto_salida,
           humedad_salida_pct||null, fecha_partida||null, usuario_carga||null,
-          informalId]);
+          fEspejoContratCompra, fEspejoContratVenta,
+          fEspejoEstadoLiq, informalId]);
 
       // Enlazar el movimiento INFORMAL al FORMAL recién creado
       await pool.query(
         'UPDATE movimientos SET id_movimiento_espejo = $1 WHERE id = $2',
         [formalRows[0].id, informalId]
       );
+
+      // Recalcular contratos del espejo FORMAL si se asignaron
+      await recalcularContrato(fEspejoContratCompra);
+      await recalcularContrato(fEspejoContratVenta);
     }
 
     res.status(201).json(rows[0]);
@@ -769,6 +794,60 @@ router.put('/:id/asignar', async (req, res) => {
     }
 
     res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT vincular/desvincular espejo entre un movimiento INFORMAL y uno FORMAL
+router.put('/:id/vincular-espejo', async (req, res) => {
+  try {
+    const { id_espejo } = req.body;
+    const { id } = req.params;
+
+    // Obtener movimiento actual
+    const { rows: movRows } = await pool.query(
+      'SELECT id, modalidad, id_movimiento_espejo FROM movimientos WHERE id = $1', [id]
+    );
+    if (!movRows[0]) return res.status(404).json({ error: 'No encontrado' });
+    const mov = movRows[0];
+
+    // Desvincular si id_espejo es null
+    if (id_espejo === null || id_espejo === undefined) {
+      const oldEspejoId = mov.id_movimiento_espejo;
+      await pool.query('UPDATE movimientos SET id_movimiento_espejo = NULL WHERE id = $1', [id]);
+      if (oldEspejoId) {
+        await pool.query('UPDATE movimientos SET id_movimiento_espejo = NULL WHERE id = $1', [oldEspejoId]);
+      }
+      return res.json({ ok: true, unlinked: true });
+    }
+
+    const espejoIdInt = parseInt(id_espejo);
+    // Obtener movimiento espejo candidato
+    const { rows: espejoRows } = await pool.query(
+      'SELECT id, modalidad, id_movimiento_espejo FROM movimientos WHERE id = $1', [espejoIdInt]
+    );
+    if (!espejoRows[0]) return res.status(404).json({ error: 'Movimiento espejo no encontrado' });
+    const espejoMov = espejoRows[0];
+
+    // Validar que sean de modalidades opuestas
+    if (mov.modalidad === espejoMov.modalidad) {
+      return res.status(400).json({ error: 'Los movimientos deben ser de modalidades opuestas (uno FORMAL y uno INFORMAL)' });
+    }
+
+    // Validar que ninguno tenga ya un espejo diferente vinculado
+    if (mov.id_movimiento_espejo && mov.id_movimiento_espejo !== espejoIdInt) {
+      return res.status(400).json({ error: 'Este movimiento ya tiene un espejo vinculado. Desvinculalo primero.' });
+    }
+    if (espejoMov.id_movimiento_espejo && espejoMov.id_movimiento_espejo !== parseInt(id)) {
+      return res.status(400).json({ error: 'El movimiento seleccionado ya tiene un espejo vinculado. Desvinculalo primero.' });
+    }
+
+    // Vincular ambos movimientos
+    await pool.query('UPDATE movimientos SET id_movimiento_espejo = $1 WHERE id = $2', [espejoIdInt, id]);
+    await pool.query('UPDATE movimientos SET id_movimiento_espejo = $1 WHERE id = $2', [parseInt(id), espejoIdInt]);
+
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
