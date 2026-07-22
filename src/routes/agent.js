@@ -567,7 +567,7 @@ Responde de forma concisa, clara, estructurada y en español.`;
           ...formattedHistory,
           candidate.content,
           {
-            role: 'function',
+            role: 'user',
             parts: [{
               functionResponse: {
                 name: functionName,
