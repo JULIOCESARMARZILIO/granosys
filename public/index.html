@@ -648,6 +648,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
     recepcion_costo_secada_destino_punto: "", recepcion_costo_zarandeo_destino_tn: "", recepcion_costo_paritaria_destino_tn: "", recepcion_costo_fumigacion_destino_fijo: "", recepcion_otros_destino_descripcion: "", recepcion_costo_otros_destino_valor: ""
   });
   const [selectedContract, setSelectedContract] = useState(null);
+  const [contratoFijacion, setContratoFijacion] = useState(null); // modal rapido de fijaciones
   const [fijacionForm, setFijacionForm] = useState({
     fecha: new Date().toISOString().split('T')[0],
     cantidad_toneladas: "",
@@ -665,6 +666,58 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
       });
     } catch(err) {
       alert("Error al cargar detalles: " + err.message);
+    }
+  };
+
+  const abrirFijacionModal = async (c) => {
+    try {
+      const data = await api.get(`/api/contratos/${c.id}`);
+      setContratoFijacion({ ...c, fijaciones: data.fijaciones || [] });
+      setFijacionForm({ fecha: new Date().toISOString().split('T')[0], cantidad_toneladas: "", precio_fijado: "", observaciones: "" });
+    } catch(err) {
+      alert("Error al cargar fijaciones: " + err.message);
+    }
+  };
+
+  const handleAgregarFijacionModal = async (e) => {
+    if (e) e.preventDefault();
+    if (!contratoFijacion) return;
+    if (!fijacionForm.fecha || !fijacionForm.cantidad_toneladas || !fijacionForm.precio_fijado) {
+      alert("Completá los campos obligatorios.");
+      return;
+    }
+    const totalYaFijado = (contratoFijacion.fijaciones || []).reduce((acc, f) => acc + parseFloat(f.cantidad_toneladas), 0);
+    const disponible = parseFloat(contratoFijacion.toneladas) - totalYaFijado;
+    if (parseFloat(fijacionForm.cantidad_toneladas) > disponible + 0.001) {
+      alert(`No podés fijar más de ${disponible.toFixed(3)} tn. El contrato tiene ${contratoFijacion.toneladas} tn y ya se fijaron ${totalYaFijado.toFixed(3)} tn.`);
+      return;
+    }
+    try {
+      const res = await api.post(`/api/contratos/${contratoFijacion.id}/fijaciones`, {
+        fecha: fijacionForm.fecha,
+        cantidad_toneladas: parseFloat(fijacionForm.cantidad_toneladas),
+        precio_fijado: parseFloat(fijacionForm.precio_fijado),
+        observaciones: fijacionForm.observaciones
+      });
+      const updatedFijaciones = [res, ...(contratoFijacion.fijaciones || [])].sort((a,b) => new Date(b.fecha) - new Date(a.fecha));
+      setContratoFijacion({ ...contratoFijacion, fijaciones: updatedFijaciones });
+      setFijacionForm({ fecha: new Date().toISOString().split('T')[0], cantidad_toneladas: "", precio_fijado: "", observaciones: "" });
+      cargarContratos();
+    } catch(err) {
+      alert("Error al agregar fijación: " + err.message);
+    }
+  };
+
+  const handleEliminarFijacionModal = async (fijacionId) => {
+    if (!contratoFijacion) return;
+    if (!confirm("¿Eliminar esta fijación?")) return;
+    try {
+      await api.delete(`/api/contratos/${contratoFijacion.id}/fijaciones/${fijacionId}`);
+      const updatedFijaciones = (contratoFijacion.fijaciones || []).filter(f => f.id !== fijacionId);
+      setContratoFijacion({ ...contratoFijacion, fijaciones: updatedFijaciones });
+      cargarContratos();
+    } catch(err) {
+      alert("Error al eliminar fijación: " + err.message);
     }
   };
 
@@ -1061,9 +1114,10 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                       </div>
                     </td>
                     <td><Badge label={c.estado} color={estadoColor(c.estado)}/></td>
-                    <td style={{display:"flex",gap:6}}>
+                    <td style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                       <Btn variant="secondary" size="sm" onClick={() => abrirDetalleContrato(c)}>👁️ Ver</Btn>
                       <Btn variant="secondary" size="sm" onClick={() => abrirEditarContrato(c)}>✏️ Editar</Btn>
+                      {c.tipo_precio==="A_FIJAR" && <Btn variant="success" size="sm" onClick={() => abrirFijacionModal(c)}>📌 Fijar</Btn>}
                       <Btn variant="danger" size="sm" onClick={() => eliminarContrato(c)}>✕</Btn>
                     </td>
                   </tr>
@@ -1094,9 +1148,10 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                   <td>{c.tipo_precio==="A_FIJAR"?<Badge label="A FIJAR" color="purple"/>:<span className="mono" style={{fontSize:12}}>${c.precio?.toLocaleString()}</span>}</td>
                   {modulo==="FORMAL"&&<td>{c.tipo_liq?<Badge label={c.tipo_liq==="INCISO_A"?"Inc.A":"Inc.B"} color={c.tipo_liq==="INCISO_A"?"blue":"purple"}/>:"—"}</td>}
                   <td><Badge label={c.estado} color={estadoColor(c.estado)}/></td>
-                  <td style={{display:"flex",gap:6}}>
+                  <td style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                     <Btn variant="secondary" size="sm" onClick={() => abrirDetalleContrato(c)}>👁️ Ver</Btn>
                     <Btn variant="secondary" size="sm" onClick={() => abrirEditarContrato(c)}>✏️ Editar</Btn>
+                    {c.tipo_precio==="A_FIJAR" && <Btn variant="success" size="sm" onClick={() => abrirFijacionModal(c)}>📌 Fijar</Btn>}
                     <Btn variant="danger" size="sm" onClick={() => eliminarContrato(c)}>✕</Btn>
                   </td>
                 </tr>
@@ -1878,6 +1933,135 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
           </div>
         </Modal>
       )}
+
+      {/* MODAL DEDICADO DE FIJACIONES RAPIDAS */}
+      {contratoFijacion && (
+        <Modal onClose={() => setContratoFijacion(null)} title={`📌 Fijaciones Parciales — Contrato ${contratoFijacion.numero}`}>
+          <div style={{display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "20px", marginBottom: 15}}>
+            <div>
+              <h4 style={{fontSize: 12, color: "#8890a8", marginBottom: 8}}>Registrar Nueva Fijación</h4>
+              <form onSubmit={handleAgregarFijacionModal} style={{background: "rgba(255,255,255,0.02)", padding: 12, borderRadius: 6, border: "1px solid #2a2d3e", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10}}>
+                <div>
+                  <label style={{fontSize: 11, color: "#8890a8", display: "block", marginBottom: 4}}>Fecha</label>
+                  <input 
+                    type="date" 
+                    required 
+                    value={fijacionForm.fecha} 
+                    onChange={e => setFijacionForm({...fijacionForm, fecha: e.target.value})} 
+                    style={{width: "100%", padding: "6px 8px", background: "#1a1d26", border: "1px solid #2a2d3e", color: "#e8eaf0", borderRadius: 4}}
+                  />
+                </div>
+                <div>
+                  <label style={{fontSize: 11, color: "#8890a8", display: "block", marginBottom: 4}}>Toneladas</label>
+                  <input 
+                    type="number" 
+                    step="0.001" 
+                    required 
+                    placeholder="30.000" 
+                    value={fijacionForm.cantidad_toneladas} 
+                    onChange={e => setFijacionForm({...fijacionForm, cantidad_toneladas: e.target.value})} 
+                    style={{width: "100%", padding: "6px 8px", background: "#1a1d26", border: "1px solid #2a2d3e", color: "#e8eaf0", borderRadius: 4}}
+                  />
+                </div>
+                <div>
+                  <label style={{fontSize: 11, color: "#8890a8", display: "block", marginBottom: 4}}>Precio Unitario ({contratoFijacion.moneda})</label>
+                  <input 
+                    type="number" 
+                    step="0.01" 
+                    required 
+                    placeholder="280000" 
+                    value={fijacionForm.precio_fijado} 
+                    onChange={e => setFijacionForm({...fijacionForm, precio_fijado: e.target.value})} 
+                    style={{width: "100%", padding: "6px 8px", background: "#1a1d26", border: "1px solid #2a2d3e", color: "#e8eaf0", borderRadius: 4}}
+                  />
+                </div>
+                <div>
+                  <label style={{fontSize: 11, color: "#8890a8", display: "block", marginBottom: 4}}>Observaciones</label>
+                  <input 
+                    type="text" 
+                    placeholder="Fijación" 
+                    value={fijacionForm.observaciones} 
+                    onChange={e => setFijacionForm({...fijacionForm, observaciones: e.target.value})} 
+                    style={{width: "100%", padding: "6px 8px", background: "#1a1d26", border: "1px solid #2a2d3e", color: "#e8eaf0", borderRadius: 4}}
+                  />
+                </div>
+                <div style={{gridColumn: "span 2", display: "flex", justifyContent: "flex-end", marginTop: 4}}>
+                  <Btn type="submit" size="sm" variant="success">Registrar Fijación</Btn>
+                </div>
+              </form>
+            </div>
+            <div>
+              <h4 style={{fontSize: 12, color: "#8890a8", marginBottom: 8}}>Historial de Fijaciones</h4>
+              <div style={{maxHeight: 180, overflowY: "auto", border: "1px solid #2a2d3e", borderRadius: 6, background: "rgba(0,0,0,0.1)", padding: 6}}>
+                {contratoFijacion.fijaciones && contratoFijacion.fijaciones.length > 0 ? (
+                  <table style={{width: "100%", fontSize: 11, borderCollapse: "collapse"}}>
+                    <thead>
+                      <tr style={{borderBottom: "1px solid #2a2d3e", textAlign: "left"}}>
+                        <th style={{padding: 4}}>Fecha</th>
+                        <th style={{padding: 4}}>Tn</th>
+                        <th style={{padding: 4}}>Precio</th>
+                        <th style={{padding: 4}}>Obs</th>
+                        <th style={{padding: 4}}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {contratoFijacion.fijaciones.map(f => (
+                        <tr key={f.id} style={{borderBottom: "1px solid rgba(255,255,255,0.02)"}}>
+                          <td style={{padding: 4}}>{f.fecha}</td>
+                          <td style={{padding: 4}}><span className="mono">{parseFloat(f.cantidad_toneladas).toFixed(3)} tn</span></td>
+                          <td style={{padding: 4}}><span className="mono">${parseFloat(f.precio_fijado).toLocaleString()}</span></td>
+                          <td style={{padding: 4, color: "#8890a8"}} title={f.observaciones}>{f.observaciones || "—"}</td>
+                          <td style={{padding: 4, textAlign: "right"}}>
+                            <button 
+                              type="button"
+                              onClick={() => handleEliminarFijacionModal(f.id)} 
+                              style={{background: "none", color: "#e74c3c", border: "none", cursor: "pointer", padding: "2px 4px", fontSize: 13}}
+                              title="Eliminar fijación"
+                            >
+                              🗑️
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div style={{color: "#8890a8", fontSize: 11, textAlign: "center", padding: "20px 0"}}>Aún no hay fijaciones registradas.</div>
+                )}
+              </div>
+              
+              {contratoFijacion.fijaciones && contratoFijacion.fijaciones.length > 0 && (() => {
+                const totalFixed = contratoFijacion.fijaciones.reduce((acc, f) => acc + parseFloat(f.cantidad_toneladas), 0);
+                const remTons = Math.max(0, contratoFijacion.toneladas - totalFixed);
+                return (
+                  <div style={{fontSize: 11, marginTop: 10, padding: 8, background: "rgba(155, 89, 182, 0.05)", border: "1px solid rgba(155, 89, 182, 0.15)", borderRadius: 6}}>
+                    <div style={{display: "flex", justifyContent: "space-between", marginBottom: 2}}>
+                      <span>Total Contrato:</span>
+                      <strong className="mono">{contratoFijacion.toneladas} tn</strong>
+                    </div>
+                    <div style={{display: "flex", justifyContent: "space-between", marginBottom: 2}}>
+                      <span>Total Fijado:</span>
+                      <strong className="mono" style={{color: "#9b59b6"}}>{totalFixed.toFixed(3)} tn</strong>
+                    </div>
+                    <div style={{display: "flex", justifyContent: "space-between", marginBottom: 2}}>
+                      <span>Pendiente de Fijar:</span>
+                      <strong className="mono" style={{color: remTons > 0 ? "#f5a623" : "#2ecc71"}}>{remTons.toFixed(3)} tn</strong>
+                    </div>
+                    <div style={{display: "flex", justifyContent: "space-between", borderTop: "1px solid rgba(155, 89, 182, 0.2)", paddingTop: 4, marginTop: 4}}>
+                      <span>Precio Ponderado Fijado:</span>
+                      <strong className="mono" style={{color: "#2ecc71"}}>${(contratoFijacion.precio_fijado || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} {contratoFijacion.moneda}</strong>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+          <div style={{display: "flex", justifyContent: "flex-end", marginTop: 20}}>
+            <Btn variant="secondary" onClick={() => setContratoFijacion(null)}>Cerrar</Btn>
+          </div>
+        </Modal>
+      )}
+
     </div>
   );
 };
