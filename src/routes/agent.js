@@ -171,7 +171,35 @@ router.post('/proposals/:id/approve', async (req, res) => {
 
       // Get contract price
       const { rows: contrato } = await client.query('SELECT * FROM contratos WHERE id = $1', [id_contrato]);
-      const precio = contrato[0]?.precio_pactado || 0;
+      if (contrato.length === 0) {
+        throw new Error('Contrato no encontrado.');
+      }
+      // En contratos A_FIJAR el precio real es el promedio ponderado de las fijaciones (precio_fijado).
+      const precio = contrato[0].tipo_precio === 'A_FIJAR'
+        ? (parseFloat(contrato[0].precio_fijado) || 0)
+        : (parseFloat(contrato[0].precio_pactado) || 0);
+
+      if (contrato[0].tipo_precio === 'A_FIJAR') {
+        const { rows: fijRows } = await client.query(
+          'SELECT COALESCE(SUM(cantidad_toneladas), 0) as total FROM fijaciones_contrato WHERE id_contrato = $1',
+          [id_contrato]
+        );
+        const toneladasFijadas = parseFloat(fijRows[0].total);
+
+        const { rows: liqPrevRows } = await client.query(
+          `SELECT COALESCE(SUM(lm.kg_liquidables), 0) as kg
+           FROM liquidacion_movimientos lm
+           JOIN liquidaciones l ON lm.id_liquidacion = l.id
+           WHERE l.id_contrato = $1`,
+          [id_contrato]
+        );
+        const toneladasYaLiquidadas = parseFloat(liqPrevRows[0].kg) / 1000;
+        const toneladasEstaLiquidacion = movs.reduce((sum, m) => sum + (parseFloat(m.kg_liquidables) || 0), 0) / 1000;
+
+        if (toneladasYaLiquidadas + toneladasEstaLiquidacion > toneladasFijadas + 0.001) {
+          throw new Error(`No se puede liquidar ${toneladasEstaLiquidacion.toFixed(3)} tn: superaría el tope de ${toneladasFijadas.toFixed(3)} tn fijadas para este contrato. Margen disponible: ${Math.max(0, toneladasFijadas - toneladasYaLiquidadas).toFixed(3)} tn.`);
+        }
+      }
 
       let monto_bruto = 0;
       for (const m of movs) {

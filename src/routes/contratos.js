@@ -699,6 +699,31 @@ router.post('/:id/fijaciones', async (req, res) => {
       return res.status(400).json({ error: 'Faltan datos obligatorios (fecha, toneladas, precio).' });
     }
 
+    // El total fijado no puede superar ni las toneladas pactadas del contrato
+    // ni las toneladas efectivamente entregadas/asignadas hasta el momento.
+    const { rows: contRows } = await client.query(
+      'SELECT cantidad_toneladas_pactadas, cantidad_toneladas_asignadas FROM contratos WHERE id = $1',
+      [id]
+    );
+    if (contRows.length === 0) {
+      return res.status(404).json({ error: 'Contrato no encontrado.' });
+    }
+    const { rows: yaFijadoRows } = await client.query(
+      'SELECT COALESCE(SUM(cantidad_toneladas), 0) as total FROM fijaciones_contrato WHERE id_contrato = $1',
+      [id]
+    );
+    const yaFijado = parseFloat(yaFijadoRows[0].total);
+    const pactadas = parseFloat(contRows[0].cantidad_toneladas_pactadas);
+    const entregadas = parseFloat(contRows[0].cantidad_toneladas_asignadas) || 0;
+    const tope = Math.min(pactadas, entregadas);
+    const nuevoTotal = yaFijado + parseFloat(cantidad_toneladas);
+
+    if (nuevoTotal > tope + 0.001) {
+      return res.status(400).json({
+        error: `No se puede fijar ${cantidad_toneladas} tn: superaría el tope de ${tope.toFixed(3)} tn (mínimo entre lo pactado: ${pactadas.toFixed(3)} tn y lo entregado: ${entregadas.toFixed(3)} tn). Ya fijado: ${yaFijado.toFixed(3)} tn, margen disponible: ${Math.max(0, tope - yaFijado).toFixed(3)} tn.`
+      });
+    }
+
     await client.query('BEGIN');
 
     // Insertar fijacion

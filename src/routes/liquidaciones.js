@@ -59,7 +59,41 @@ router.post('/', async (req, res) => {
 
     // Obtener precio del contrato
     const { rows: contrato } = await pool.query('SELECT * FROM contratos WHERE id = $1', [id_contrato]);
-    const precio = contrato[0]?.precio_pactado || 0;
+    if (contrato.length === 0) {
+      return res.status(404).json({ error: 'Contrato no encontrado.' });
+    }
+    // En contratos A_FIJAR el precio pactado queda vacío: el precio real es el
+    // promedio ponderado de las fijaciones parciales cargadas (precio_fijado).
+    const precio = contrato[0].tipo_precio === 'A_FIJAR'
+      ? (parseFloat(contrato[0].precio_fijado) || 0)
+      : (parseFloat(contrato[0].precio_pactado) || 0);
+
+    // En A_FIJAR no se puede liquidar más tonelaje que el que ya tiene precio fijado.
+    if (contrato[0].tipo_precio === 'A_FIJAR') {
+      const { rows: fijRows } = await pool.query(
+        'SELECT COALESCE(SUM(cantidad_toneladas), 0) as total FROM fijaciones_contrato WHERE id_contrato = $1',
+        [id_contrato]
+      );
+      const toneladasFijadas = parseFloat(fijRows[0].total);
+
+      const { rows: liqPrevRows } = await pool.query(
+        `SELECT COALESCE(SUM(lm.kg_liquidables), 0) as kg
+         FROM liquidacion_movimientos lm
+         JOIN liquidaciones l ON lm.id_liquidacion = l.id
+         WHERE l.id_contrato = $1`,
+        [id_contrato]
+      );
+      const toneladasYaLiquidadas = parseFloat(liqPrevRows[0].kg) / 1000;
+
+      const toneladasEstaLiquidacion = movs.reduce((sum, m) => sum + (parseFloat(m.kg_liquidables) || 0), 0) / 1000;
+
+      const totalTrasEsta = toneladasYaLiquidadas + toneladasEstaLiquidacion;
+      if (totalTrasEsta > toneladasFijadas + 0.001) {
+        return res.status(400).json({
+          error: `No se puede liquidar ${toneladasEstaLiquidacion.toFixed(3)} tn: superaría el tope de ${toneladasFijadas.toFixed(3)} tn fijadas para este contrato. Ya liquidado: ${toneladasYaLiquidadas.toFixed(3)} tn, margen disponible: ${Math.max(0, toneladasFijadas - toneladasYaLiquidadas).toFixed(3)} tn.`
+        });
+      }
+    }
 
     let monto_bruto = 0;
     for (const m of movs) {
