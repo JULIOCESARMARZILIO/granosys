@@ -43,4 +43,21 @@ router.get('/pendientes', async (req, res) => {
   }
 });
 
+// DELETE /api/whatsapp/comprobante/:id - descartar una captura en staging (ej: prueba o extracción errónea)
+router.delete('/comprobante/:id', async (req, res) => {
+  try {
+    const { pool } = require('../db');
+    const { rows } = await pool.query(
+      'DELETE FROM staging_movimientos WHERE id = $1 RETURNING id',
+      [req.params.id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Registro no encontrado en staging.' });
+    }
+    res.json({ success: true, id: rows[0].id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
