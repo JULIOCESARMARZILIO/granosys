@@ -3822,8 +3822,22 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                 <FF label="Asignar a Contrato de Compra">
                   <select value={importContratoCompra} onChange={e=>setImportContratoCompra(e.target.value)}>
                     <option value="">Sin asignar</option>
-                    {contratos.filter(c=>c.tipo==="COMPRA").map(c=>
-                      <option key={c.id} value={c.id}>{c.numero} — {c.especie}</option>
+                    {contratos.filter(c => {
+                      if (c.tipo !== "COMPRA") return false;
+                      if (c.modalidad !== modulo) return false;
+                      const MAP_ESPECIES = { "soja": 1, "trigo": 2, "maíz": 3, "maiz": 3, "girasol": 4, "sorgo": 5, "cebada": 6 };
+                      const especieId = MAP_ESPECIES[importResult.especie ? importResult.especie.toLowerCase() : ""] || 1;
+                      const espName = (ESPECIES[especieId - 1] || "").toLowerCase();
+                      if (c.especie && c.especie.toLowerCase() !== espName) return false;
+                      
+                      const prodName = (importResult.rte_primaria || importResult.titular || "").toLowerCase().trim();
+                      if (prodName) {
+                        const contraName = (c.contraparte || "").toLowerCase().trim();
+                        return contraName.includes(prodName) || prodName.includes(contraName);
+                      }
+                      return true;
+                    }).map(c=>
+                      <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie}</option>
                     )}
                   </select>
                 </FF>
@@ -3836,8 +3850,22 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                 <FF label="Contrato de Venta">
                   <select value={importContratoVenta} onChange={e=>setImportContratoVenta(e.target.value)}>
                     <option value="">Sin asignar</option>
-                    {contratos.filter(c=>c.tipo==="VENTA").map(c=>
-                      <option key={c.id} value={c.id}>{c.numero} — {c.especie}</option>
+                    {contratos.filter(c => {
+                      if (c.tipo !== "VENTA") return false;
+                      if (c.modalidad !== modulo) return false;
+                      const MAP_ESPECIES = { "soja": 1, "trigo": 2, "maíz": 3, "maiz": 3, "girasol": 4, "sorgo": 5, "cebada": 6 };
+                      const especieId = MAP_ESPECIES[importResult.especie ? importResult.especie.toLowerCase() : ""] || 1;
+                      const espName = (ESPECIES[especieId - 1] || "").toLowerCase();
+                      if (c.especie && c.especie.toLowerCase() !== espName) return false;
+                      
+                      const destName = (importResult.destinatario || "").toLowerCase().trim();
+                      if (destName) {
+                        const contraName = (c.contraparte || "").toLowerCase().trim();
+                        return contraName.includes(destName) || destName.includes(contraName);
+                      }
+                      return true;
+                    }).map(c=>
+                      <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie}</option>
                     )}
                   </select>
                 </FF>
@@ -3893,26 +3921,12 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                       id_contrato_venta: importContratoVenta ? parseInt(importContratoVenta) : null
                     };
 
-                    let crearEnFormal = false;
-                    if (modulo === "INFORMAL") {
-                      crearEnFormal = confirm("¿Desea crear este movimiento también en el módulo Formal?");
-                    }
-
-                    const r = await api.post("/api/movimientos", payload);
-                    let msg = `✓ Movimiento ${r.numero_movimiento} creado desde CPE N° ${importResult.nro_cpe}\nEstado: EN_TRÁNSITO`;
-
-                    if (crearEnFormal) {
-                      const formalPayload = { 
-                        ...payload, 
-                        modalidad: "FORMAL",
-                        id_contrato_compra: null,
-                        id_contrato_venta: null
-                      };
-                      const rFormal = await api.post("/api/movimientos", formalPayload);
-                      msg += `\n✓ Movimiento ${rFormal.numero_movimiento} duplicado creado también en el Módulo Formal.`;
-                    }
-
-                    alert(modulo === "INFORMAL" ? msg : `✓ Movimiento ${r.numero_movimiento} creado desde CPE N° ${importResult.nro_cpe}\nEstado: EN_TRÁNSITO`);
+                     const r = await api.post("/api/movimientos", payload);
+                     let msg = `✓ Movimiento ${r.numero_movimiento} creado desde CPE N° ${importResult.nro_cpe}\nEstado: EN_TRÁNSITO`;
+                     if (r.id_movimiento_vinculado) {
+                       msg += `\n✓ Duplicado creado y vinculado automáticamente en el Módulo Formal.`;
+                     }
+                     alert(msg);
                     setShowImport(false);
                     setImportResult(null);
                     cargarMovimientos();
@@ -4168,11 +4182,17 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                         {(() => {
                           const mappedProd = mappings.find(m => m.field === "productor")?.value || "";
                           const mappedEsp = mappings.find(m => m.field === "especie")?.value || "";
-                          return contratos.filter(c => 
-                            c.tipo === "COMPRA" && 
-                            (!mappedProd || c.contraparte === mappedProd) && 
-                            (!mappedEsp || c.especie.toLowerCase() === mappedEsp.toLowerCase())
-                          ).map(c => (
+                          return contratos.filter(c => {
+                            if (c.tipo !== "COMPRA") return false;
+                            if (c.modalidad !== modulo) return false;
+                            if (mappedEsp && c.especie && c.especie.toLowerCase() !== mappedEsp.toLowerCase()) return false;
+                            if (mappedProd) {
+                              const prod = mappedProd.toLowerCase().trim();
+                              const contra = (c.contraparte || "").toLowerCase().trim();
+                              return contra.includes(prod) || prod.includes(contra);
+                            }
+                            return true;
+                          }).map(c => (
                             <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio === "A_FIJAR" ? "(A FIJAR)" : `$ ${c.precio?.toLocaleString()}`)}</option>
                           ));
                         })()}
@@ -4188,11 +4208,17 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                         {(() => {
                           const mappedComp = mappings.find(m => m.field === "comprador")?.value || "";
                           const mappedEsp = mappings.find(m => m.field === "especie")?.value || "";
-                          return contratos.filter(c => 
-                            c.tipo === "VENTA" && 
-                            (!mappedComp || c.contraparte === mappedComp) && 
-                            (!mappedEsp || c.especie.toLowerCase() === mappedEsp.toLowerCase())
-                          ).map(c => (
+                          return contratos.filter(c => {
+                            if (c.tipo !== "VENTA") return false;
+                            if (c.modalidad !== modulo) return false;
+                            if (mappedEsp && c.especie && c.especie.toLowerCase() !== mappedEsp.toLowerCase()) return false;
+                            if (mappedComp) {
+                              const comp = mappedComp.toLowerCase().trim();
+                              const contra = (c.contraparte || "").toLowerCase().trim();
+                              return contra.includes(comp) || comp.includes(contra);
+                            }
+                            return true;
+                          }).map(c => (
                             <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio === "A_FIJAR" ? "(A FIJAR)" : `$ ${c.precio?.toLocaleString()}`)}</option>
                           ));
                         })()}
@@ -4462,7 +4488,20 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     }}
                   >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
-                    {contratos.filter(c=>c.tipo==="COMPRA" && (!movForm.productor_nombre || c.contraparte === movForm.productor_nombre) && (!movForm.id_especie || !c.especie || c.especie === (ESPECIES[movForm.id_especie - 1] || ""))).map(c=>(
+                    {contratos.filter(c => {
+                      if (c.tipo !== "COMPRA") return false;
+                      if (c.modalidad !== modulo) return false;
+                      if (movForm.id_especie) {
+                        const espName = (ESPECIES[movForm.id_especie - 1] || "").toLowerCase();
+                        if (c.especie && c.especie.toLowerCase() !== espName) return false;
+                      }
+                      const prodName = (movForm.remitente_comercial_productor_nombre || movForm.titular_cpe_nombre || movForm.productor_nombre || "").toLowerCase().trim();
+                      if (prodName) {
+                        const contraName = (c.contraparte || "").toLowerCase().trim();
+                        return contraName.includes(prodName) || prodName.includes(contraName);
+                      }
+                      return true;
+                    }).map(c=>(
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString())}</option>
                     ))}
                   </select>
@@ -4476,7 +4515,20 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     }}
                   >
                     <option value="">Sin contrato → Posición Abierta A Fijar</option>
-                    {contratos.filter(c=>c.tipo==="VENTA" && (!movForm.comprador_nombre || c.contraparte === movForm.comprador_nombre) && (!movForm.id_especie || !c.especie || c.especie === (ESPECIES[movForm.id_especie - 1] || ""))).map(c=>(
+                    {contratos.filter(c => {
+                      if (c.tipo !== "VENTA") return false;
+                      if (c.modalidad !== modulo) return false;
+                      if (movForm.id_especie) {
+                        const espName = (ESPECIES[movForm.id_especie - 1] || "").toLowerCase();
+                        if (c.especie && c.especie.toLowerCase() !== espName) return false;
+                      }
+                      const destName = (movForm.destinatario_nombre || movForm.comprador_nombre || "").toLowerCase().trim();
+                      if (destName) {
+                        const contraName = (c.contraparte || "").toLowerCase().trim();
+                        return contraName.includes(destName) || destName.includes(contraName);
+                      }
+                      return true;
+                    }).map(c=>(
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio==="A_FIJAR"?"(A FIJAR)":"$ "+c.precio?.toLocaleString())}</option>
                     ))}
                   </select>
@@ -4651,21 +4703,29 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
               selected?.factor_calculado
             );
             
+            const isVinculado = selected?.id_movimiento_vinculado && modulo === "INFORMAL";
+            
             return (
               <div>
+                {isVinculado && (
+                  <div style={{padding:"12px 16px",background:"rgba(245,166,35,.1)",border:"1px solid rgba(245,166,35,.25)",borderRadius:8,marginBottom:18,fontSize:13,color:"#f5a623",lineHeight:"1.5"}}>
+                    ⚠️ <strong>Descarga vinculada:</strong> La descarga y pesajes de este viaje se sincronizan automáticamente desde el movimiento Formal asociado (mismo CTG/CPE). No se permite carga manual en el módulo Informal.
+                  </div>
+                )}
                 <div className="form-grid-2">
-                  <FF label="Fecha Arribo"><input type="datetime-local" id="input_fecha_arribo" value={fechaArribo} onChange={e=>setFechaArribo(e.target.value)}/></FF>
-                  <FF label="Fecha Descarga"><input type="datetime-local" id="input_fecha_descarga" value={fechaDescarga} onChange={e=>setFechaDescarga(e.target.value)}/></FF>
-                  <FF label="N° Turno"><input id="input_nro_turno" value={nroTurno} onChange={e=>setNroTurno(e.target.value)}/></FF>
-                  <FF label="Localidad Destino"><input value={movForm.localidad_destino} onChange={e=>setMovForm({...movForm, localidad_destino: e.target.value})} id="input_localidad_destino"/></FF>
-                  <FF label="Kg Bruto Llegada"><input type="number" id="input_bruto_llegada" value={brutoLlegada !== null ? brutoLlegada : ""} onChange={e=>setBrutoLlegada(e.target.value === "" ? null : parseFloat(e.target.value))}/></FF>
-                  <FF label="Kg Tara Llegada"><input type="number" id="input_tara_llegada" value={taraLlegada !== null ? taraLlegada : ""} onChange={e=>setTaraLlegada(e.target.value === "" ? null : parseFloat(e.target.value))}/></FF>
-                  <FF label="Humedad Llegada (%)"><input type="number" step="0.1" id="input_humedad_llegada" value={humedadLlegada !== null ? humedadLlegada : ""} onChange={e=>setHumedadLlegada(e.target.value === "" ? null : parseFloat(e.target.value))}/></FF>
+                  <FF label="Fecha Arribo"><input type="datetime-local" id="input_fecha_arribo" disabled={isVinculado} value={fechaArribo} onChange={e=>setFechaArribo(e.target.value)}/></FF>
+                  <FF label="Fecha Descarga"><input type="datetime-local" id="input_fecha_descarga" disabled={isVinculado} value={fechaDescarga} onChange={e=>setFechaDescarga(e.target.value)}/></FF>
+                  <FF label="N° Turno"><input id="input_nro_turno" disabled={isVinculado} value={nroTurno} onChange={e=>setNroTurno(e.target.value)}/></FF>
+                  <FF label="Localidad Destino"><input value={movForm.localidad_destino} disabled={isVinculado} onChange={e=>setMovForm({...movForm, localidad_destino: e.target.value})} id="input_localidad_destino"/></FF>
+                  <FF label="Kg Bruto Llegada"><input type="number" id="input_bruto_llegada" disabled={isVinculado} value={brutoLlegada !== null ? brutoLlegada : ""} onChange={e=>setBrutoLlegada(e.target.value === "" ? null : parseFloat(e.target.value))}/></FF>
+                  <FF label="Kg Tara Llegada"><input type="number" id="input_tara_llegada" disabled={isVinculado} value={taraLlegada !== null ? taraLlegada : ""} onChange={e=>setTaraLlegada(e.target.value === "" ? null : parseFloat(e.target.value))}/></FF>
+                  <FF label="Humedad Llegada (%)"><input type="number" step="0.1" id="input_humedad_llegada" disabled={isVinculado} value={humedadLlegada !== null ? humedadLlegada : ""} onChange={e=>setHumedadLlegada(e.target.value === "" ? null : parseFloat(e.target.value))}/></FF>
                   {modulo === "INFORMAL" && (
                     <>
                       <FF label="Ajuste Calidad">
                         <select 
                           value={calidadTipoAjuste} 
+                          disabled={isVinculado}
                           onChange={e => {
                             setCalidadTipoAjuste(e.target.value);
                             setCalidadValorAjuste(null);
@@ -4684,6 +4744,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                         <input 
                           type="number" 
                           step="0.0001" 
+                          disabled={isVinculado}
                           placeholder={
                             calidadTipoAjuste === "PORCENTAJE" ? "0.6149" :
                             calidadTipoAjuste === "KILOS" ? "61.49" :

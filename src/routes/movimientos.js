@@ -217,21 +217,39 @@ router.post('/', async (req, res) => {
       await asegurarContraparte(flete_pagador_cuit, flete_pagador_nombre, 'COMPRADOR');
     }
 
-    // Generar número de movimiento
-    const { rows: last } = await pool.query(
+    let final_id_contrato_compra = id_contrato_compra || null;
+    let final_id_contrato_venta = id_contrato_venta || null;
+
+    // Si es INFORMAL y tiene CPE, buscar contrato "INVERSIONES CP" si no viene uno especificado
+    if (modalidad === 'INFORMAL' && nro_cpe && !final_id_contrato_compra) {
+      const { rows: contractSearch } = await pool.query(
+        `SELECT c.id FROM contratos c
+         LEFT JOIN contrapartes cp ON c.id_contraparte = cp.id
+         WHERE c.tipo_contrato = 'COMPRA' AND c.modalidad = 'INFORMAL' AND c.activo = true
+         AND (c.numero_contrato ILIKE '%INVERSIONES CP%' OR cp.razon_social ILIKE '%INVERSIONES CP%' OR c.observaciones ILIKE '%INVERSIONES CP%')
+         LIMIT 1`
+      );
+      if (contractSearch[0]) {
+        final_id_contrato_compra = contractSearch[0].id;
+      }
+    }
+
+    // Generar número de movimiento para el primero
+    const { rows: last1 } = await pool.query(
       "SELECT numero_movimiento FROM movimientos ORDER BY id DESC LIMIT 1"
     );
-    const num = last[0] ? parseInt(last[0].numero_movimiento.split('-')[1]) + 1 : 1;
-    const numero_movimiento = `MOV-${String(num).padStart(4, '0')}`;
+    const num1 = last1[0] ? parseInt(last1[0].numero_movimiento.split('-')[1]) + 1 : 1;
+    const numero_movimiento_1 = `MOV-${String(num1).padStart(4, '0')}`;
 
     // Calcular kg neto salida
     const peso_neto_salida = peso_bruto_salida_kg && peso_tara_salida_kg
       ? parseFloat(peso_bruto_salida_kg) - parseFloat(peso_tara_salida_kg)
       : null;
 
-    const estado_liquidacion = (id_contrato_compra || id_contrato_venta) ? 'ASIGNADO' : 'SIN_ASIGNAR';
+    const estado_liquidacion = (final_id_contrato_compra || final_id_contrato_venta) ? 'ASIGNADO' : 'SIN_ASIGNAR';
 
-    const { rows } = await pool.query(`
+    // Insertar primer movimiento
+    const { rows: mainMovRows } = await pool.query(`
       INSERT INTO movimientos (
         numero_movimiento, modalidad, estado, estado_liquidacion,
         id_contrato_compra, id_contrato_venta,
@@ -248,15 +266,15 @@ router.post('/', async (req, res) => {
         tarifa_catac, tarifa_flete_real, tipo_tarifa,
         peso_bruto_salida_kg, peso_tara_salida_kg, peso_neto_salida_kg,
         humedad_salida_pct, observaciones, usuario_carga, chofer_nombre, transportista_nombre,
-        nro_factura_flete, fecha_partida
+        nro_factura_flete, fecha_partida, id_chofer, id_transportista
       ) VALUES (
         $1,$2,'EN_TRANSITO',$49,
         $3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
         $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,
-        $37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48
+        $37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48, $50, $51
       ) RETURNING *
-    `, [numero_movimiento, modalidad,
-        id_contrato_compra||null, id_contrato_venta||null,
+    `, [numero_movimiento_1, modalidad,
+        final_id_contrato_compra, final_id_contrato_venta,
         nro_cpe||null, nro_ctg||null, fecha_cpe||null, fecha_vencimiento_cpe||null,
         titular_cpe_cuit||null, titular_cpe_nombre||null,
         remitente_comercial_productor_cuit||null, remitente_comercial_productor_nombre||null,
@@ -272,13 +290,69 @@ router.post('/', async (req, res) => {
         tarifa_catac||null, tarifa_flete_real||null, tipo_tarifa||'LLENA',
         peso_bruto_salida_kg||null, peso_tara_salida_kg||null, peso_neto_salida,
         humedad_salida_pct||null, observaciones||null, usuario_carga||null, finalChofer, finalTransportista,
-        nro_factura_flete||null, fecha_partida||null, estado_liquidacion]);
+        nro_factura_flete||null, fecha_partida||null, estado_liquidacion,
+        req.body.id_chofer || null, req.body.id_transportista || null]);
+
+    const createdMov = mainMovRows[0];
+
+    // Si es INFORMAL y tiene CPE, crear twin FORMAL
+    if (modalidad === 'INFORMAL' && nro_cpe) {
+      const numero_movimiento_2 = `MOV-${String(num1 + 1).padStart(4, '0')}`;
+      
+      const { rows: twinRows } = await pool.query(`
+        INSERT INTO movimientos (
+          numero_movimiento, modalidad, estado, estado_liquidacion,
+          id_contrato_compra, id_contrato_venta,
+          nro_cpe, nro_ctg, fecha_cpe, fecha_vencimiento_cpe,
+          titular_cpe_cuit, titular_cpe_nombre,
+          remitente_comercial_productor_cuit, remitente_comercial_productor_nombre,
+          rte_comercial_venta_primaria_cuit, rte_comercial_venta_primaria_nombre,
+          destinatario_cuit, destinatario_nombre, destino_cuit, destino_nombre,
+          flete_pagador_cuit, flete_pagador_nombre,
+          id_especie, id_campana, declaracion_calidad,
+          renspa, localidad_origen, provincia_origen, latitud, longitud, descripcion_campo,
+          nro_planta_destino, localidad_destino, provincia_destino,
+          patente_chasis, patente_acoplado, km_a_recorrer,
+          tarifa_catac, tarifa_flete_real, tipo_tarifa,
+          peso_bruto_salida_kg, peso_tara_salida_kg, peso_neto_salida_kg,
+          humedad_salida_pct, observaciones, usuario_carga, chofer_nombre, transportista_nombre,
+          nro_factura_flete, fecha_partida, id_chofer, id_transportista, id_movimiento_vinculado
+        ) VALUES (
+          $1,'FORMAL','EN_TRANSITO','SIN_ASIGNAR',
+          null,null,
+          $2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
+          $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,
+          $36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47, $48
+        ) RETURNING *
+      `, [numero_movimiento_2,
+          nro_cpe||null, nro_ctg||null, fecha_cpe||null, fecha_vencimiento_cpe||null,
+          titular_cpe_cuit||null, titular_cpe_nombre||null,
+          remitente_comercial_productor_cuit||null, remitente_comercial_productor_nombre||null,
+          rte_comercial_venta_primaria_cuit||null, rte_comercial_venta_primaria_nombre||null,
+          destinatario_cuit||null, destinatario_nombre||null,
+          destino_cuit||null, destino_nombre||null,
+          flete_pagador_cuit||null, flete_pagador_nombre||null,
+          id_especie||null, id_campana||null, declaracion_calidad||'CONFORME',
+          renspa||null, localidad_origen||null, provincia_origen||null,
+          latitud||null, longitud||null, descripcion_campo||null,
+          nro_planta_destino||null, localidad_destino||null, provincia_destino||null,
+          patente_chasis||null, patente_acoplado||null, km_a_recorrer||null,
+          tarifa_catac||null, tarifa_flete_real||null, tipo_tarifa||'LLENA',
+          peso_bruto_salida_kg||null, peso_tara_salida_kg||null, peso_neto_salida,
+          humedad_salida_pct||null, observaciones||null, usuario_carga||null, finalChofer, finalTransportista,
+          nro_factura_flete||null, fecha_partida||null, req.body.id_chofer || null, req.body.id_transportista || null,
+          createdMov.id]);
+
+      const twinMov = twinRows[0];
+      await pool.query('UPDATE movimientos SET id_movimiento_vinculado = $1 WHERE id = $2', [twinMov.id, createdMov.id]);
+      createdMov.id_movimiento_vinculado = twinMov.id;
+    }
 
     // Recalcular toneladas y estado de contratos
-    await recalcularContrato(id_contrato_compra);
-    await recalcularContrato(id_contrato_venta);
+    await recalcularContrato(final_id_contrato_compra);
+    await recalcularContrato(final_id_contrato_venta);
 
-    res.status(201).json(rows[0]);
+    res.status(201).json(createdMov);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -386,6 +460,31 @@ router.put('/:id/llegada', async (req, res) => {
     if (rows[0]) {
       await recalcularContrato(rows[0].id_contrato_compra);
       await recalcularContrato(rows[0].id_contrato_venta);
+      
+      if (rows[0].id_movimiento_vinculado) {
+        const vinculoId = rows[0].id_movimiento_vinculado;
+        const { rows: vMov } = await pool.query('SELECT id_contrato_compra, id_contrato_venta FROM movimientos WHERE id = $1', [vinculoId]);
+        
+        await pool.query(`
+          UPDATE movimientos SET
+            fecha_arribo=$1, fecha_descarga=$2, nro_turno=$3,
+            peso_bruto_llegada_kg=$4, peso_tara_llegada_kg=$5,
+            peso_neto_llegada_kg=$6, humedad_llegada_pct=$7,
+            diferencia_kg=$8, tolerancia_kg=$9, faltante_kg=$10,
+            factor_calculado=$11, factor_manual=$12, factor_aplicado=$13, kg_liquidables=$14,
+            estado='DESCARGADO', updated_at=NOW()
+          WHERE id=$15
+        `, [fecha_arribo||null, fecha_descarga||null, nro_turno||null,
+            peso_bruto_llegada_kg, peso_tara_llegada_kg, peso_neto_llegada,
+            humedad_llegada_pct||null, diferencia, tolerancia, faltante,
+            factor_calculado, db_factor_manual, factor_aplicado, kg_liquidables,
+            vinculoId]);
+            
+        if (vMov[0]) {
+          await recalcularContrato(vMov[0].id_contrato_compra);
+          await recalcularContrato(vMov[0].id_contrato_venta);
+        }
+      }
     }
 
     res.json(rows[0]);
@@ -499,6 +598,75 @@ router.put('/:id/calidad', async (req, res) => {
     if (rows[0]) {
       await recalcularContrato(rows[0].id_contrato_compra);
       await recalcularContrato(rows[0].id_contrato_venta);
+      
+      if (rows[0].id_movimiento_vinculado) {
+        const vinculoId = rows[0].id_movimiento_vinculado;
+        
+        // Borrar calidad anterior del vinculado
+        await pool.query('DELETE FROM calidad_movimiento WHERE id_movimiento = $1', [vinculoId]);
+        
+        // Insertar los mismos registros de calidad para el vinculado
+        if (parametros && parametros.length > 0) {
+          for (const p of parametros) {
+            const exceso = Math.max(0, p.valor_declarado - p.tolerancia);
+            const ajuste_limpio = exceso > 0
+              ? -(exceso * (p.descuento_por_punto || 0)) + (exceso * (p.bonificacion_por_punto || 0))
+              : 0;
+            await pool.query(`
+              INSERT INTO calidad_movimiento
+                (id_movimiento, id_parametro, valor_declarado_pct, tolerancia_parametro_pct,
+                 exceso_sobre_tolerancia_pct, factor_descuento_bonificacion_pct)
+              VALUES ($1,$2,$3,$4,$5,$6)
+            `, [vinculoId, p.id_parametro, p.valor_declarado, p.tolerancia, exceso, ajuste_limpio]);
+          }
+        }
+        
+        // Recalcular kilos del vinculado usando su propio peso_neto_llegada_kg (que ya estará sincronizado por llegada)
+        const { rows: vMovList } = await pool.query('SELECT id_contrato_compra, id_contrato_venta, peso_neto_llegada_kg FROM movimientos WHERE id = $1', [vinculoId]);
+        const vMov = vMovList[0];
+        
+        if (vMov) {
+          const v_kg_secos = (vMov.peso_neto_llegada_kg || 0) * (1.0 - (merma_humedad_pct / 100.0));
+          let v_kg_liquidables = v_kg_secos;
+          let v_factor_aplicado = factor_calculado;
+          let v_factor_manual = final_factor_manual;
+          
+          if (calidad_tipo_ajuste !== undefined && calidad_tipo_ajuste !== null) {
+            const val = calidad_valor_ajuste !== null && calidad_valor_ajuste !== undefined ? parseFloat(calidad_valor_ajuste) : null;
+            if (val !== null) {
+              if (calidad_tipo_ajuste === 'PORCENTAJE') {
+                v_factor_manual = 1.0 - (val / 100.0);
+                v_factor_aplicado = v_factor_manual;
+                v_kg_liquidables = v_kg_secos * v_factor_aplicado;
+              } else if (calidad_tipo_ajuste === 'KILOS') {
+                v_kg_liquidables = Math.max(0, v_kg_secos - val);
+                v_factor_manual = v_kg_secos > 0 ? v_kg_liquidables / v_kg_secos : 0;
+                v_factor_aplicado = v_factor_manual;
+              } else {
+                v_factor_manual = val;
+                v_factor_aplicado = v_factor_manual;
+                v_kg_liquidables = v_kg_secos * v_factor_aplicado;
+              }
+            }
+          }
+          
+          await pool.query(`
+            UPDATE movimientos SET
+              factor_calculado=$1, factor_manual=$2, factor_aplicado=$3,
+              tipo_factor=$4, kg_liquidables=$5,
+              calidad_tipo_ajuste=$6, calidad_valor_ajuste=$7,
+              updated_at=NOW()
+            WHERE id=$8
+          `, [factor_calculado, v_factor_manual, v_factor_aplicado,
+              final_tipo_factor, v_kg_liquidables,
+              calidad_tipo_ajuste || 'FACTOR',
+              calidad_valor_ajuste !== undefined && calidad_valor_ajuste !== null ? parseFloat(calidad_valor_ajuste) : null,
+              vinculoId]);
+              
+          await recalcularContrato(vMov.id_contrato_compra);
+          await recalcularContrato(vMov.id_contrato_venta);
+        }
+      }
     }
 
     res.json(rows[0]);

@@ -382,6 +382,7 @@ async function initDB() {
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS estado_flete VARCHAR(20) DEFAULT 'PENDIENTE';
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS calidad_tipo_ajuste VARCHAR(20) DEFAULT 'FACTOR';
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS calidad_valor_ajuste DECIMAL(12,4);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_movimiento_vinculado INTEGER REFERENCES movimientos(id);
 
       -- Inicializar estado_flete basado en campos de flete existentes
       UPDATE movimientos SET estado_flete = 'LIQUIDADO' WHERE nro_factura_flete IS NOT NULL AND (estado_flete IS NULL OR estado_flete = 'PENDIENTE');
