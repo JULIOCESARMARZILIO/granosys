@@ -437,6 +437,27 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS staging_movimientos (
+        id SERIAL PRIMARY KEY,
+        telefono_remitente VARCHAR(20),
+        mensaje_texto TEXT,
+        patente_camion VARCHAR(10) NOT NULL,
+        kilos_netos DECIMAL(12,3) NOT NULL,
+        producto VARCHAR(50) NOT NULL,
+        remitente_nombre VARCHAR(200),
+        remitente_cuit VARCHAR(13),
+        contrato_destino VARCHAR(50),
+        doble_registro_aplicado BOOLEAN NOT NULL DEFAULT FALSE,
+        datos_extraidos_raw JSONB,
+        media_url TEXT,
+        estado VARCHAR(30) NOT NULL DEFAULT 'Pendiente_Autorizacion',
+        usuario_validador VARCHAR(100),
+        fecha_validacion TIMESTAMP,
+        id_movimiento INTEGER REFERENCES movimientos(id),
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
     `);
 
     // Sembrar usuario administrador por defecto
