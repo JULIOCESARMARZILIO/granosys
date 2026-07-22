@@ -766,4 +766,146 @@ router.post('/generar-ia', async (req, res) => {
   }
 });
 
+// GET /financiero - Cuánto hay que pagar/cobrar, agrupado por período y por
+// acreedor. Separa GRANOS (liquidaciones a contrapartes vía cc_contrapartes)
+// de FLETES (pagos a transportistas vía cc_transportistas), porque son dos
+// circuitos y dos tablas totalmente distintos en el esquema.
+//
+// Dos vistas distintas a propósito:
+//   - por_periodo: movimientos de cta-cte FECHADOS dentro de [desde, hasta],
+//     agrupados por día/semana/mes. Sirve para proyectar cuánta plata nueva
+//     se compromete por período (planificación de caja hacia adelante).
+//   - por_acreedor: saldo NETO ACUMULADO histórico (todo el tiempo, sin
+//     filtro de fecha) de cada contraparte/transportista al que se le debe
+//     plata ahora mismo. Ninguna de las dos tablas tiene fecha de
+//     vencimiento ni un flag de "pagado", así que "cuánto le debo a Juan hoy"
+//     solo puede calcularse como la suma histórica completa, no acotada al
+//     rango del reporte. Ordenado de mayor a menor deuda para poder decidir
+//     a quién adelantar o atrasar el pago.
+router.get('/financiero', async (req, res) => {
+  try {
+    const { desde, hasta } = req.query;
+    const agrupacion = req.query.agrupacion || 'dia';
+    const unitMap = { dia: 'day', semana: 'week', mes: 'month' };
+    const unit = unitMap[agrupacion];
+
+    if (!unit) {
+      return res.status(400).json({ error: "El parámetro agrupacion debe ser 'dia', 'semana' o 'mes'" });
+    }
+    if (!desde || !hasta) {
+      return res.status(400).json({ error: 'Los parámetros desde y hasta (YYYY-MM-DD) son obligatorios' });
+    }
+    const formato = unit === 'month' ? 'YYYY-MM' : 'YYYY-MM-DD';
+
+    // Granos: liquidaciones + pagos/cobros/adelantos a contrapartes, dentro del rango
+    const { rows: granosPorPeriodo } = await pool.query(`
+      SELECT
+        TO_CHAR(DATE_TRUNC($3, cc.fecha), $4) as periodo,
+        MIN(cc.fecha) as periodo_desde,
+        COALESCE(SUM(cc.haber - cc.debe), 0) as granos_neto,
+        COUNT(*) as cantidad_movimientos
+      FROM cc_contrapartes cc
+      WHERE cc.fecha BETWEEN $1 AND $2
+      GROUP BY 1
+      ORDER BY MIN(cc.fecha) ASC
+    `, [desde, hasta, unit, formato]);
+
+    // Fletes: pagos/facturas/ajustes a transportistas, dentro del rango
+    const { rows: fletesPorPeriodo } = await pool.query(`
+      SELECT
+        TO_CHAR(DATE_TRUNC($3, cct.fecha), $4) as periodo,
+        MIN(cct.fecha) as periodo_desde,
+        COALESCE(SUM(cct.haber - cct.debe), 0) as fletes_neto,
+        COUNT(*) as cantidad_movimientos
+      FROM cc_transportistas cct
+      WHERE cct.fecha BETWEEN $1 AND $2
+      GROUP BY 1
+      ORDER BY MIN(cct.fecha) ASC
+    `, [desde, hasta, unit, formato]);
+
+    // Merge de ambas series por período
+    const periodos = new Map();
+    for (const r of granosPorPeriodo) {
+      periodos.set(r.periodo, {
+        periodo: r.periodo,
+        periodo_desde: r.periodo_desde,
+        granos_neto: parseFloat(r.granos_neto),
+        fletes_neto: 0,
+        cantidad_movimientos: parseInt(r.cantidad_movimientos, 10),
+      });
+    }
+    for (const r of fletesPorPeriodo) {
+      const existente = periodos.get(r.periodo);
+      if (existente) {
+        existente.fletes_neto = parseFloat(r.fletes_neto);
+        existente.cantidad_movimientos += parseInt(r.cantidad_movimientos, 10);
+      } else {
+        periodos.set(r.periodo, {
+          periodo: r.periodo,
+          periodo_desde: r.periodo_desde,
+          granos_neto: 0,
+          fletes_neto: parseFloat(r.fletes_neto),
+          cantidad_movimientos: parseInt(r.cantidad_movimientos, 10),
+        });
+      }
+    }
+    const por_periodo = Array.from(periodos.values())
+      .map(p => ({ ...p, total_neto: Math.round((p.granos_neto + p.fletes_neto) * 100) / 100 }))
+      .sort((a, b) => new Date(a.periodo_desde) - new Date(b.periodo_desde));
+
+    // Ranking de acreedores (saldo positivo = todavía se les debe), sin filtro de fecha
+    const { rows: acreedoresGranos } = await pool.query(`
+      SELECT cp.id as id_entidad, cp.razon_social as nombre, cp.tipo_contraparte,
+             COALESCE(SUM(cc.haber - cc.debe), 0) as monto_adeudado,
+             COUNT(*) as movimientos, MIN(cc.fecha) as fecha_mas_antigua
+      FROM cc_contrapartes cc
+      JOIN contrapartes cp ON cc.id_contraparte = cp.id
+      GROUP BY cp.id, cp.razon_social, cp.tipo_contraparte
+      HAVING COALESCE(SUM(cc.haber - cc.debe), 0) > 0
+      ORDER BY monto_adeudado DESC
+    `);
+
+    const { rows: acreedoresFletes } = await pool.query(`
+      SELECT t.id as id_entidad, t.razon_social as nombre,
+             COALESCE(SUM(cct.haber - cct.debe), 0) as monto_adeudado,
+             COUNT(*) as movimientos, MIN(cct.fecha) as fecha_mas_antigua
+      FROM cc_transportistas cct
+      JOIN transportistas t ON cct.id_transportista = t.id
+      GROUP BY t.id, t.razon_social
+      HAVING COALESCE(SUM(cct.haber - cct.debe), 0) > 0
+      ORDER BY monto_adeudado DESC
+    `);
+
+    const hoy = Date.now();
+    const diasPendiente = (fecha) => Math.floor((hoy - new Date(fecha).getTime()) / 86400000);
+
+    const por_acreedor = [
+      ...acreedoresGranos.map(r => ({
+        categoria: 'GRANOS',
+        id_entidad: r.id_entidad,
+        nombre: r.nombre,
+        tipo_contraparte: r.tipo_contraparte,
+        monto_adeudado: Math.round(parseFloat(r.monto_adeudado) * 100) / 100,
+        movimientos: parseInt(r.movimientos, 10),
+        fecha_mas_antigua: r.fecha_mas_antigua,
+        dias_pendiente: diasPendiente(r.fecha_mas_antigua),
+      })),
+      ...acreedoresFletes.map(r => ({
+        categoria: 'FLETES',
+        id_entidad: r.id_entidad,
+        nombre: r.nombre,
+        tipo_contraparte: null,
+        monto_adeudado: Math.round(parseFloat(r.monto_adeudado) * 100) / 100,
+        movimientos: parseInt(r.movimientos, 10),
+        fecha_mas_antigua: r.fecha_mas_antigua,
+        dias_pendiente: diasPendiente(r.fecha_mas_antigua),
+      })),
+    ].sort((a, b) => b.monto_adeudado - a.monto_adeudado);
+
+    res.json({ agrupacion, desde, hasta, por_periodo, por_acreedor });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

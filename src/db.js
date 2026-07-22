@@ -636,7 +636,13 @@ async function initDB() {
       { name: "es_canje", type: "BOOLEAN DEFAULT FALSE" },
       { name: "id_contrato_canje_relacionado", type: "INTEGER REFERENCES contratos(id)" },
       { name: "descripcion_relacion_canje", type: "VARCHAR(200)" },
-      { name: "base_calculo_peso", type: "VARCHAR(30) DEFAULT 'BRUTO_CAMPO'" }
+      { name: "base_calculo_peso", type: "VARCHAR(30) DEFAULT 'BRUTO_CAMPO'" },
+      // Usadas por routes/contratos.js (POST/PUT) pero nunca creadas hasta ahora
+      { name: "localidad_entrega_pactada", type: "VARCHAR(100)" },
+      { name: "comprador_estimado_id", type: "INTEGER REFERENCES contrapartes(id)" },
+      { name: "aplica_cpe", type: "BOOLEAN DEFAULT FALSE" },
+      { name: "costo_cpe_pct", type: "DECIMAL(8,4)" },
+      { name: "costo_financiero_pct", type: "DECIMAL(8,4)" }
     ];
     for (const col of columnsContratos) {
       try {

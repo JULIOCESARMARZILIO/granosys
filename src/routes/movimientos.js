@@ -675,6 +675,262 @@ router.put('/:id/calidad', async (req, res) => {
   }
 });
 
+// NOTA: los bloques /bulk-update, /bulk-preliquidar, /preliquidaciones/resumen
+// y /preliquidaciones/:codigo/facturar deben declararse ANTES de la ruta
+// genérica PUT /:id de más abajo. Express matchea rutas en orden de
+// declaración, y ":id" matchea cualquier segmento único — con las rutas al
+// final del archivo (como estaban antes), "PUT /bulk-preliquidar" y
+// "PUT /bulk-update" quedaban interceptadas por PUT /:id (con id="bulk-..."),
+// rompiendo con "invalid input syntax for type integer" antes de llegar a su
+// propio handler. Esto significa que en el código previo a este cambio, todo
+// el circuito de preliquidación y facturación de fletes era inalcanzable.
+
+// PUT /bulk-update - Actualización masiva de fletes
+router.put('/bulk-update', async (req, res) => {
+  try {
+    const { ids, tarifa_flete_real, transportista_nombre, chofer_nombre } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'IDs de movimientos requeridos' });
+    }
+
+    const updates = [];
+    const params = [];
+
+    if (tarifa_flete_real !== undefined) {
+      const parsedTarifa = (tarifa_flete_real === '' || tarifa_flete_real === null) ? null : parseFloat(tarifa_flete_real);
+      params.push(parsedTarifa);
+      updates.push(`tarifa_flete_real = $${params.length}`);
+    }
+    if (transportista_nombre !== undefined) {
+      params.push(transportista_nombre === '' ? null : transportista_nombre);
+      updates.push(`transportista_nombre = $${params.length}`);
+    }
+    if (chofer_nombre !== undefined) {
+      params.push(chofer_nombre === '' ? null : chofer_nombre);
+      updates.push(`chofer_nombre = $${params.length}`);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'Ningún campo para actualizar provisto' });
+    }
+
+    params.push(ids);
+    const query = `
+      UPDATE movimientos
+      SET ${updates.join(', ')}, updated_at = NOW()
+      WHERE id = ANY($${params.length})
+      RETURNING id
+    `;
+
+    const { rows } = await pool.query(query, params);
+    res.json({ updated: rows.map(r => r.id) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /bulk-preliquidar - Preliquidar fletes seleccionados (Agrupa por transportista y genera código)
+router.put('/bulk-preliquidar', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'IDs de movimientos requeridos' });
+    }
+
+    // 1. Obtener los movimientos con su transportista
+    const { rows: movs } = await pool.query(
+      'SELECT id, transportista_nombre FROM movimientos WHERE id = ANY($1)',
+      [ids]
+    );
+
+    if (movs.length === 0) {
+      return res.status(400).json({ error: 'No se encontraron movimientos válidos' });
+    }
+
+    // 2. Agrupar por transportista_nombre
+    const grupos = {};
+    for (const m of movs) {
+      const carrier = m.transportista_nombre || 'SinTransportista';
+      if (!grupos[carrier]) grupos[carrier] = [];
+      grupos[carrier].push(m.id);
+    }
+
+    const resultados = [];
+
+    // 3. Generar código único y actualizar para cada grupo
+    for (const [carrierName, groupIds] of Object.entries(grupos)) {
+      const cleanName = carrierName
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // Eliminar acentos
+        .replace(/[^a-zA-Z0-9]/g, "") // Solo alfanumérico
+        .substring(0, 15) || 'Flete';
+
+      // Consultar códigos existentes para este transportista
+      const { rows: exist } = await pool.query(
+        "SELECT DISTINCT codigo_preliquidacion FROM movimientos WHERE codigo_preliquidacion LIKE $1",
+        [`${cleanName}-%`]
+      );
+
+      let nextNum = 1;
+      if (exist.length > 0) {
+        const numbers = exist.map(r => {
+          const parts = r.codigo_preliquidacion.split('-');
+          const lastPart = parts[parts.length - 1];
+          const parsed = parseInt(lastPart);
+          return isNaN(parsed) ? 0 : parsed;
+        });
+        nextNum = Math.max(...numbers) + 1;
+      }
+
+      const code = `${cleanName}-${String(nextNum).padStart(4, '0')}`;
+
+      // Actualizar los movimientos de este grupo
+      await pool.query(`
+        UPDATE movimientos
+        SET estado_flete = 'PRELIQUIDADO',
+            codigo_preliquidacion = $1,
+            updated_at = NOW()
+        WHERE id = ANY($2)
+      `, [code, groupIds]);
+
+      resultados.push({ codigo: code, transportista: carrierName, cantidad: groupIds.length });
+    }
+
+    res.json({ success: true, resultados });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /preliquidaciones/resumen - Listar grupos de preliquidaciones
+router.get('/preliquidaciones/resumen', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT m.codigo_preliquidacion,
+             m.transportista_nombre,
+             t.id as id_transportista,
+             MIN(m.created_at) as fecha,
+             COUNT(*) as cantidad_viajes,
+             SUM(m.peso_neto_llegada_kg) as total_neto_llegada,
+             SUM(COALESCE(m.tarifa_flete_real, 0) * COALESCE(m.peso_neto_llegada_kg, 0) / 1000) as total_monto,
+             MAX(m.nro_factura_flete) as nro_factura_flete,
+             MAX(m.estado_flete) as estado_liquidacion
+      FROM movimientos m
+      LEFT JOIN transportistas t ON m.id_transportista = t.id OR m.transportista_nombre = t.razon_social
+      WHERE m.codigo_preliquidacion IS NOT NULL
+      GROUP BY m.codigo_preliquidacion, m.transportista_nombre, t.id
+      ORDER BY fecha DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /preliquidaciones/:codigo/facturar - Asignar factura a una preliquidación y pasar saldo a cc_transportistas
+router.put('/preliquidaciones/:codigo/facturar', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { codigo } = req.params;
+    const { nro_factura_flete } = req.body;
+
+    if (!nro_factura_flete) {
+      return res.status(400).json({ error: 'Número de factura es requerido' });
+    }
+
+    await client.query('BEGIN');
+
+    // 1. Obtener los movimientos asociados a esta preliquidación
+    const { rows: movs } = await client.query(`
+      SELECT m.id, m.id_transportista, m.transportista_nombre, m.tarifa_flete_real, m.peso_neto_llegada_kg, m.modalidad, m.estado_flete
+      FROM movimientos m
+      WHERE m.codigo_preliquidacion = $1
+    `, [codigo]);
+
+    if (movs.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Preliquidación no encontrada' });
+    }
+
+    // Verificar si ya fue facturada (para evitar duplicaciones). OJO: se
+    // chequea estado_flete (ciclo de vida del FLETE: PENDIENTE ->
+    // PRELIQUIDADO -> LIQUIDADO), no estado_liquidacion (que es el ciclo de
+    // vida de la liquidación del GRANO). Antes se chequeaba estado_liquidacion
+    // por error, así que apenas se liquidaba el grano de un movimiento ya no
+    // se podía facturar su flete nunca más, aunque el flete jamás se hubiera
+    // facturado.
+    const yaFacturada = movs.some(m => m.estado_flete === 'LIQUIDADO');
+    if (yaFacturada) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Esta preliquidación ya tiene una factura asignada y fue liquidada' });
+    }
+
+    // 2. Calcular el total del monto del flete de todos los movimientos de esta preliquidación
+    let totalMonto = 0;
+    let id_transportista = null;
+    let transportista_nombre = '';
+
+    for (const m of movs) {
+      const tarifa = m.tarifa_flete_real ? parseFloat(m.tarifa_flete_real) : 0;
+      const neto = m.peso_neto_llegada_kg ? parseFloat(m.peso_neto_llegada_kg) : 0;
+      totalMonto += (tarifa * neto) / 1000;
+      if (m.id_transportista) id_transportista = m.id_transportista;
+      if (m.transportista_nombre) transportista_nombre = m.transportista_nombre;
+    }
+
+    totalMonto = Math.round(totalMonto * 100) / 100; // redondear a 2 decimales
+
+    // 3. Buscar el transportista en la tabla de transportistas por nombre si no tenemos id
+    if (!id_transportista && transportista_nombre) {
+      const { rows: tRows } = await client.query(
+        'SELECT id FROM transportistas WHERE razon_social = $1 LIMIT 1',
+        [transportista_nombre]
+      );
+      if (tRows[0]) {
+        id_transportista = tRows[0].id;
+      }
+    }
+
+    if (!id_transportista) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `No se pudo asociar un transportista registrado para la preliquidación ${codigo}. Registrá el transportista con Razón Social: ${transportista_nombre} primero.` });
+    }
+
+    // 4. Actualizar todos los movimientos de la preliquidación
+    await client.query(`
+      UPDATE movimientos
+      SET nro_factura_flete = $1,
+          estado_flete = 'LIQUIDADO',
+          updated_at = NOW()
+      WHERE codigo_preliquidacion = $2
+    `, [nro_factura_flete, codigo]);
+
+    // 5. Insertar en cc_transportistas (Haber = totalMonto, Debe = 0)
+    const { rows: lastCc } = await client.query(
+      'SELECT saldo_acumulado FROM cc_transportistas WHERE id_transportista = $1 ORDER BY fecha DESC, id DESC LIMIT 1',
+      [id_transportista]
+    );
+    const lastSaldo = lastCc[0] ? parseFloat(lastCc[0].saldo_acumulado) : 0;
+    const haber = totalMonto;
+    const debe = 0;
+    // Convención de cuenta corriente de proveedores: saldo = saldo_anterior + debe - haber.
+    const saldo_acumulado = lastSaldo + (debe - haber);
+
+    await client.query(`
+      INSERT INTO cc_transportistas (id_transportista, fecha, concepto, descripcion, debe, haber, saldo_acumulado, estado)
+      VALUES ($1, CURRENT_DATE, 'FACTURA', $2, $3, $4, $5, 'ABIERTO')
+    `, [id_transportista, `Preliq ${codigo} - Factura ${nro_factura_flete}`, debe, haber, saldo_acumulado]);
+
+    await client.query('COMMIT');
+    res.json({ success: true, codigo, nro_factura_flete, total_monto: totalMonto });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // PUT actualizar movimiento completo (general/salida)
 router.put('/:id', async (req, res) => {
   try {
@@ -854,244 +1110,5 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// PUT /bulk-update - Actualización masiva de fletes
-router.put('/bulk-update', async (req, res) => {
-  try {
-    const { ids, tarifa_flete_real, transportista_nombre, chofer_nombre } = req.body;
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ error: 'IDs de movimientos requeridos' });
-    }
-
-    const updates = [];
-    const params = [];
-
-    if (tarifa_flete_real !== undefined) {
-      const parsedTarifa = (tarifa_flete_real === '' || tarifa_flete_real === null) ? null : parseFloat(tarifa_flete_real);
-      params.push(parsedTarifa);
-      updates.push(`tarifa_flete_real = $${params.length}`);
-    }
-    if (transportista_nombre !== undefined) {
-      params.push(transportista_nombre === '' ? null : transportista_nombre);
-      updates.push(`transportista_nombre = $${params.length}`);
-    }
-    if (chofer_nombre !== undefined) {
-      params.push(chofer_nombre === '' ? null : chofer_nombre);
-      updates.push(`chofer_nombre = $${params.length}`);
-    }
-
-    if (updates.length === 0) {
-      return res.status(400).json({ error: 'Ningún campo para actualizar provisto' });
-    }
-
-    params.push(ids);
-    const query = `
-      UPDATE movimientos
-      SET ${updates.join(', ')}, updated_at = NOW()
-      WHERE id = ANY($${params.length})
-      RETURNING id
-    `;
-
-    const { rows } = await pool.query(query, params);
-    res.json({ updated: rows.map(r => r.id) });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// PUT /bulk-preliquidar - Preliquidar fletes seleccionados (Agrupa por transportista y genera código)
-router.put('/bulk-preliquidar', async (req, res) => {
-  try {
-    const { ids } = req.body;
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ error: 'IDs de movimientos requeridos' });
-    }
-
-    // 1. Obtener los movimientos con su transportista
-    const { rows: movs } = await pool.query(
-      'SELECT id, transportista_nombre FROM movimientos WHERE id = ANY($1)',
-      [ids]
-    );
-
-    if (movs.length === 0) {
-      return res.status(400).json({ error: 'No se encontraron movimientos válidos' });
-    }
-
-    // 2. Agrupar por transportista_nombre
-    const grupos = {};
-    for (const m of movs) {
-      const carrier = m.transportista_nombre || 'SinTransportista';
-      if (!grupos[carrier]) grupos[carrier] = [];
-      grupos[carrier].push(m.id);
-    }
-
-    const resultados = [];
-
-    // 3. Generar código único y actualizar para cada grupo
-    for (const [carrierName, groupIds] of Object.entries(grupos)) {
-      const cleanName = carrierName
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "") // Eliminar acentos
-        .replace(/[^a-zA-Z0-9]/g, "") // Solo alfanumérico
-        .substring(0, 15) || 'Flete';
-
-      // Consultar códigos existentes para este transportista
-      const { rows: exist } = await pool.query(
-        "SELECT DISTINCT codigo_preliquidacion FROM movimientos WHERE codigo_preliquidacion LIKE $1",
-        [`${cleanName}-%`]
-      );
-
-      let nextNum = 1;
-      if (exist.length > 0) {
-        const numbers = exist.map(r => {
-          const parts = r.codigo_preliquidacion.split('-');
-          const lastPart = parts[parts.length - 1];
-          const parsed = parseInt(lastPart);
-          return isNaN(parsed) ? 0 : parsed;
-        });
-        nextNum = Math.max(...numbers) + 1;
-      }
-
-      const code = `${cleanName}-${String(nextNum).padStart(4, '0')}`;
-
-      // Actualizar los movimientos de este grupo
-      await pool.query(`
-        UPDATE movimientos
-        SET estado_flete = 'PRELIQUIDADO',
-            codigo_preliquidacion = $1,
-            updated_at = NOW()
-        WHERE id = ANY($2)
-      `, [code, groupIds]);
-
-      resultados.push({ codigo: code, transportista: carrierName, cantidad: groupIds.length });
-    }
-
-    res.json({ success: true, resultados });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /preliquidaciones/resumen - Listar grupos de preliquidaciones
-router.get('/preliquidaciones/resumen', async (req, res) => {
-  try {
-    const { rows } = await pool.query(`
-      SELECT m.codigo_preliquidacion,
-             m.transportista_nombre,
-             t.id as id_transportista,
-             MIN(m.created_at) as fecha,
-             COUNT(*) as cantidad_viajes,
-             SUM(m.peso_neto_llegada_kg) as total_neto_llegada,
-             SUM(COALESCE(m.tarifa_flete_real, 0) * COALESCE(m.peso_neto_llegada_kg, 0) / 1000) as total_monto,
-             MAX(m.nro_factura_flete) as nro_factura_flete,
-             MAX(m.estado_flete) as estado_liquidacion
-      FROM movimientos m
-      LEFT JOIN transportistas t ON m.id_transportista = t.id OR m.transportista_nombre = t.razon_social
-      WHERE m.codigo_preliquidacion IS NOT NULL
-      GROUP BY m.codigo_preliquidacion, m.transportista_nombre, t.id
-      ORDER BY fecha DESC
-    `);
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// PUT /preliquidaciones/:codigo/facturar - Asignar factura a una preliquidación y pasar saldo a cc_transportistas
-router.put('/preliquidaciones/:codigo/facturar', async (req, res) => {
-  const client = await pool.connect();
-  try {
-    const { codigo } = req.params;
-    const { nro_factura_flete } = req.body;
-
-    if (!nro_factura_flete) {
-      return res.status(400).json({ error: 'Número de factura es requerido' });
-    }
-
-    await client.query('BEGIN');
-
-    // 1. Obtener los movimientos asociados a esta preliquidación
-    const { rows: movs } = await client.query(`
-      SELECT m.id, m.id_transportista, m.transportista_nombre, m.tarifa_flete_real, m.peso_neto_llegada_kg, m.modalidad, m.estado_liquidacion
-      FROM movimientos m
-      WHERE m.codigo_preliquidacion = $1
-    `, [codigo]);
-
-    if (movs.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Preliquidación no encontrada' });
-    }
-
-    // Verificar si ya fue facturada (para evitar duplicaciones)
-    const yaFacturada = movs.some(m => m.estado_liquidacion === 'LIQUIDADO');
-    if (yaFacturada) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Esta preliquidación ya tiene una factura asignada y fue liquidada' });
-    }
-
-    // 2. Calcular el total del monto del flete de todos los movimientos de esta preliquidación
-    let totalMonto = 0;
-    let id_transportista = null;
-    let transportista_nombre = '';
-
-    for (const m of movs) {
-      const tarifa = m.tarifa_flete_real ? parseFloat(m.tarifa_flete_real) : 0;
-      const neto = m.peso_neto_llegada_kg ? parseFloat(m.peso_neto_llegada_kg) : 0;
-      totalMonto += (tarifa * neto) / 1000;
-      if (m.id_transportista) id_transportista = m.id_transportista;
-      if (m.transportista_nombre) transportista_nombre = m.transportista_nombre;
-    }
-
-    totalMonto = Math.round(totalMonto * 100) / 100; // redondear a 2 decimales
-
-    // 3. Buscar el transportista en la tabla de transportistas por nombre si no tenemos id
-    if (!id_transportista && transportista_nombre) {
-      const { rows: tRows } = await client.query(
-        'SELECT id FROM transportistas WHERE razon_social = $1 LIMIT 1',
-        [transportista_nombre]
-      );
-      if (tRows[0]) {
-        id_transportista = tRows[0].id;
-      }
-    }
-
-    if (!id_transportista) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: `No se pudo asociar un transportista registrado para la preliquidación ${codigo}. Registrá el transportista con Razón Social: ${transportista_nombre} primero.` });
-    }
-
-    // 4. Actualizar todos los movimientos de la preliquidación
-    await client.query(`
-      UPDATE movimientos
-      SET nro_factura_flete = $1,
-          estado_flete = 'LIQUIDADO',
-          updated_at = NOW()
-      WHERE codigo_preliquidacion = $2
-    `, [nro_factura_flete, codigo]);
-
-    // 5. Insertar en cc_transportistas (Haber = totalMonto, Debe = 0)
-    const { rows: lastCc } = await client.query(
-      'SELECT saldo_acumulado FROM cc_transportistas WHERE id_transportista = $1 ORDER BY fecha DESC, id DESC LIMIT 1',
-      [id_transportista]
-    );
-    const lastSaldo = lastCc[0] ? parseFloat(lastCc[0].saldo_acumulado) : 0;
-    const haber = totalMonto;
-    const debe = 0;
-    // Convención de cuenta corriente de proveedores: saldo = saldo_anterior + debe - haber.
-    const saldo_acumulado = lastSaldo + (debe - haber);
-
-    await client.query(`
-      INSERT INTO cc_transportistas (id_transportista, fecha, concepto, descripcion, debe, haber, saldo_acumulado, estado)
-      VALUES ($1, CURRENT_DATE, 'FACTURA', $2, $3, $4, $5, 'ABIERTO')
-    `, [id_transportista, `Preliq ${codigo} - Factura ${nro_factura_flete}`, debe, haber, saldo_acumulado]);
-
-    await client.query('COMMIT');
-    res.json({ success: true, codigo, nro_factura_flete, total_monto: totalMonto });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
-  } finally {
-    client.release();
-  }
-});
 
 module.exports = router;
