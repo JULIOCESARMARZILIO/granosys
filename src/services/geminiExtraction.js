@@ -152,4 +152,105 @@ async function guardarEnStaging(datosExtraidos, meta = {}) {
   return rows[0];
 }
 
-module.exports = { extraerComprobante, guardarEnStaging, ExtraccionError };
+// Esquema de la Carta de Porte Electrónica (AFIP). Mismos nombres de campo que usaba
+// el parser por regex (parseCpeText en el frontend), para que el formulario no cambie.
+const cpeSchema = {
+  type: Type.OBJECT,
+  properties: {
+    nro_ctg: { type: Type.STRING, description: 'Número de CTG (Código de Trazabilidad de Granos).' },
+    nro_cpe: { type: Type.STRING, description: 'Número de CPE, formato NNNNN-NNNNNNNN.' },
+    fecha: { type: Type.STRING, description: 'Fecha de emisión de la CPE, formato DD/MM/AAAA.' },
+    fecha_iso: { type: Type.STRING, description: 'La misma fecha de emisión en formato AAAA-MM-DD.' },
+    vencimiento: { type: Type.STRING, description: 'Fecha de vencimiento de la CPE, formato DD/MM/AAAA.' },
+    vencimiento_iso: { type: Type.STRING, description: 'La misma fecha de vencimiento en formato AAAA-MM-DD.' },
+    titular: { type: Type.STRING, description: 'Nombre del titular de la CPE (primer CUIT-nombre listado antes de "Destinatario").' },
+    titular_cuit: { type: Type.STRING, description: 'CUIT del titular.' },
+    rte_primaria: { type: Type.STRING, description: 'Remitente comercial productor (segundo CUIT-nombre antes de "Destinatario").' },
+    rte_primaria_cuit: { type: Type.STRING, description: 'CUIT del remitente comercial productor.' },
+    rte_venta_primaria: { type: Type.STRING, description: 'Remitente comercial venta primaria (tercer CUIT-nombre antes de "Destinatario").' },
+    rte_venta_primaria_cuit: { type: Type.STRING, description: 'CUIT del remitente comercial venta primaria.' },
+    destinatario: { type: Type.STRING, description: 'Nombre del destinatario de la carga.' },
+    destinatario_cuit: { type: Type.STRING, description: 'CUIT del destinatario.' },
+    destino: { type: Type.STRING, description: 'Nombre del destino/planta de descarga.' },
+    destino_cuit: { type: Type.STRING, description: 'CUIT del destino.' },
+    transportista: { type: Type.STRING, description: 'Nombre de la empresa transportista.' },
+    transportista_cuit: { type: Type.STRING, description: 'CUIT de la empresa transportista.' },
+    chofer: { type: Type.STRING, description: 'Nombre del chofer.' },
+    chofer_cuit: { type: Type.STRING, description: 'CUIT/CUIL del chofer.' },
+    flete_pagador: { type: Type.STRING, description: 'Nombre de quien paga el flete.' },
+    flete_pagador_cuit: { type: Type.STRING, description: 'CUIT de quien paga el flete.' },
+    especie: { type: Type.STRING, description: 'Grano transportado: Soja, Maíz, Trigo, Girasol, Cebada o Sorgo.' },
+    campana: { type: Type.STRING, description: 'Campaña agrícola, formato "20XX/20YY".' },
+    peso_bruto: { type: Type.NUMBER, description: 'Peso bruto en kilogramos.' },
+    peso_tara: { type: Type.NUMBER, description: 'Peso tara en kilogramos.' },
+    peso_neto: { type: Type.NUMBER, description: 'Peso neto en kilogramos (bruto - tara).' },
+    chasis: { type: Type.STRING, description: 'Patente del camión/chasis.' },
+    acoplado: { type: Type.STRING, description: 'Patente del acoplado.' },
+    km: { type: Type.NUMBER, description: 'Kilómetros a recorrer declarados.' },
+    origen_planta: { type: Type.STRING, description: 'Número de planta/campo de origen, sección C - PROCEDENCIA.' },
+    origen_direccion: { type: Type.STRING, description: 'Dirección de origen, sección C - PROCEDENCIA.' },
+    origen_prov: { type: Type.STRING, description: 'Provincia de origen (nombre propio, ej: "Santa Fe").' },
+    origen_loc: { type: Type.STRING, description: 'Localidad de origen.' },
+    latitud: { type: Type.STRING, description: 'Latitud del campo de origen, si figura.' },
+    longitud: { type: Type.STRING, description: 'Longitud del campo de origen, si figura.' },
+    nro_planta: { type: Type.STRING, description: 'Número de planta de destino, sección D - DESTINO DE LA MERCADERÍA.' },
+    destino_direccion: { type: Type.STRING, description: 'Dirección de destino, sección D - DESTINO DE LA MERCADERÍA.' },
+    destino_prov: { type: Type.STRING, description: 'Provincia de destino (nombre propio, ej: "Buenos Aires").' },
+    destino_loc: { type: Type.STRING, description: 'Localidad de destino.' },
+    renspa: { type: Type.STRING, description: 'RENSPA del campo de origen, si figura.' }
+  },
+  required: []
+};
+
+const PROMPT_CPE = `Sos un asistente que lee el texto de una Carta de Porte Electrónica (CPE) argentina emitida por AFIP/ARCA (formulario de trazabilidad de granos) y extrae datos estructurados exactamente con el esquema pedido.
+
+Reglas:
+- Si un campo no figura en el texto, dejalo vacío ("" para texto, 0 para número) en vez de inventar un valor.
+- "especie" debe normalizarse con la primera letra mayúscula (Soja, Maíz, Trigo, Girasol, Cebada, Sorgo).
+- Provincias en "origen_prov"/"destino_prov" deben quedar con formato de nombre propio (ej: "Santa Fe", no "SANTA FE").
+- El texto viene de una extracción de PDF y puede tener saltos de línea irregulares o texto entremezclado; usá el contexto (secciones, etiquetas como "Destinatario:", "Empresa Transportista:", "C - PROCEDENCIA", "D - DESTINO DE LA MERCADERÍA") para ubicar cada dato.`;
+
+/**
+ * Extrae los datos estructurados de una Carta de Porte Electrónica a partir del texto
+ * plano ya extraído del PDF en el cliente (pdf.js). No reemplaza la extracción de texto,
+ * solo la interpretación/estructuración de campos (antes hecha con regex).
+ */
+async function extraerDatosCPE(texto) {
+  if (!texto || !texto.trim()) {
+    throw new ExtraccionError('Se requiere el texto extraído del PDF de la CPE.');
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new ExtraccionError('La variable de entorno GEMINI_API_KEY no está configurada.');
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  let response;
+  try {
+    response = await ai.models.generateContent({
+      model: MODEL,
+      contents: [{ role: 'user', parts: [{ text: `${PROMPT_CPE}\n\nTexto extraído del PDF:\n${texto}` }] }],
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: cpeSchema
+      }
+    });
+  } catch (err) {
+    throw new ExtraccionError(`No se pudo invocar la API de Gemini: ${err.message}`, err);
+  }
+
+  const rawText = response?.text;
+  if (!rawText) {
+    throw new ExtraccionError('Gemini no devolvió contenido (posible bloqueo de seguridad o PDF ilegible).');
+  }
+
+  try {
+    return JSON.parse(rawText);
+  } catch (err) {
+    throw new ExtraccionError(`Gemini devolvió un JSON malformado: ${rawText.slice(0, 300)}`, err);
+  }
+}
+
+module.exports = { extraerComprobante, guardarEnStaging, extraerDatosCPE, ExtraccionError };

@@ -1,5 +1,22 @@
 const router = require('express').Router();
 const { pool } = require('../db');
+const { extraerDatosCPE, ExtraccionError } = require('../services/geminiExtraction');
+
+// POST /parse-cpe - interpreta con IA el texto de una Carta de Porte Electrónica
+// (el PDF se lee en el cliente con pdf.js; acá solo se estructura el texto plano).
+router.post('/parse-cpe', async (req, res) => {
+  try {
+    const { texto } = req.body;
+    const datos = await extraerDatosCPE(texto);
+    res.json(datos);
+  } catch (err) {
+    if (err instanceof ExtraccionError) {
+      return res.status(422).json({ error: err.message });
+    }
+    console.error('Error al parsear CPE:', err);
+    res.status(500).json({ error: 'Error interno al interpretar la Carta de Porte.' });
+  }
+});
 
 // Recalcula y actualiza la cantidad de toneladas asignadas y el estado de un contrato
 async function recalcularContrato(id_contrato) {
