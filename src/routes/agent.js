@@ -599,7 +599,7 @@ Responde de forma concisa, clara, estructurada y en español.`;
       const finalCandidate = secondResJson.candidates?.[0];
       const finalText = finalCandidate?.content?.parts?.[0]?.text || 'No pude procesar la respuesta.';
 
-      return res.json({ text: finalText, proposal: (toolResult && toolResult.status === 'PROPOSED') ? toolResult.proposal : null });
+      return res.json({ text: finalText, proposal: (toolResult && toolResult.status === 'PROPOSED') ? toolResult.proposal : null, debug: finalText === 'No pude procesar la respuesta.' ? secondResJson : undefined });
     }
 
     // Normal text response
