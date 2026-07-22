@@ -3,7 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>GranoSYS Mobile — Salida de Camiones</title>
+  <meta name="theme-color" content="#f5a623">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GranoSYS">
+  <title>GranoSYS Mobile — Agro en Campo</title>
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/manifest.json">
   <!-- Google Fonts: Outfit & IBM Plex Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -339,9 +345,348 @@
       background-color: rgba(46, 206, 118, 0.15);
       color: #2ece76;
     }
+
+    /* ============================
+       FLOATING AI CHAT BUTTON (FAB)
+    ============================ */
+    #ai-fab {
+      position: fixed;
+      bottom: 76px;
+      right: 16px;
+      width: 56px;
+      height: 56px;
+      background: linear-gradient(135deg, #f5a623 0%, #d48200 100%);
+      border-radius: 50%;
+      display: none; /* shown after login */
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      box-shadow: 0 4px 20px rgba(245,166,35,0.5);
+      cursor: pointer;
+      border: none;
+      z-index: 950;
+      transition: transform 0.2s, box-shadow 0.2s;
+      animation: fab-pulse 3s ease-in-out infinite;
+    }
+    #ai-fab:active { transform: scale(0.92); }
+    @keyframes fab-pulse {
+      0%, 100% { box-shadow: 0 4px 20px rgba(245,166,35,0.5); }
+      50% { box-shadow: 0 4px 30px rgba(245,166,35,0.8); }
+    }
+    #ai-fab .badge-count {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      background: #e74c3c;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      min-width: 18px;
+      height: 18px;
+      border-radius: 9px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 0 4px;
+    }
+
+    /* ============================
+       AI CHAT PANEL
+    ============================ */
+    #chat-panel {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(8,10,16,0.97);
+      z-index: 1100;
+      display: none;
+      flex-direction: column;
+      padding: 0;
+    }
+    #chat-panel.open { display: flex; }
+    .chat-header {
+      background: #151926;
+      border-bottom: 1px solid #2a2e3f;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .chat-header-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 15px;
+    }
+    .chat-header-title .ai-dot {
+      width: 10px; height: 10px;
+      background: #2ece76;
+      border-radius: 50%;
+      animation: blink 1.5s ease-in-out infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .chat-close-btn {
+      background: none; border: none; color: #8890a8;
+      font-size: 22px; cursor: pointer; padding: 4px 8px;
+    }
+    #chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .chat-bubble {
+      max-width: 85%;
+      padding: 10px 14px;
+      border-radius: 18px;
+      font-size: 14px;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+    .chat-bubble.user {
+      background: #f5a623;
+      color: #000;
+      border-bottom-right-radius: 4px;
+      align-self: flex-end;
+      font-weight: 500;
+    }
+    .chat-bubble.ai {
+      background: #1e2236;
+      color: #e8eaf0;
+      border: 1px solid #2a2e3f;
+      border-bottom-left-radius: 4px;
+      align-self: flex-start;
+    }
+    .chat-bubble.ai.loading {
+      color: #8890a8;
+      font-style: italic;
+    }
+    .chat-bubble.ai.loading::after {
+      content: '...';
+      animation: dots 1.2s steps(3, end) infinite;
+    }
+    @keyframes dots {
+      0% { content: ''; }
+      33% { content: '.'; }
+      66% { content: '..'; }
+      100% { content: '...'; }
+    }
+    .chat-proposal-card {
+      background: #0f1420;
+      border: 1px solid #2a2e3f;
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-top: 6px;
+      font-size: 12px;
+    }
+    .chat-proposal-card .proposal-label {
+      color: #f5a623;
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .chat-proposal-actions {
+      display: flex; gap: 8px; margin-top: 8px;
+    }
+    .chat-proposal-actions button {
+      flex: 1; padding: 8px; border: none; border-radius: 8px;
+      font-weight: 700; font-size: 13px; cursor: pointer;
+    }
+    .btn-approve { background: #2ece76; color: #000; }
+    .btn-reject  { background: rgba(231,76,60,0.2); color: #e74c3c; border: 1px solid rgba(231,76,60,0.4) !important; }
+    #chat-input-area {
+      padding: 12px 14px;
+      background: #151926;
+      border-top: 1px solid #2a2e3f;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    #chat-input {
+      flex: 1;
+      background: #0c0f17;
+      border: 1px solid #2a2e3f;
+      border-radius: 24px;
+      color: #e8eaf0;
+      padding: 10px 16px;
+      font-size: 14px;
+      outline: none;
+      resize: none;
+      height: 44px;
+    }
+    #chat-input:focus { border-color: #f5a623; }
+    #chat-send-btn, #chat-voice-btn {
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+      transition: transform 0.15s;
+    }
+    #chat-send-btn { background: #f5a623; color: #000; }
+    #chat-send-btn:active { transform: scale(0.9); }
+    #chat-voice-btn { background: #1e2236; color: #8890a8; border: 1px solid #2a2e3f; }
+    #chat-voice-btn.recording { background: #e74c3c; color: #fff; animation: fab-pulse 0.8s ease-in-out infinite; }
+
+    /* ============================
+       APPROVALS TAB
+    ============================ */
+    .proposal-card {
+      background: #151926;
+      border: 1px solid #2a2e3f;
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .proposal-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 8px;
+    }
+    .proposal-type-badge {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      background: rgba(245,166,35,0.15);
+      color: #f5a623;
+      padding: 3px 8px;
+      border-radius: 20px;
+      letter-spacing: 0.05em;
+    }
+    .proposal-date {
+      font-size: 11px;
+      color: #8890a8;
+    }
+    .proposal-explanation {
+      font-size: 13px;
+      color: #e8eaf0;
+      line-height: 1.5;
+      margin-bottom: 10px;
+    }
+    .proposal-data {
+      background: #0c0f17;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 11px;
+      font-family: 'IBM Plex Mono', monospace;
+      color: #8890a8;
+      margin-bottom: 10px;
+      word-break: break-all;
+      max-height: 80px;
+      overflow-y: auto;
+    }
+    .proposal-btn-row {
+      display: flex;
+      gap: 10px;
+    }
+    .proposal-btn-row button {
+      flex: 1;
+      padding: 10px;
+      border-radius: 10px;
+      border: none;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .proposal-btn-row button:active { opacity: 0.7; }
+    .btn-approve-full { background: #2ece76; color: #000; }
+    .btn-reject-full  { background: rgba(231,76,60,0.15); color: #e74c3c; border: 1px solid rgba(231,76,60,0.35) !important; }
+
+    /* Tab badge (pending count) */
+    .tab-badge {
+      background: #e74c3c;
+      color: #fff;
+      font-size: 9px;
+      font-weight: 700;
+      min-width: 14px;
+      height: 14px;
+      border-radius: 7px;
+      padding: 0 3px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      position: absolute;
+      top: 4px;
+      right: 6px;
+    }
+
+    /* ============================
+       OFFLINE BANNER
+    ============================ */
+    #offline-banner {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      background: #e74c3c;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      text-align: center;
+      padding: 8px 16px;
+      z-index: 2000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    #offline-banner.show { display: flex; }
+    body.offline-mode #app-container { padding-top: 36px; }
+
+    /* ============================
+       TOAST NOTIFICATIONS
+    ============================ */
+    #toast-container {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 3000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+      pointer-events: none;
+    }
+    .toast {
+      background: #1e2236;
+      border: 1px solid #2a2e3f;
+      color: #e8eaf0;
+      font-size: 13px;
+      padding: 10px 18px;
+      border-radius: 24px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      animation: toast-in 0.3s ease, toast-out 0.3s ease 2.5s forwards;
+      white-space: nowrap;
+    }
+    .toast.success { border-color: #2ece76; color: #2ece76; }
+    .toast.error   { border-color: #e74c3c; color: #e74c3c; }
+    @keyframes toast-in  { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes toast-out { from { opacity:1; } to { opacity:0; pointer-events:none; } }
   </style>
 </head>
 <body>
+
+  <!-- OFFLINE BANNER -->
+  <div id="offline-banner">
+    <span>⚠️</span>
+    <span>Sin conexión — Las operaciones se guardarán y sincronizarán al recuperar señal.</span>
+  </div>
+
+  <!-- TOAST CONTAINER -->
+  <div id="toast-container"></div>
 
   <!-- LOCK SCREEN -->
   <div id="lock-screen">
@@ -504,6 +849,20 @@
       </div>
     </div>
 
+    <!-- TAB 4: APPROVALS (AI AGENT PROPOSALS) -->
+    <div id="tab-aprobaciones" class="tab-content">
+      <div style="margin-bottom: 14px; display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="font-size: 15px; font-weight:600;">🤖 Propuestas del Agente IA</h3>
+        <button class="btn btn-secondary" style="width:auto; padding:6px 12px; font-size:12px;" onclick="loadProposals()">Refrescar</button>
+      </div>
+      <div style="font-size:12px; color:#8890a8; margin-bottom:14px; background:#151926; border-radius:10px; padding:10px 12px; border:1px solid #2a2e3f;">
+        💡 Revisá las propuestas generadas por el Agente y aprobá o rechazá cada acción antes de que se ejecute en el sistema.
+      </div>
+      <div id="proposals-container">
+        <div style="padding:40px; text-align:center; color:var(--text-muted);">Cargando propuestas...</div>
+      </div>
+    </div>
+
     <!-- TAB 3: CONTRACT FORM (REGISTER CONTRACT) -->
     <div id="tab-contrato" class="tab-content">
       <div class="card">
@@ -620,6 +979,31 @@
 
   </div>
 
+  <!-- FLOATING AI CHAT BUTTON -->
+  <button id="ai-fab" onclick="toggleChat()" aria-label="Asistente IA">
+    🤖
+    <span class="badge-count" id="fab-badge">0</span>
+  </button>
+
+  <!-- AI CHAT PANEL -->
+  <div id="chat-panel">
+    <div class="chat-header">
+      <div class="chat-header-title">
+        <span class="ai-dot"></span>
+        <span>Asistente IA — GranoSYS</span>
+      </div>
+      <button class="chat-close-btn" onclick="toggleChat()">✕</button>
+    </div>
+    <div id="chat-messages">
+      <!-- Messages populated by JS -->
+    </div>
+    <div id="chat-input-area">
+      <input type="text" id="chat-input" placeholder="Preguntame algo..." onkeydown="if(event.key==='Enter')sendChatMessage()">
+      <button id="chat-voice-btn" onclick="toggleVoice()" title="Dictado por voz">🎤</button>
+      <button id="chat-send-btn" onclick="sendChatMessage()">➤</button>
+    </div>
+  </div>
+
   <!-- BOTTOM TAB BAR -->
   <div class="tab-bar" id="tab-bar" style="display: none;">
     <button class="tab-btn active" id="btn-tab-form" onclick="switchTab('form')">
@@ -640,6 +1024,13 @@
       </svg>
       Ver Salidas
     </button>
+    <button class="tab-btn" id="btn-tab-aprobaciones" onclick="switchTab('aprobaciones')" style="position:relative;">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+      </svg>
+      Aprobar
+      <span class="tab-badge" id="tab-badge-aprobaciones" style="display:none;">0</span>
+    </button>
   </div>
 
   <!-- APP LOGIC -->
@@ -650,11 +1041,421 @@
 
     let contrapartes = [];
     let contratos = [];
+    let chatHistory = [];
+    let isVoiceRecording = false;
+    let voiceRecognition = null;
+    let offlineQueue = [];
 
     let loggedInUser = "mobile-balanza";
 
-    // Auto-login if saved user exists
-    window.addEventListener("DOMContentLoaded", () => {
+    // ========== SERVICE WORKER REGISTRATION ==========
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/service-worker.js').then(reg => {
+          console.log('[PWA] Service Worker registered:', reg.scope);
+          // Listen for updates
+          reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                showToast('Nueva versión disponible. Recargá para actualizar.', '');
+              }
+            });
+          });
+        }).catch(err => console.warn('[PWA] SW registration failed:', err));
+
+        // Messages from SW
+        navigator.serviceWorker.addEventListener('message', (event) => {
+          if (event.data.type === 'ENQUEUE_REQUEST') {
+            offlineQueue.push(event.data.entry);
+            updateOfflineQueueUI();
+          } else if (event.data.type === 'REPLAY_QUEUE') {
+            replayOfflineQueue();
+          }
+        });
+      });
+    }
+
+    // ========== OFFLINE DETECTION ==========
+    function updateOnlineStatus() {
+      const isOnline = navigator.onLine;
+      const banner = document.getElementById('offline-banner');
+      if (isOnline) {
+        banner.classList.remove('show');
+        document.body.classList.remove('offline-mode');
+        if (offlineQueue.length > 0) {
+          replayOfflineQueue();
+        }
+      } else {
+        banner.classList.add('show');
+        document.body.classList.add('offline-mode');
+      }
+    }
+    window.addEventListener('online',  updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+
+    // ========== OFFLINE QUEUE (IndexedDB) ==========
+    let db = null;
+    function initOfflineDB() {
+      return new Promise((resolve) => {
+        if (!window.indexedDB) { resolve(null); return; }
+        const req = indexedDB.open('granosys_offline', 1);
+        req.onupgradeneeded = (e) => {
+          const d = e.target.result;
+          if (!d.objectStoreNames.contains('queue')) {
+            d.createObjectStore('queue', { keyPath: 'id' });
+          }
+        };
+        req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+        req.onerror = () => resolve(null);
+      });
+    }
+
+    async function enqueueOffline(entry) {
+      offlineQueue.push(entry);
+      if (db) {
+        const tx = db.transaction('queue', 'readwrite');
+        tx.objectStore('queue').put(entry);
+      }
+      updateOfflineQueueUI();
+    }
+
+    async function replayOfflineQueue() {
+      if (offlineQueue.length === 0) return;
+      showToast(`Sincronizando ${offlineQueue.length} operación(es) pendiente(s)...`, '');
+      let successCount = 0;
+      const toRetry = [...offlineQueue];
+      offlineQueue = [];
+      for (const entry of toRetry) {
+        try {
+          const r = await fetch(entry.url, {
+            method: entry.method,
+            headers: entry.headers,
+            body: entry.body
+          });
+          if (r.ok) {
+            successCount++;
+            if (db) {
+              const tx = db.transaction('queue', 'readwrite');
+              tx.objectStore('queue').delete(entry.id);
+            }
+          } else {
+            offlineQueue.push(entry);
+          }
+        } catch (e) {
+          offlineQueue.push(entry);
+        }
+      }
+      if (successCount > 0) {
+        showToast(`✓ ${successCount} operación(es) sincronizada(s).`, 'success');
+      }
+      updateOfflineQueueUI();
+    }
+
+    function updateOfflineQueueUI() {
+      // Could show a badge or indicator for pending sync items
+      const count = offlineQueue.length;
+      if (count > 0) {
+        showToast(`${count} operación(es) en cola offline`, '');
+      }
+    }
+
+    // Helper: fetch with offline fallback
+    async function apiFetch(url, options = {}) {
+      try {
+        const r = await fetch(url, options);
+        if (r.status === 202) {
+          // SW queued it
+          const data = await r.json();
+          if (data.queued) {
+            showToast('⚠️ Sin señal — operación guardada para sincronizar.', '');
+            return { queued: true };
+          }
+        }
+        return r;
+      } catch (e) {
+        if (options.method === 'POST' || options.method === 'PUT') {
+          const entry = {
+            id: Date.now() + '-' + Math.random().toString(36).slice(2),
+            url, method: options.method,
+            headers: options.headers || {},
+            body: options.body || '',
+            timestamp: new Date().toISOString()
+          };
+          await enqueueOffline(entry);
+          showToast('⚠️ Sin señal — operación guardada para sincronizar.', '');
+          return { queued: true };
+        }
+        throw e;
+      }
+    }
+
+    // ========== TOAST NOTIFICATIONS ==========
+    function showToast(message, type = '') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    // ========== AI CHAT ==========
+    function toggleChat() {
+      const panel = document.getElementById('chat-panel');
+      if (panel.classList.contains('open')) {
+        panel.classList.remove('open');
+      } else {
+        panel.classList.add('open');
+        if (chatHistory.length === 0) {
+          appendChatBubble('ai', '¡Hola! Soy el Asistente IA de GranoSYS. Puedo consultar contratos, saldos, movimientos y generar propuestas de acción. ¿En qué te ayudo?');
+        }
+        document.getElementById('chat-input').focus();
+      }
+    }
+
+    function appendChatBubble(role, text, proposalData) {
+      const container = document.getElementById('chat-messages');
+      const bubble = document.createElement('div');
+      bubble.className = `chat-bubble ${role}`;
+
+      if (role === 'ai' && !text) {
+        bubble.classList.add('loading');
+        bubble.textContent = 'Pensando';
+        bubble.id = 'chat-loading-bubble';
+      } else {
+        bubble.innerHTML = text.replace(/\n/g, '<br>');
+      }
+
+      if (proposalData) {
+        const card = document.createElement('div');
+        card.className = 'chat-proposal-card';
+        card.innerHTML = `
+          <div class="proposal-label">📋 Propuesta generada</div>
+          <div style="font-size:12px;color:#8890a8;margin-bottom:6px;">${proposalData.explicacion || ''}</div>
+          <div class="chat-proposal-actions">
+            <button class="btn-approve" onclick="approveProposal(${proposalData.id}, this)">✅ Aprobar</button>
+            <button class="btn-reject"  onclick="rejectProposal(${proposalData.id}, this)">❌ Rechazar</button>
+          </div>`;
+        bubble.appendChild(card);
+      }
+
+      container.appendChild(bubble);
+      container.scrollTop = container.scrollHeight;
+      return bubble;
+    }
+
+    async function sendChatMessage() {
+      const input = document.getElementById('chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+
+      appendChatBubble('user', text);
+      chatHistory.push({ role: 'user', parts: [{ text }] });
+
+      const loadingBubble = appendChatBubble('ai', '');
+
+      try {
+        const r = await fetch(`${API_URL}/api/agent/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: text,
+            history: chatHistory.slice(-10),
+            usuario: loggedInUser
+          })
+        });
+
+        if (!r.ok) throw new Error('Error del servidor: ' + r.status);
+        const data = await r.json();
+
+        loadingBubble.remove();
+
+        const aiText = data.reply || data.message || 'Sin respuesta.';
+        chatHistory.push({ role: 'model', parts: [{ text: aiText }] });
+
+        appendChatBubble('ai', aiText, data.proposal || null);
+
+        // Refresh pending count if proposal was created
+        if (data.proposal) {
+          loadProposals(false);
+        }
+      } catch (e) {
+        loadingBubble.remove();
+        appendChatBubble('ai', '⚠️ No se pudo conectar con el Agente IA. Verificá tu conexión.');
+      }
+    }
+
+    // ========== VOICE RECOGNITION ==========
+    function toggleVoice() {
+      const btn = document.getElementById('chat-voice-btn');
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        showToast('Tu navegador no soporta dictado por voz.', 'error');
+        return;
+      }
+
+      if (isVoiceRecording) {
+        if (voiceRecognition) voiceRecognition.stop();
+        return;
+      }
+
+      voiceRecognition = new SpeechRecognition();
+      voiceRecognition.lang = 'es-AR';
+      voiceRecognition.interimResults = false;
+      voiceRecognition.maxAlternatives = 1;
+
+      voiceRecognition.onstart = () => {
+        isVoiceRecording = true;
+        btn.classList.add('recording');
+        btn.title = 'Escuchando... (toca para detener)';
+      };
+
+      voiceRecognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        document.getElementById('chat-input').value = transcript;
+        sendChatMessage();
+      };
+
+      voiceRecognition.onend = () => {
+        isVoiceRecording = false;
+        btn.classList.remove('recording');
+        btn.title = 'Dictado por voz';
+      };
+
+      voiceRecognition.onerror = (event) => {
+        isVoiceRecording = false;
+        btn.classList.remove('recording');
+        if (event.error !== 'no-speech') {
+          showToast('Error de micrófono: ' + event.error, 'error');
+        }
+      };
+
+      voiceRecognition.start();
+    }
+
+    // ========== PROPOSALS (APPROVALS TAB) ==========
+    let proposals = [];
+
+    async function loadProposals(switchToTab = false) {
+      const container = document.getElementById('proposals-container');
+      try {
+        const r = await fetch(`${API_URL}/api/agent/proposals?estado=PENDIENTE`);
+        if (!r.ok) throw new Error('Error al cargar propuestas');
+        proposals = await r.json();
+
+        updateProposalBadge(proposals.length);
+
+        if (proposals.length === 0) {
+          container.innerHTML = `
+            <div style="padding:40px;text-align:center;color:var(--text-muted);">
+              <div style="font-size:32px;margin-bottom:12px;">✅</div>
+              <div>No hay propuestas pendientes de aprobación.</div>
+            </div>`;
+          return;
+        }
+
+        container.innerHTML = '';
+        proposals.forEach(p => {
+          const card = document.createElement('div');
+          card.className = 'proposal-card';
+          card.id = `proposal-card-${p.id}`;
+
+          const date = new Date(p.created_at).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
+          const dataTrunc = JSON.stringify(p.datos_propuesta || {}, null, 2).slice(0, 300);
+
+          card.innerHTML = `
+            <div class="proposal-card-header">
+              <span class="proposal-type-badge">${formatProposalType(p.tipo_accion)}</span>
+              <span class="proposal-date">${date}</span>
+            </div>
+            <div class="proposal-explanation">${p.explicacion || 'Sin descripción'}</div>
+            <div class="proposal-data">${dataTrunc}</div>
+            <div class="proposal-btn-row">
+              <button class="btn-approve-full" onclick="approveProposal(${p.id}, this)">✅ Aprobar</button>
+              <button class="btn-reject-full"  onclick="rejectProposal(${p.id}, this)">❌ Rechazar</button>
+            </div>`;
+
+          container.appendChild(card);
+        });
+
+        if (switchToTab) switchTab('aprobaciones');
+
+      } catch (e) {
+        container.innerHTML = `<div style="padding:20px;text-align:center;color:var(--error);">Error: ${e.message}</div>`;
+      }
+    }
+
+    function formatProposalType(tipo) {
+      const map = {
+        'CREAR_CONTRAPARTE': '+ Contraparte',
+        'CREAR_CONTRATO': '+ Contrato',
+        'ASIGNAR_MOVIMIENTO': '↔ Asignar Movimiento',
+        'CREAR_LIQUIDACION': '💰 Liquidación',
+      };
+      return map[tipo] || tipo;
+    }
+
+    function updateProposalBadge(count) {
+      const tabBadge = document.getElementById('tab-badge-aprobaciones');
+      const fabBadge = document.getElementById('fab-badge');
+      if (count > 0) {
+        tabBadge.textContent = count;
+        tabBadge.style.display = 'inline-flex';
+        fabBadge.textContent = count;
+        fabBadge.style.display = 'inline-flex';
+      } else {
+        tabBadge.style.display = 'none';
+        fabBadge.style.display = 'none';
+      }
+    }
+
+    async function approveProposal(proposalId, btnEl) {
+      btnEl.disabled = true;
+      btnEl.textContent = 'Aprobando...';
+      try {
+        const r = await fetch(`${API_URL}/api/agent/proposals/${proposalId}/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ usuario_aprobador: loggedInUser })
+        });
+        if (!r.ok) throw new Error(await r.text());
+        showToast('✅ Propuesta aprobada y ejecutada.', 'success');
+        document.getElementById(`proposal-card-${proposalId}`)?.remove();
+        await loadProposals();
+      } catch (e) {
+        btnEl.disabled = false;
+        btnEl.textContent = '✅ Aprobar';
+        showToast('Error al aprobar: ' + e.message, 'error');
+      }
+    }
+
+    async function rejectProposal(proposalId, btnEl) {
+      if (!confirm('¿Rechazar esta propuesta?')) return;
+      btnEl.disabled = true;
+      btnEl.textContent = 'Rechazando...';
+      try {
+        const r = await fetch(`${API_URL}/api/agent/proposals/${proposalId}/reject`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ usuario_aprobador: loggedInUser, motivo: 'Rechazado desde app móvil' })
+        });
+        if (!r.ok) throw new Error(await r.text());
+        showToast('❌ Propuesta rechazada.', '');
+        document.getElementById(`proposal-card-${proposalId}`)?.remove();
+        await loadProposals();
+      } catch (e) {
+        btnEl.disabled = false;
+        btnEl.textContent = '❌ Rechazar';
+        showToast('Error al rechazar: ' + e.message, 'error');
+      }
+    }
+
+    // ========== AUTO-LOGIN ==========
+    window.addEventListener("DOMContentLoaded", async () => {
+      updateOnlineStatus();
+      await initOfflineDB();
       const savedUser = localStorage.getItem("granosys_mobile_user");
       if (savedUser) {
         loggedInUser = savedUser;
@@ -713,6 +1514,7 @@
       document.getElementById("lock-screen").style.display = "none";
       document.getElementById("app-container").style.display = "block";
       document.getElementById("tab-bar").style.display = "flex";
+      document.getElementById("ai-fab").style.display = "flex";
       
       // Update displayed user name in header
       document.getElementById("header-user-display").textContent = loggedInUser;
@@ -726,6 +1528,7 @@
       populateProducers();
       populateContractContrapartes();
       loadRecentMovements();
+      loadProposals(); // load pending approvals count
     }
 
     async function fetchContrapartes() {
@@ -849,6 +1652,8 @@
       
       if (tabId === "list") {
         loadRecentMovements();
+      } else if (tabId === "aprobaciones") {
+        loadProposals();
       }
     }
 
@@ -1064,11 +1869,27 @@
       isSubmitting = true;
 
       try {
-        const r = await fetch(`${API_URL}/api/movimientos`, {
+        const r = await apiFetch(`${API_URL}/api/movimientos`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
+        if (r && r.queued) {
+          // Queued offline — reset form optimistically
+          document.getElementById("patente").value = "";
+          document.getElementById("bruto").value = "";
+          document.getElementById("tara").value = "";
+          document.getElementById("neto").value = "";
+          document.getElementById("humedad").value = "";
+          document.getElementById("destino_nombre").value = "";
+          document.getElementById("localidad_destino").value = "";
+          document.getElementById("nro_cpe").value = "";
+          document.getElementById("contrato").value = "";
+          btn.disabled = false;
+          btn.textContent = "Registrar Salida de Camión";
+          isSubmitting = false;
+          return;
+        }
 
         if (!r.ok) {
           throw new Error(await r.text());
@@ -1196,11 +2017,18 @@
       isSubmittingContract = true;
 
       try {
-        const r = await fetch(`${API_URL}/api/contratos`, {
+        const r = await apiFetch(`${API_URL}/api/contratos`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
+        if (r && r.queued) {
+          showToast('Contrato guardado en cola offline.', '');
+          btn.disabled = false;
+          btn.textContent = "Registrar Contrato";
+          isSubmittingContract = false;
+          return;
+        }
 
         if (!r.ok) {
           throw new Error(await r.text());
