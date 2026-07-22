@@ -28,7 +28,7 @@ router.get('/resumen', async (req, res) => {
       LEFT JOIN cc_contrapartes cc ON cp.id = cc.id_contraparte
       WHERE cp.activo = TRUE
       GROUP BY cp.id, cp.razon_social, cp.tipo_contraparte, cp.cuit
-      HAVING COALESCE(SUM(cc.debe - cc.haber), 0) != 0
+      HAVING COUNT(cc.id) > 0
       ORDER BY ABS(COALESCE(SUM(cc.debe - cc.haber), 0)) DESC
     `);
     res.json(rows);
