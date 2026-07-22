@@ -423,34 +423,39 @@ Responde de forma concisa, clara, estructurada y en español.`;
       parts: [{ text: message }]
     });
 
-    const requestBody = {
-      contents: formattedHistory,
-      systemInstruction: {
-        parts: [{ text: systemInstruction }]
-      },
-      tools: [{ functionDeclarations }]
+    // Llama a Gemini con el historial de contenidos acumulado hasta ahora
+    const callGemini = async (contents) => {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents,
+          systemInstruction: { parts: [{ text: systemInstruction }] },
+          tools: [{ functionDeclarations }]
+        })
+      });
+      if (!r.ok) {
+        const errText = await r.text();
+        throw new Error(`Gemini API Error: ${errText}`);
+      }
+      return r.json();
     };
 
-    // Call Gemini API via fetch (Node v18 native)
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(requestBody)
-    });
+    let contents = [...formattedHistory];
+    let lastProposal = null;
+    const MAX_TOOL_TURNS = 5;
 
-    if (!response.ok) {
-      const errText = await response.text();
-      return res.status(response.status).json({ error: `Gemini API Error: ${errText}` });
-    }
+    for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+      const resJson = await callGemini(contents);
+      const candidate = resJson.candidates?.[0];
+      const part = candidate?.content?.parts?.[0];
 
-    const resJson = await response.json();
-    const candidate = resJson.candidates?.[0];
-    const part = candidate?.content?.parts?.[0];
+      // Si no hay function call, es la respuesta final en texto
+      if (!part?.functionCall) {
+        const replyText = part?.text || 'No pude procesar la respuesta.';
+        return res.json({ text: replyText, proposal: lastProposal });
+      }
 
-    // Check if Gemini invoked a tool (Function Call)
-    if (part?.functionCall) {
       const call = part.functionCall;
       const functionName = call.name;
       const args = call.args;
@@ -561,50 +566,27 @@ Responde de forma concisa, clara, estructurada y en español.`;
         toolResult = { error: dbErr.message };
       }
 
-      // Feed the tool output back to Gemini
-      const secondRequestBody = {
-        contents: [
-          ...formattedHistory,
-          candidate.content,
-          {
-            role: 'user',
-            parts: [{
-              functionResponse: {
-                name: functionName,
-                response: { result: toolResult }
-              }
-            }]
-          }
-        ],
-        systemInstruction: {
-          parts: [{ text: systemInstruction }]
-        },
-        tools: [{ functionDeclarations }]
-      };
-
-      const secondResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(secondRequestBody)
-      });
-
-      if (!secondResponse.ok) {
-        const secondErrText = await secondResponse.text();
-        return res.status(secondResponse.status).json({ error: `Gemini Tool Resolution Error: ${secondErrText}` });
+      if (toolResult && toolResult.status === 'PROPOSED') {
+        lastProposal = toolResult.proposal;
       }
 
-      const secondResJson = await secondResponse.json();
-      const finalCandidate = secondResJson.candidates?.[0];
-      const finalText = finalCandidate?.content?.parts?.[0]?.text || 'No pude procesar la respuesta.';
-
-      return res.json({ text: finalText, proposal: (toolResult && toolResult.status === 'PROPOSED') ? toolResult.proposal : null, debug: finalText === 'No pude procesar la respuesta.' ? secondResJson : undefined });
+      // Encadenar el resultado de la herramienta y darle otra vuelta al modelo
+      contents = [
+        ...contents,
+        candidate.content,
+        {
+          role: 'user',
+          parts: [{
+            functionResponse: {
+              name: functionName,
+              response: { result: toolResult }
+            }
+          }]
+        }
+      ];
     }
 
-    // Normal text response
-    const replyText = part?.text || 'No recibí respuesta.';
-    res.json({ text: replyText });
+    res.json({ text: 'El agente encadenó demasiadas consultas sin poder responder. Probá reformular la pregunta.', proposal: lastProposal });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
