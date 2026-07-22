@@ -9861,6 +9861,7 @@ const MENU_FORMAL = [
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
   {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
+  {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
 ];
 
@@ -9877,6 +9878,7 @@ const MENU_INFORMAL = [
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
   {id:"importador_excel",label:"Importar Excel",icon:"📥"},
   {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
+  {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
 ];
 
@@ -9886,6 +9888,7 @@ const MENU_CONSOLIDADO = [
   {id:"cc",label:"CC Consolidada",icon:"💰"},
   {id:"posicion_abierta",label:"Posición Global",icon:"📌"},
   {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
+  {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
 ];
 
 const MENU = MENU_FORMAL;
@@ -9966,6 +9969,329 @@ function Login({onLogin}) {
     </div>
   );
 }
+
+// ── COMPONENTE AGENTE IA ──
+const AgenteIA = ({ modulo, usuario }) => {
+  const [messages, setMessages] = useState([
+    {
+      role: 'assistant',
+      text: '¡Hola! Soy tu Agente IA Granosys. Puedo consultar contratos, stock de granos, movimientos de camiones, cuenta corriente y proponer acciones que requieran tu aprobación. ¿En qué puedo ayudarte hoy?'
+    }
+  ]);
+  const [inputValue, setInputValue] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const [proposals, setProposals] = useState([]);
+  const [proposalTab, setProposalTab] = useState('PENDIENTE');
+  const chatEndRef = useRef(null);
+
+  const loadProposals = async (tab = proposalTab) => {
+    try {
+      const res = await api.get(`/api/agent/proposals?estado=${tab}`);
+      setProposals(res);
+    } catch (err) {
+      console.error('Error al cargar propuestas:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadProposals();
+  }, [proposalTab]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, thinking]);
+
+  const handleSend = async (e) => {
+    if (e) e.preventDefault();
+    if (!inputValue.trim()) return;
+
+    const userText = inputValue;
+    setInputValue('');
+    setMessages(prev => [...prev, { role: 'user', text: userText }]);
+    setThinking(true);
+
+    try {
+      // Format history
+      const history = messages.slice(1).map(m => ({
+        role: m.role === 'user' ? 'user' : 'model',
+        text: m.text
+      }));
+
+      const res = await api.post('/api/agent/chat', {
+        message: userText,
+        history
+      });
+
+      setMessages(prev => [...prev, { role: 'assistant', text: res.text }]);
+      if (res.proposal) {
+        loadProposals();
+      }
+    } catch (err) {
+      setMessages(prev => [...prev, { role: 'assistant', text: `❌ Error al conectar con el agente: ${err.response?.data?.error || err.message}` }]);
+    } finally {
+      setThinking(false);
+    }
+  };
+
+  const handleApprove = async (id) => {
+    try {
+      const res = await api.post(`/api/agent/proposals/${id}/approve`, {
+        usuario_aprobador: usuario
+      });
+      alert('✓ Propuesta aprobada y ejecutada en la base de datos con éxito.');
+      loadProposals();
+      setMessages(prev => [...prev, { role: 'assistant', text: `✅ He aprobado la propuesta ID #${id} en el sistema. Los cambios ya están reflejados en la base de datos.` }]);
+    } catch (err) {
+      alert('Error al aprobar propuesta: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const handleReject = async (id) => {
+    if (!confirm('¿Seguro que deseas rechazar esta propuesta?')) return;
+    try {
+      await api.post(`/api/agent/proposals/${id}/reject`, {
+        usuario_aprobador: usuario
+      });
+      loadProposals();
+      setMessages(prev => [...prev, { role: 'assistant', text: `❌ He rechazado la propuesta ID #${id}. No se realizaron cambios.` }]);
+    } catch (err) {
+      alert('Error al rechazar propuesta: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const formatProposalData = (datos) => {
+    if (!datos) return null;
+    return (
+      <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse', marginTop: 8 }}>
+        <tbody>
+          {Object.entries(datos).map(([key, val]) => {
+            if (key === 'explicacion') return null;
+            let displayVal = val;
+            if (Array.isArray(val)) {
+              displayVal = val.join(', ');
+            } else if (typeof val === 'object' && val !== null) {
+              displayVal = JSON.stringify(val);
+            }
+            return (
+              <tr key={key} style={{ borderBottom: '1px solid #2a2d3e' }}>
+                <td style={{ padding: '4px 8px', fontWeight: 600, color: '#f5a623', width: '35%' }}>{key}</td>
+                <td style={{ padding: '4px 8px', color: '#e8eaf0' }}>{String(displayVal)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    );
+  };
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 20, height: 'calc(100vh - 120px)', overflow: 'hidden' }}>
+      {/* COLUMN 1: CHAT */}
+      <div style={{ background: '#1a1d27', border: '1px solid #2a2d3e', borderRadius: 10, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid #2a2d3e', background: '#151821', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#2ecc71', boxShadow: '0 0 8px #2ecc71' }}></div>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#e8eaf0' }}>Copiloto IA Activo</span>
+        </div>
+
+        {/* MESSAGES VIEW */}
+        <div style={{ flex: 1, padding: 16, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {messages.map((m, idx) => (
+            <div key={idx} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+              <div style={{
+                maxWidth: '85%',
+                padding: '10px 14px',
+                borderRadius: m.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+                background: m.role === 'user' ? '#f5a623' : '#0f1117',
+                color: m.role === 'user' ? '#1a1d27' : '#e8eaf0',
+                border: m.role === 'user' ? 'none' : '1px solid #2a2d3e',
+                fontSize: 12.5,
+                lineHeight: 1.5,
+                whiteSpace: 'pre-wrap',
+                boxShadow: '0 2px 5px rgba(0,0,0,0.15)'
+              }}>
+                {m.text}
+              </div>
+            </div>
+          ))}
+          {thinking && (
+            <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+              <div style={{
+                padding: '10px 14px',
+                borderRadius: '12px 12px 12px 2px',
+                background: '#0f1117',
+                border: '1px solid #2a2d3e',
+                color: '#8890a8',
+                fontSize: 12,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}>
+                <span className="loading-spinner" style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid #f5a623', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></span>
+                El agente está procesando...
+              </div>
+            </div>
+          )}
+          <div ref={chatEndRef}></div>
+        </div>
+
+        {/* INPUT INPUT */}
+        <form onSubmit={handleSend} style={{ padding: 12, borderTop: '1px solid #2a2d3e', background: '#151821', display: 'flex', gap: 10 }}>
+          <input
+            type="text"
+            value={inputValue}
+            onChange={e => setInputValue(e.target.value)}
+            placeholder="Pregúntame sobre saldos, stock o proponme cruzar contratos..."
+            disabled={thinking}
+            style={{
+              flex: 1,
+              background: '#0f1117',
+              border: '1px solid #2a2d3e',
+              borderRadius: 6,
+              color: '#e8eaf0',
+              padding: '10px 14px',
+              fontSize: 12.5,
+              outline: 'none',
+              transition: 'border-color 0.2s'
+            }}
+          />
+          <button
+            type="submit"
+            disabled={thinking || !inputValue.trim()}
+            style={{
+              background: '#f5a623',
+              color: '#1a1d27',
+              border: 'none',
+              padding: '0 16px',
+              borderRadius: 6,
+              fontSize: 12.5,
+              fontWeight: 700,
+              cursor: 'pointer',
+              opacity: (thinking || !inputValue.trim()) ? 0.6 : 1,
+              transition: 'background-color 0.2s'
+            }}
+          >
+            Enviar
+          </button>
+        </form>
+      </div>
+
+      {/* COLUMN 2: PROPOSALS */}
+      <div style={{ background: '#1a1d27', border: '1px solid #2a2d3e', borderRadius: 10, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #2a2d3e', background: '#151821', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#e8eaf0' }}>Bandeja de Aprobación Humana</span>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {['PENDIENTE', 'APROBADO', 'RECHAZADO'].map(t => (
+              <button
+                key={t}
+                onClick={() => setProposalTab(t)}
+                style={{
+                  padding: '4px 8px',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  borderRadius: 4,
+                  border: 'none',
+                  background: proposalTab === t ? '#2a2d3e' : 'transparent',
+                  color: proposalTab === t ? '#f5a623' : '#8890a8',
+                  cursor: 'pointer'
+                }}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* PROPOSALS LIST */}
+        <div style={{ flex: 1, padding: 16, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {proposals.length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#565d7a', gap: 8 }}>
+              <span style={{ fontSize: 24 }}>📭</span>
+              <span style={{ fontSize: 12 }}>No hay propuestas en esta bandeja.</span>
+            </div>
+          ) : (
+            proposals.map(p => (
+              <div key={p.id} style={{
+                background: '#0f1117',
+                border: '1px solid #2a2d3e',
+                borderRadius: 8,
+                padding: 14,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                transition: 'all 0.2s'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #2a2d3e', paddingBottom: 6 }}>
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: p.tipo_accion.includes('LIQUIDACION') ? '#2ecc71' : (p.tipo_accion.includes('CONTRATO') ? '#3498db' : '#f1c40f'),
+                    textTransform: 'uppercase',
+                    letterSpacing: '.04em'
+                  }}>
+                    {p.tipo_accion.replace(/_/g, ' ')}
+                  </span>
+                  <span style={{ fontSize: 10, color: '#565d7a' }}>ID #{p.id}</span>
+                </div>
+
+                {p.explicacion && (
+                  <div style={{ fontSize: 11.5, color: '#8890a8', fontStyle: 'italic', background: 'rgba(255,255,255,0.01)', padding: '6px 10px', borderRadius: 4, borderLeft: '3px solid #f5a623' }}>
+                    <strong>Explicación:</strong> {p.explicacion}
+                  </div>
+                )}
+
+                {formatProposalData(p.datos_propuesta)}
+
+                {p.estado === 'PENDIENTE' && (
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 10 }}>
+                    <button
+                      onClick={() => handleReject(p.id)}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        borderRadius: 6,
+                        border: '1px solid #c0392b44',
+                        background: 'transparent',
+                        color: '#e74c3c',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      Rechazar ❌
+                    </button>
+                    <button
+                      onClick={() => handleApprove(p.id)}
+                      style={{
+                        padding: '6px 14px',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        borderRadius: 6,
+                        border: 'none',
+                        background: '#2ecc71',
+                        color: '#1a1d27',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      Aprobar y Ejecutar ✅
+                    </button>
+                  </div>
+                )}
+
+                {p.estado !== 'PENDIENTE' && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: '#565d7a', marginTop: 4, paddingTop: 4, borderTop: '1px dotted #2a2d3e' }}>
+                    <span>Aprobador: <strong>{p.usuario_aprobador || 'N/A'}</strong></span>
+                    <span>Fecha: {new Date(p.fecha_aprobacion).toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ── COMPONENTE REPORTES IA ──
 const ReportesIA = ({modulo, usuario}) => {
@@ -10745,6 +11071,7 @@ function App() {
         case "cc": return <CCConsolidada {...p}/>;
         case "posicion_abierta": return <PosicionAbierta {...p}/>;
         case "reportes_ia": return <ReportesIA {...p}/>;
+        case "agente_ia": return <AgenteIA {...p}/>;
         default: return <DashboardConsolidado {...p}/>;
       }
     }
@@ -10761,6 +11088,7 @@ function App() {
       case "posicion_abierta": return <PosicionAbierta {...p}/>;
       case "importador_excel": return <ImportadorExcel {...p} setSec={setSec}/>;
       case "reportes_ia": return <ReportesIA {...p}/>;
+      case "agente_ia": return <AgenteIA {...p}/>;
       case "configuracion": return <Configuracion usuario={usuario} defaultTab={configDefaultTab} setDefaultTab={setConfigDefaultTab}/>;
       default: return <Dashboard {...p}/>;
     }

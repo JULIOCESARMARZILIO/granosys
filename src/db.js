@@ -424,6 +424,19 @@ async function initDB() {
         observaciones VARCHAR(255),
         created_at TIMESTAMP DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS propuestas_aprobacion (
+        id SERIAL PRIMARY KEY,
+        tipo_accion VARCHAR(50) NOT NULL,
+        modulo VARCHAR(50) NOT NULL,
+        datos_propuesta JSONB NOT NULL,
+        estado VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE',
+        explicacion TEXT,
+        usuario_aprobador VARCHAR(100),
+        fecha_aprobacion TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
     `);
 
     // Sembrar usuario administrador por defecto
