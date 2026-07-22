@@ -10254,9 +10254,13 @@ const AgenteIA = ({ modulo, usuario }) => {
         history
       });
 
-      setMessages(prev => [...prev, { role: 'assistant', text: res.text }]);
-      if (res.proposal) {
-        loadProposals();
+      if (!res) {
+        setMessages(prev => [...prev, { role: 'assistant', text: '❌ No se pudo conectar con el agente. Intentá de nuevo en un momento.' }]);
+      } else {
+        setMessages(prev => [...prev, { role: 'assistant', text: res.text }]);
+        if (res.proposal) {
+          loadProposals();
+        }
       }
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', text: `❌ Error al conectar con el agente: ${err.response?.data?.error || err.message}` }]);
