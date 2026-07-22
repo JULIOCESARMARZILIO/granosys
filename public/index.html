@@ -1107,7 +1107,100 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
         {lista.length===0&&<div style={{padding:40,textAlign:"center",color:"#565d7a"}}>No hay contratos de {tab.toLowerCase()} en modalidad {modulo.toLowerCase()}</div>}
       </div>
       {showForm&&(
-        <Modal title={form._editando ? "Editar Contrato" : "Nuevo Contrato"} onClose={()=>setShowForm(false)} width={900}>
+        <Modal 
+          title={form._editando ? "Editar Contrato" : "Nuevo Contrato"} 
+          onClose={()=>setShowForm(false)} 
+          width={900}
+          footer={(
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end",width:"100%"}}>
+              {form._editando && (
+                <Btn 
+                  variant="danger" 
+                  onClick={async () => {
+                    const c = { id: form._id, numero: form.numero };
+                    try {
+                      const data = await api.get(`/api/contratos/${c.id}`);
+                      if (data.movimientos && data.movimientos.length > 0) {
+                        alert(`⚠️ No se puede eliminar este contrato porque tiene ${data.movimientos.length} camiones/movimientos asociados.`);
+                        return;
+                      }
+                    } catch(err) {
+                      console.error(err);
+                    }
+                    if (!confirm(`¿Eliminar contrato ${c.numero}?`)) return;
+                    try {
+                      await api.delete(`/api/contratos/${c.id}`);
+                      alert("✓ Contrato eliminado correctamente");
+                      setShowForm(false);
+                      cargarContratos();
+                    } catch(err) {
+                      alert("Error al eliminar: " + (err.response?.data?.error || err.message));
+                    }
+                  }}
+                  style={{marginRight:"auto"}}
+                >
+                  🗑️ Eliminar Contrato
+                </Btn>
+              )}
+              <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn>
+              <Btn disabled={guardando} onClick={async()=>{
+                if(!form.id_contraparte){alert("Seleccioná una contraparte");return;}
+                if(!form.toneladas){alert("Las toneladas son obligatorias");return;}
+                setGuardando(true);
+                try {
+                  const payload = {
+                    tipo_contrato: form.tipo,
+                    modalidad: modulo,
+                    tipo_liquidacion: modulo==="FORMAL"?form.tipo_liq:null,
+                    fecha_contrato: new Date().toISOString().split("T")[0],
+                    id_contraparte: parseInt(form.id_contraparte),
+                    id_especie: form.id_especie,
+                    id_campana: form.id_campana,
+                    cantidad_toneladas_pactadas: parseFloat(form.toneladas),
+                    tipo_precio: form.tipo_precio,
+                    moneda: form.moneda,
+                    precio_pactado: form.precio?parseFloat(form.precio):null,
+                    referencia_fijacion: form.tipo_precio==="A_FIJAR"?form.referencia:null,
+                    diferencial_fijacion: form.diferencial?parseFloat(form.diferencial):null,
+                    tipo_diferencial: form.tipo_diferencial||null,
+                    tipo_entrega: form.tipo_entrega,
+                    forma_pago: form.forma_pago,
+                    plazo_pago_dias: parseInt(form.plazo)||0,
+                    precio_venta_estimado: form.precio_venta_est?parseFloat(form.precio_venta_est):null,
+                    destino_venta_estimado: form.destino_est||null,
+                    flete_estimado: form.flete_est?parseFloat(form.flete_est):null,
+                    costo_secada_punto: form.costo_secada_punto ? parseFloat(form.costo_secada_punto) : 0,
+                    costo_zarandeo_tn: form.costo_zarandeo_tn ? parseFloat(form.costo_zarandeo_tn) : 0,
+                    costo_paritaria_tn: form.costo_paritaria_tn ? parseFloat(form.costo_paritaria_tn) : 0,
+                    costo_fumigacion_fijo: form.costo_fumigacion_fijo ? parseFloat(form.costo_fumigacion_fijo) : 0,
+                    humedad_max_seco: form.humedad_max_seco ? parseFloat(form.humedad_max_seco) : 13.5,
+                    otros_descripcion: form.otros_descripcion || null,
+                    costo_secada_destino_punto: form.costo_secada_destino_punto ? parseFloat(form.costo_secada_destino_punto) : 0,
+                    costo_zarandeo_destino_tn: form.costo_zarandeo_destino_tn ? parseFloat(form.costo_zarandeo_destino_tn) : 0,
+                    costo_paritaria_destino_tn: form.costo_paritaria_destino_tn ? parseFloat(form.costo_paritaria_destino_tn) : 0,
+                    costo_fumigacion_destino_fijo: form.costo_fumigacion_destino_fijo ? parseFloat(form.costo_fumigacion_destino_fijo) : 0,
+                    otros_destino_descripcion: form.otros_destino_descripcion || null,
+                    costo_otros_destino_valor: form.costo_otros_destino_valor ? parseFloat(form.costo_otros_destino_valor) : 0,
+                    base_calculo_peso: form.base_calculo_peso || "BRUTO_CAMPO"
+                  };
+                  if (form._editando && form._id) {
+                    await api.put(`/api/contratos/${form._id}`, payload);
+                    alert("✓ Contrato actualizado correctamente");
+                  } else {
+                    await api.post("/api/contratos", payload);
+                    alert("✓ Contrato guardado correctamente");
+                  }
+                  setShowForm(false);
+                  cargarContratos();
+                } catch(e) {
+                  alert("Error al guardar contrato: " + (e.response?.data?.error || e.message));
+                } finally {
+                  setGuardando(false);
+                }
+              }}>{guardando?"Guardando...":(form._editando?"Actualizar Contrato":"Guardar Contrato")}</Btn>
+            </div>
+          )}
+        >
           <div style={{display:"flex",gap:8,marginBottom:18}}>
             {["COMPRA","VENTA","CANJE"].map(t=><Btn key={t} variant={form.tipo===t?"primary":"secondary"} size="sm" onClick={()=>setForm({...form,tipo:t})}>{t}</Btn>)}
           </div>
@@ -1407,64 +1500,6 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
               <FF label="Otros — Descripción"><input placeholder="Descripción del servicio" value={form.otros_destino_descripcion} onChange={e=>setForm({...form,otros_destino_descripcion:e.target.value})}/></FF>
               <FF label="Otros — Valor"><input type="number" step="any" placeholder="0.00" value={form.costo_otros_destino_valor} onChange={e=>setForm({...form,costo_otros_destino_valor:e.target.value})}/></FF>
             </div>
-          </div>
-          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}>
-            <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cancelar</Btn>
-            <Btn disabled={guardando} onClick={async()=>{
-              if(!form.id_contraparte){alert("Seleccioná una contraparte");return;}
-              if(!form.toneladas){alert("Las toneladas son obligatorias");return;}
-              setGuardando(true);
-              try {
-                const payload = {
-                  tipo_contrato: form.tipo,
-                  modalidad: modulo,
-                  tipo_liquidacion: modulo==="FORMAL"?form.tipo_liq:null,
-                  fecha_contrato: new Date().toISOString().split("T")[0],
-                  id_contraparte: parseInt(form.id_contraparte),
-                  id_especie: form.id_especie,
-                  id_campana: form.id_campana,
-                  cantidad_toneladas_pactadas: parseFloat(form.toneladas),
-                  tipo_precio: form.tipo_precio,
-                  moneda: form.moneda,
-                  precio_pactado: form.precio?parseFloat(form.precio):null,
-                  referencia_fijacion: form.tipo_precio==="A_FIJAR"?form.referencia:null,
-                  diferencial_fijacion: form.diferencial?parseFloat(form.diferencial):null,
-                  tipo_diferencial: form.tipo_diferencial||null,
-                  tipo_entrega: form.tipo_entrega,
-                  forma_pago: form.forma_pago,
-                  plazo_pago_dias: parseInt(form.plazo)||0,
-                  precio_venta_estimado: form.precio_venta_est?parseFloat(form.precio_venta_est):null,
-                  destino_venta_estimado: form.destino_est||null,
-                  flete_estimado: form.flete_est?parseFloat(form.flete_est):null,
-                  costo_secada_punto: form.costo_secada_punto ? parseFloat(form.costo_secada_punto) : 0,
-                  costo_zarandeo_tn: form.costo_zarandeo_tn ? parseFloat(form.costo_zarandeo_tn) : 0,
-                  costo_paritaria_tn: form.costo_paritaria_tn ? parseFloat(form.costo_paritaria_tn) : 0,
-                  costo_fumigacion_fijo: form.costo_fumigacion_fijo ? parseFloat(form.costo_fumigacion_fijo) : 0,
-                  humedad_max_seco: form.humedad_max_seco ? parseFloat(form.humedad_max_seco) : 13.5,
-                  otros_descripcion: form.otros_descripcion || null,
-                  costo_secada_destino_punto: form.costo_secada_destino_punto ? parseFloat(form.costo_secada_destino_punto) : 0,
-                  costo_zarandeo_destino_tn: form.costo_zarandeo_destino_tn ? parseFloat(form.costo_zarandeo_destino_tn) : 0,
-                  costo_paritaria_destino_tn: form.costo_paritaria_destino_tn ? parseFloat(form.costo_paritaria_destino_tn) : 0,
-                  costo_fumigacion_destino_fijo: form.costo_fumigacion_destino_fijo ? parseFloat(form.costo_fumigacion_destino_fijo) : 0,
-                  otros_destino_descripcion: form.otros_destino_descripcion || null,
-                  costo_otros_destino_valor: form.costo_otros_destino_valor ? parseFloat(form.costo_otros_destino_valor) : 0,
-                  base_calculo_peso: form.base_calculo_peso || "BRUTO_CAMPO"
-                };
-                if (form._editando && form._id) {
-                  await api.put(`/api/contratos/${form._id}`, payload);
-                  alert("✓ Contrato actualizado correctamente");
-                } else {
-                  await api.post("/api/contratos", payload);
-                  alert("✓ Contrato guardado correctamente");
-                }
-                setShowForm(false);
-                cargarContratos();
-              } catch(e) {
-                alert("Error al guardar contrato: " + (e.response?.data?.error || e.message));
-              } finally {
-                setGuardando(false);
-              }
-            }}>{guardando?"Guardando...":(form._editando?"Actualizar Contrato":"Guardar Contrato")}</Btn>
           </div>
         </Modal>
       )}
@@ -3832,10 +3867,12 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                       
                       const prodName = (importResult.rte_primaria || importResult.titular || "").toLowerCase().trim();
                       if (prodName) {
-                        const contraName = (c.contraparte || "").toLowerCase().trim();
-                        return contraName.includes(prodName) || prodName.includes(contraName);
+                        const cp = contrapartes.find(x => x.razon_social.toLowerCase().trim() === prodName);
+                        if (cp) {
+                          return c.id_contraparte === cp.id;
+                        }
                       }
-                      return true;
+                      return false;
                     }).map(c=>
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie}</option>
                     )}
@@ -3860,10 +3897,12 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                       
                       const destName = (importResult.destinatario || "").toLowerCase().trim();
                       if (destName) {
-                        const contraName = (c.contraparte || "").toLowerCase().trim();
-                        return contraName.includes(destName) || destName.includes(contraName);
+                        const cp = contrapartes.find(x => x.razon_social.toLowerCase().trim() === destName);
+                        if (cp) {
+                          return c.id_contraparte === cp.id;
+                        }
                       }
-                      return true;
+                      return false;
                     }).map(c=>
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie}</option>
                     )}
@@ -4187,11 +4226,12 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                             if (c.modalidad !== modulo) return false;
                             if (mappedEsp && c.especie && c.especie.toLowerCase() !== mappedEsp.toLowerCase()) return false;
                             if (mappedProd) {
-                              const prod = mappedProd.toLowerCase().trim();
-                              const contra = (c.contraparte || "").toLowerCase().trim();
-                              return contra.includes(prod) || prod.includes(contra);
+                              const cp = contrapartes.find(x => x.razon_social.toLowerCase().trim() === mappedProd.toLowerCase().trim());
+                              if (cp) {
+                                return c.id_contraparte === cp.id;
+                              }
                             }
-                            return true;
+                            return false;
                           }).map(c => (
                             <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio === "A_FIJAR" ? "(A FIJAR)" : `$ ${c.precio?.toLocaleString()}`)}</option>
                           ));
@@ -4213,11 +4253,12 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                             if (c.modalidad !== modulo) return false;
                             if (mappedEsp && c.especie && c.especie.toLowerCase() !== mappedEsp.toLowerCase()) return false;
                             if (mappedComp) {
-                              const comp = mappedComp.toLowerCase().trim();
-                              const contra = (c.contraparte || "").toLowerCase().trim();
-                              return contra.includes(comp) || comp.includes(contra);
+                              const cp = contrapartes.find(x => x.razon_social.toLowerCase().trim() === mappedComp.toLowerCase().trim());
+                              if (cp) {
+                                return c.id_contraparte === cp.id;
+                              }
                             }
-                            return true;
+                            return false;
                           }).map(c => (
                             <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie} {c.es_canje ? "(CANJE)" : (c.tipo_precio === "A_FIJAR" ? "(A FIJAR)" : `$ ${c.precio?.toLocaleString()}`)}</option>
                           ));
@@ -5892,7 +5933,17 @@ const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie, setG
       </div>
 
       {showNuevaModal && (
-        <Modal title="Generar Nueva Liquidación" onClose={() => setShowNuevaModal(false)} width={960}>
+        <Modal 
+          title="Generar Nueva Liquidación" 
+          onClose={() => setShowNuevaModal(false)} 
+          width={960}
+          footer={(
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end",width:"100%"}}>
+              <Btn variant="secondary" onClick={() => setShowNuevaModal(false)}>Cerrar</Btn>
+              <Btn onClick={handleCrearLiquidacion} disabled={selectedMovs.length === 0}>Generar Liquidación</Btn>
+            </div>
+          )}
+        >
           <div style={{display:"flex",flexDirection:"column",gap:16}}>
             
             <div className="form-grid-3">
@@ -6100,10 +6151,7 @@ const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie, setG
               </div>
             )}
 
-            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16,paddingTop:14,borderTop:"1px solid #2a2d3e"}}>
-              <Btn variant="secondary" onClick={() => setShowNuevaModal(false)}>Cerrar</Btn>
-              <Btn onClick={handleCrearLiquidacion} disabled={selectedMovs.length === 0}>Generar Liquidación</Btn>
-            </div>
+
 
           </div>
         </Modal>
