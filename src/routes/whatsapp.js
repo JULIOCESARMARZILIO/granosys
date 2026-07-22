@@ -26,7 +26,7 @@ router.post('/comprobante', async (req, res) => {
       return res.status(422).json({ success: false, error: err.message });
     }
     console.error('Error procesando comprobante WhatsApp:', err);
-    res.status(500).json({ success: false, error: 'Error interno al procesar el comprobante.' });
+    res.status(500).json({ success: false, error: 'Error interno al procesar el comprobante.', debug: err.message });
   }
 });
 
