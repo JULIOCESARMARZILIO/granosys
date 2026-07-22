@@ -228,6 +228,39 @@ router.post('/proposals/:id/approve', async (req, res) => {
       `, [id_contraparte, id_contrato, createdLiq.id, `Liquidación ${nro_liquidacion}`, debeVal, haberVal, saldoAcumulado, modalidad]);
 
       resultRecord = createdLiq;
+
+    } else if (prop.tipo_accion === 'CREAR_MOVIMIENTO') {
+      const { patente_camion, especie, kilos_netos, modalidad, id_contrato_compra, id_contrato_venta, observaciones } = data;
+
+      let id_especie = data.id_especie || null;
+      if (!id_especie && especie) {
+        const { rows: espRows } = await client.query('SELECT id FROM especies WHERE nombre ILIKE $1 LIMIT 1', [especie]);
+        id_especie = espRows[0]?.id || null;
+      }
+
+      const { rows: lastMov } = await client.query("SELECT numero_movimiento FROM movimientos ORDER BY id DESC LIMIT 1");
+      const nextNum = lastMov[0] ? parseInt(lastMov[0].numero_movimiento.split('-')[1]) + 1 : 1;
+      const numero_movimiento = `MOV-${String(nextNum).padStart(4, '0')}`;
+
+      const estado_liquidacion = (id_contrato_compra || id_contrato_venta) ? 'ASIGNADO' : 'SIN_ASIGNAR';
+      const kilosNum = parseFloat(kilos_netos);
+      const obsFinal = observaciones ? `${observaciones} (cargado vía Agente IA)` : 'Cargado vía Agente IA';
+
+      const { rows: movIns } = await client.query(`
+        INSERT INTO movimientos
+          (numero_movimiento, modalidad, estado, estado_liquidacion, id_contrato_compra, id_contrato_venta,
+           id_especie, patente_chasis, peso_neto_llegada_kg, kg_liquidables, factor_aplicado,
+           fecha_descarga, observaciones)
+        VALUES ($1,$2,'DESCARGADO',$3,$4,$5,$6,$7,$8,$8,1,NOW(),$9)
+        RETURNING *
+      `, [numero_movimiento, modalidad, estado_liquidacion, id_contrato_compra || null, id_contrato_venta || null,
+          id_especie, patente_camion, kilosNum, obsFinal]);
+
+      resultRecord = movIns[0];
+
+      if (id_contrato_compra) await recalcularContrato(id_contrato_compra);
+      if (id_contrato_venta) await recalcularContrato(id_contrato_venta);
+
     } else {
       throw new Error(`Tipo de acción no soportado: ${prop.tipo_accion}`);
     }
@@ -404,6 +437,24 @@ Responde de forma concisa, clara, estructurada y en español.`;
           },
           required: ["tipo", "modalidad", "id_contrato", "id_contraparte", "ids_movimientos", "explicacion"]
         }
+      },
+      {
+        name: "propose_crear_movimiento",
+        description: "Generar una propuesta para registrar un nuevo movimiento (viaje de camión ya descargado) dictado por el usuario, con patente, producto y kilos netos. Pensado para cargas informales rápidas por chat, no para el flujo formal con Carta de Porte Electrónica. Requiere aprobación humana.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            patente_camion: { type: "STRING", description: "Patente del camión/chasis" },
+            especie: { type: "STRING", description: "Nombre del grano/producto: soja, maíz, girasol, trigo, etc." },
+            kilos_netos: { type: "NUMBER", description: "Peso neto descargado, en kilogramos" },
+            modalidad: { type: "STRING", enum: ["FORMAL", "INFORMAL"], description: "Modalidad del movimiento" },
+            id_contrato_compra: { type: "NUMBER", description: "ID del contrato de compra al que imputar el viaje, si se conoce" },
+            id_contrato_venta: { type: "NUMBER", description: "ID del contrato de venta al que imputar el viaje, si se conoce" },
+            observaciones: { type: "STRING", description: "Observaciones adicionales del viaje" },
+            explicacion: { type: "STRING", description: "Justificación de por qué la IA propone cargar este movimiento" }
+          },
+          required: ["patente_camion", "especie", "kilos_netos", "modalidad", "explicacion"]
+        }
       }
     ];
 
@@ -553,6 +604,15 @@ Responde de forma concisa, clara, estructurada y en español.`;
         } else if (functionName === 'propose_crear_liquidacion') {
           actionType = 'CREAR_LIQUIDACION';
           modulo = 'LIQUIDACIONES';
+          const { rows } = await pool.query(`
+            INSERT INTO propuestas_aprobacion (tipo_accion, modulo, datos_propuesta, explicacion, estado)
+            VALUES ($1, $2, $3, $4, 'PENDIENTE') RETURNING *
+          `, [actionType, modulo, JSON.stringify(args), args.explicacion || '']);
+          toolResult = { status: 'PROPOSED', proposal: rows[0] };
+
+        } else if (functionName === 'propose_crear_movimiento') {
+          actionType = 'CREAR_MOVIMIENTO';
+          modulo = 'MOVIMIENTOS';
           const { rows } = await pool.query(`
             INSERT INTO propuestas_aprobacion (tipo_accion, modulo, datos_propuesta, explicacion, estado)
             VALUES ($1, $2, $3, $4, 'PENDIENTE') RETURNING *
