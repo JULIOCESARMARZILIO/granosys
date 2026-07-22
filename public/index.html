@@ -66,7 +66,7 @@ tr:last-child td{border-bottom:none}
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const {useState, useEffect} = React;
+const {useState, useEffect, useRef} = React;
 
 const normalizarMoneda = (m) => {
   if (!m) return "PESOS";
@@ -3327,7 +3327,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "modelo_importacion_informal.xlsx";
+      a.download = "modelo_importacion_" + modulo.toLowerCase() + ".xlsx";
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -3477,7 +3477,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         const id_especie = MAP_ESPECIES[espName] || 1;
         
         const payload = {
-          modalidad: "INFORMAL",
+          modalidad: modulo,
           nro_cpe: "EXCEL-" + String(Math.floor(100000 + Math.random() * 900000)),
           nro_ctg: null,
           fecha_cpe: new Date().toISOString().split("T")[0],
