@@ -11671,7 +11671,35 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error("Error atrapado por ErrorBoundary:", error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0f1117",color:"#e8eaf0",fontFamily:"inherit",padding:20}}>
+          <div style={{textAlign:"center",maxWidth:500}}>
+            <div style={{fontSize:40,marginBottom:10}}>⚠️</div>
+            <h2>Ocurrió un error inesperado</h2>
+            <p style={{color:"#8890a8",marginBottom:16}}>La pantalla se cerró para evitar un estado inconsistente. Recargá la página para seguir — no se perdió nada guardado.</p>
+            <button onClick={()=>window.location.reload()} style={{padding:"10px 20px",background:"#f5a623",color:"#000",border:"none",borderRadius:6,cursor:"pointer",fontWeight:700}}>Recargar página</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App/></ErrorBoundary>);
 </script>
 </body>
 </html>
