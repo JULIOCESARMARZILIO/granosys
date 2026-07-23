@@ -2284,6 +2284,23 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   const [calidadTipoAjuste, setCalidadTipoAjuste] = useState("FACTOR");
   const [calidadValorAjuste, setCalidadValorAjuste] = useState(null);
 
+  // Destinos (plantas de entrega) parametrizados por comprador
+  const [idContraparteDestinatario, setIdContraparteDestinatario] = useState("");
+  const [ubicacionesDestinatario, setUbicacionesDestinatario] = useState([]);
+  const cargarUbicacionesDestinatario = async (idContraparte) => {
+    if (!idContraparte) { setUbicacionesDestinatario([]); return; }
+    const data = await api.get(`/api/contrapartes/${idContraparte}/ubicaciones`);
+    setUbicacionesDestinatario(data || []);
+  };
+  useEffect(() => {
+    if (!movForm.destinatario_cuit || idContraparteDestinatario) return;
+    const match = contrapartes.find(c => c.cuit && c.cuit === movForm.destinatario_cuit);
+    if (match) {
+      setIdContraparteDestinatario(match.id);
+      cargarUbicacionesDestinatario(match.id);
+    }
+  }, [movForm.destinatario_cuit, contrapartesReal]);
+
   const calcularKilosALiquidar = (pesoNetoLlegada, humedad, tipoAjuste, valorAjuste, factorManualFallback, factorCalculadoFallback) => {
     const humPct = getMermaHumedadPct(movForm.id_especie, humedad !== null ? humedad : 0);
     const kgSecos = pesoNetoLlegada * (1.0 - (humPct / 100.0));
@@ -2578,6 +2595,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
 
   const openModal = (m) => {
     setSelected(m);
+    setIdContraparteDestinatario("");
+    setUbicacionesDestinatario([]);
     setTempFactor(m ? (m.factor_manual !== null && m.factor_manual !== undefined ? m.factor_manual : 1.0) : 1.0);
     setCalidadTipoAjuste(m ? m.calidad_tipo_ajuste || "FACTOR" : "FACTOR");
     setCalidadValorAjuste(m ? (m.calidad_valor_ajuste !== null && m.calidad_valor_ajuste !== undefined ? parseFloat(m.calidad_valor_ajuste) : null) : null);
@@ -4687,6 +4706,63 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
               </div>
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>{modulo==="FORMAL"?"D — Destino de la Mercadería":"Destino"}</div>
               <div className="form-grid-2" style={{marginBottom:18}}>
+                <FF label="Comprador / Destinatario">
+                  <select
+                    value={idContraparteDestinatario}
+                    onChange={e => {
+                      const idSel = e.target.value;
+                      setIdContraparteDestinatario(idSel);
+                      setUbicacionesDestinatario([]);
+                      if (!idSel) return;
+                      const cp = contrapartes.find(c => String(c.id) === idSel);
+                      // En Formal el destinatario oficial lo trae la CPE (sección A); acá solo se completa en Informal.
+                      if (modulo === "INFORMAL") {
+                        setMovForm({...movForm, destinatario_cuit: cp?.cuit || "", destinatario_nombre: cp?.razon_social || ""});
+                      }
+                      cargarUbicacionesDestinatario(idSel);
+                    }}
+                  >
+                    <option value="">Seleccionar comprador...</option>
+                    {contrapartes.filter(c=>c.tipo_contraparte==="COMPRADOR"||c.tipo_contraparte==="AMBOS").map(c=>(
+                      <option key={c.id} value={c.id}>{c.razon_social}</option>
+                    ))}
+                  </select>
+                </FF>
+                <FF label="Destino (planta)">
+                  <div style={{display:"flex",gap:6}}>
+                    <select
+                      style={{flex:1}}
+                      value=""
+                      disabled={!idContraparteDestinatario}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val === "__nuevo__") {
+                          window.open(`${window.location.pathname}?nueva_ubicacion=${idContraparteDestinatario}`, "_blank");
+                          return;
+                        }
+                        const ub = ubicacionesDestinatario.find(u => String(u.id) === val);
+                        if (!ub) return;
+                        setMovForm({
+                          ...movForm,
+                          destino_nombre: ub.nombre || "",
+                          localidad_destino: ub.localidad || "",
+                          provincia_destino: ub.provincia || "",
+                          nro_planta_destino: ub.nro_planta || "",
+                          direccion_destino: ub.direccion || ""
+                        });
+                      }}
+                    >
+                      <option value="">{idContraparteDestinatario ? "Elegir destino cargado..." : "Elegí primero un comprador"}</option>
+                      {ubicacionesDestinatario.map(u=>(
+                        <option key={u.id} value={u.id}>{u.nombre}{u.localidad?` — ${u.localidad}`:""}</option>
+                      ))}
+                      {idContraparteDestinatario && <option value="__nuevo__">+ Nuevo destino (pestaña nueva)</option>}
+                    </select>
+                    {idContraparteDestinatario && (
+                      <Btn variant="secondary" size="sm" onClick={()=>cargarUbicacionesDestinatario(idContraparteDestinatario)} title="Actualizar lista de destinos">↻</Btn>
+                    )}
+                  </div>
+                </FF>
                 <FF label="Localidad Destino"><input value={movForm.localidad_destino} onChange={e=>setMovForm({...movForm, localidad_destino: e.target.value})} placeholder="Localidad destino"/></FF>
                 <FF label="Provincia Destino">
                   <select value={movForm.provincia_destino} onChange={e=>setMovForm({...movForm, provincia_destino: e.target.value})}>
@@ -4694,8 +4770,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     {PROVINCIAS.map(p=><option key={p} value={p}>{p}</option>)}
                   </select>
                 </FF>
-                {modulo==="FORMAL"&&<FF label="N° Planta"><input value={movForm.nro_planta_destino} onChange={e=>setMovForm({...movForm, nro_planta_destino: e.target.value})} placeholder="518477"/></FF>}
-                {modulo==="FORMAL"&&<FF label="Dirección Destino"><input value={movForm.direccion_destino} onChange={e=>setMovForm({...movForm, direccion_destino: e.target.value})} placeholder="Dirección destino"/></FF>}
+                <FF label="N° Planta"><input value={movForm.nro_planta_destino} onChange={e=>setMovForm({...movForm, nro_planta_destino: e.target.value})} placeholder="518477"/></FF>
+                <FF label="Dirección Destino"><input value={movForm.direccion_destino||""} onChange={e=>setMovForm({...movForm, direccion_destino: e.target.value})} placeholder="Dirección destino"/></FF>
               </div>
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>{modulo==="FORMAL"?"E — Datos del Transporte":"Transporte"}</div>
               <div className="form-grid-2" style={{marginBottom:18}}>
@@ -11091,6 +11167,82 @@ const ReportesIA = ({modulo, usuario}) => {
   );
 };
 
+const NuevaUbicacionRapida = ({ idContraparte }) => {
+  const [nombre, setNombre] = useState("");
+  const [localidad, setLocalidad] = useState("");
+  const [provincia, setProvincia] = useState("");
+  const [direccion, setDireccion] = useState("");
+  const [nroPlanta, setNroPlanta] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [listo, setListo] = useState(false);
+  const [error, setError] = useState("");
+
+  const guardar = async (e) => {
+    e.preventDefault();
+    if (!nombre.trim()) { setError("El nombre del destino es obligatorio."); return; }
+    setGuardando(true);
+    setError("");
+    try {
+      const r = await fetch(`${API_URL}/api/contrapartes/${idContraparte}/ubicaciones`, {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ nombre, localidad, provincia, direccion, nro_planta: nroPlanta })
+      });
+      const body = await r.json().catch(()=>null);
+      if (!r.ok) { setError(body?.error || `Error HTTP ${r.status}`); setGuardando(false); return; }
+      setListo(true);
+    } catch (err) {
+      setError(err.message);
+      setGuardando(false);
+    }
+  };
+
+  if (listo) {
+    return (
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0f1117",color:"#e8eaf0",fontFamily:"inherit"}}>
+        <div style={{textAlign:"center",padding:30}}>
+          <div style={{fontSize:40,marginBottom:10}}>✅</div>
+          <h2>Destino guardado y asociado correctamente</h2>
+          <p style={{color:"#8890a8"}}>Ya podés cerrar esta pestaña y volver a la carga — usá el botón ↻ para actualizar la lista de destinos.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0f1117",color:"#e8eaf0",fontFamily:"inherit"}}>
+      <form onSubmit={guardar} style={{background:"#1a1d26",border:"1px solid #2a2d3e",borderRadius:8,padding:24,width:420}}>
+        <h3 style={{marginBottom:16}}>📍 Nuevo destino de entrega</h3>
+        {error && <div style={{background:"rgba(231,76,60,.1)",border:"1px solid rgba(231,76,60,.3)",color:"#e74c3c",padding:8,borderRadius:6,marginBottom:12,fontSize:13}}>{error}</div>}
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:4}}>Nombre de la planta / destino *</label>
+          <input value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Ej: Terminal 6 - Puerto San Martín" style={{width:"100%",padding:"8px 10px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4}}/>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:4}}>Localidad</label>
+          <input value={localidad} onChange={e=>setLocalidad(e.target.value)} style={{width:"100%",padding:"8px 10px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4}}/>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:4}}>Provincia</label>
+          <select value={provincia} onChange={e=>setProvincia(e.target.value)} style={{width:"100%",padding:"8px 10px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4}}>
+            <option value="">Seleccionar...</option>
+            {PROVINCIAS.map(p=><option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:4}}>Dirección</label>
+          <input value={direccion} onChange={e=>setDireccion(e.target.value)} style={{width:"100%",padding:"8px 10px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4}}/>
+        </div>
+        <div style={{marginBottom:16}}>
+          <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:4}}>N° de Planta</label>
+          <input value={nroPlanta} onChange={e=>setNroPlanta(e.target.value)} style={{width:"100%",padding:"8px 10px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4}}/>
+        </div>
+        <Btn type="submit" disabled={guardando} style={{width:"100%"}}>{guardando ? "Guardando..." : "Guardar y asociar"}</Btn>
+      </form>
+    </div>
+  );
+};
+
 function App() {
   const [logueado,setLogueado]=useState(false);
   const [usuario,setUsuario]=useState("");
@@ -11122,6 +11274,11 @@ function App() {
   }, [logueado]);
 
   if(!logueado) return <Login onLogin={(u)=>{setLogueado(true);setUsuario(u);}}/>;
+
+  const idContraparteNuevaUbicacion = new URLSearchParams(window.location.search).get('nueva_ubicacion');
+  if (idContraparteNuevaUbicacion) {
+    return <NuevaUbicacionRapida idContraparte={idContraparteNuevaUbicacion}/>;
+  }
 
   const handleAccesoOculto = () => {
     if(codigoOculto==="invdelsal"){
