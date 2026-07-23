@@ -2284,23 +2284,6 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   const [calidadTipoAjuste, setCalidadTipoAjuste] = useState("FACTOR");
   const [calidadValorAjuste, setCalidadValorAjuste] = useState(null);
 
-  // Destinos (plantas de entrega) parametrizados por comprador
-  const [idContraparteDestinatario, setIdContraparteDestinatario] = useState("");
-  const [ubicacionesDestinatario, setUbicacionesDestinatario] = useState([]);
-  const cargarUbicacionesDestinatario = async (idContraparte) => {
-    if (!idContraparte) { setUbicacionesDestinatario([]); return; }
-    const data = await api.get(`/api/contrapartes/${idContraparte}/ubicaciones`);
-    setUbicacionesDestinatario(data || []);
-  };
-  useEffect(() => {
-    if (!movForm.destinatario_cuit || idContraparteDestinatario) return;
-    const match = contrapartes.find(c => c.cuit && c.cuit === movForm.destinatario_cuit);
-    if (match) {
-      setIdContraparteDestinatario(match.id);
-      cargarUbicacionesDestinatario(match.id);
-    }
-  }, [movForm.destinatario_cuit, contrapartesReal]);
-
   const calcularKilosALiquidar = (pesoNetoLlegada, humedad, tipoAjuste, valorAjuste, factorManualFallback, factorCalculadoFallback) => {
     const humPct = getMermaHumedadPct(movForm.id_especie, humedad !== null ? humedad : 0);
     const kgSecos = pesoNetoLlegada * (1.0 - (humPct / 100.0));
@@ -2396,6 +2379,23 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     humedad_salida_pct: "",
     nro_factura_flete: "",
   });
+
+  // Destinos (plantas de entrega) parametrizados por comprador
+  const [idContraparteDestinatario, setIdContraparteDestinatario] = useState("");
+  const [ubicacionesDestinatario, setUbicacionesDestinatario] = useState([]);
+  const cargarUbicacionesDestinatario = async (idContraparte) => {
+    if (!idContraparte) { setUbicacionesDestinatario([]); return; }
+    const data = await api.get(`/api/contrapartes/${idContraparte}/ubicaciones`);
+    setUbicacionesDestinatario(data || []);
+  };
+  useEffect(() => {
+    if (!movForm.destinatario_cuit || idContraparteDestinatario) return;
+    const match = contrapartes.find(c => c.cuit && c.cuit === movForm.destinatario_cuit);
+    if (match) {
+      setIdContraparteDestinatario(match.id);
+      cargarUbicacionesDestinatario(match.id);
+    }
+  }, [movForm.destinatario_cuit, contrapartesReal]);
 
   // Estados locales para persistencia de llegada
   const [brutoLlegada, setBrutoLlegada] = useState(null);
