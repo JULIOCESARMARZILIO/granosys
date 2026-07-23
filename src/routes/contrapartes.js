@@ -343,3 +343,67 @@ router.delete('/:id', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// GET /api/contrapartes/:id/ubicaciones - lugares de entrega/destino ya asociados a esta contraparte
+router.get('/:id/ubicaciones', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT u.*
+      FROM ubicaciones u
+      JOIN contraparte_ubicaciones cu ON cu.id_ubicacion = u.id
+      WHERE cu.id_contraparte = $1 AND u.activo = true
+      ORDER BY u.nombre ASC
+    `, [req.params.id]);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/contrapartes/:id/ubicaciones - asocia una ubicación existente (id_ubicacion) o crea una nueva y la asocia
+router.post('/:id/ubicaciones', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { id_ubicacion, nombre, tipo, localidad, provincia, direccion, nro_planta } = req.body;
+
+    let idUbicacionFinal = id_ubicacion || null;
+
+    if (!idUbicacionFinal) {
+      if (!nombre) {
+        return res.status(400).json({ error: 'Falta el nombre de la ubicación a crear.' });
+      }
+      const { rows: nuevaUbic } = await pool.query(
+        `INSERT INTO ubicaciones (nombre, tipo, localidad, provincia, direccion, nro_planta)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+        [nombre, tipo || 'DESTINO_ENTREGA', localidad || null, provincia || null, direccion || null, nro_planta || null]
+      );
+      idUbicacionFinal = nuevaUbic[0].id;
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO contraparte_ubicaciones (id_contraparte, id_ubicacion)
+       VALUES ($1, $2)
+       ON CONFLICT (id_contraparte, id_ubicacion) DO NOTHING
+       RETURNING *`,
+      [id, idUbicacionFinal]
+    );
+
+    const { rows: ubicRows } = await pool.query('SELECT * FROM ubicaciones WHERE id = $1', [idUbicacionFinal]);
+    res.status(201).json(ubicRows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/contrapartes/:id/ubicaciones/:idUbicacion - desasocia (no borra la ubicación en sí)
+router.delete('/:id/ubicaciones/:idUbicacion', async (req, res) => {
+  try {
+    await pool.query(
+      'DELETE FROM contraparte_ubicaciones WHERE id_contraparte = $1 AND id_ubicacion = $2',
+      [req.params.id, req.params.idUbicacion]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});

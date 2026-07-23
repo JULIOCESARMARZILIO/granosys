@@ -29,6 +29,7 @@ app.use('/api/arca',         require('./routes/arca'));
 app.use('/api/usuarios',     require('./routes/usuarios'));
 app.use('/api/agent',        require('./routes/agent'));
 app.use('/api/whatsapp',     require('./routes/whatsapp'));
+app.use('/api/ubicaciones',  require('./routes/ubicaciones'));
 
 // Endpoint de diagnóstico temporal para ver archivos y commits en Railway
 app.get('/api/debug-files', (req, res) => {

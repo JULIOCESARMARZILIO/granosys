@@ -117,6 +117,14 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS contraparte_ubicaciones (
+        id SERIAL PRIMARY KEY,
+        id_contraparte INTEGER NOT NULL REFERENCES contrapartes(id) ON DELETE CASCADE,
+        id_ubicacion INTEGER NOT NULL REFERENCES ubicaciones(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(id_contraparte, id_ubicacion)
+      );
+
       CREATE TABLE IF NOT EXISTS contratos (
         id SERIAL PRIMARY KEY,
         numero_contrato VARCHAR(30) NOT NULL UNIQUE,
