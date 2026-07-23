@@ -36,4 +36,14 @@ router.post('/', async (req, res) => {
   }
 });
 
+// DELETE /api/ubicaciones/:id - baja lógica (deja de aparecer en listados/selectores)
+router.delete('/:id', async (req, res) => {
+  try {
+    await pool.query('UPDATE ubicaciones SET activo = false WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
