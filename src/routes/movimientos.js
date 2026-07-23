@@ -217,6 +217,20 @@ router.post('/', async (req, res) => {
     const finalChofer = chofer_nombre || chofer || null;
     const finalTransportista = transportista_nombre || transportista || null;
 
+    // El CTG es un código único de trazabilidad emitido por AFIP: dos movimientos nunca
+    // pueden compartirlo. Evita duplicar el mismo viaje si se reimporta la misma CPE.
+    if (nro_ctg) {
+      const { rows: yaExiste } = await pool.query(
+        'SELECT numero_movimiento FROM movimientos WHERE nro_ctg = $1 LIMIT 1',
+        [nro_ctg]
+      );
+      if (yaExiste.length > 0) {
+        return res.status(400).json({
+          error: `Ya existe un movimiento con el CTG ${nro_ctg}: ${yaExiste[0].numero_movimiento}. No se puede cargar el mismo viaje dos veces.`
+        });
+      }
+    }
+
     // Dar de alta automáticamente los intervinientes de la CPE si no existen
     if (titular_cpe_cuit && titular_cpe_nombre) {
       await asegurarContraparte(titular_cpe_cuit, titular_cpe_nombre, 'PRODUCTOR');
@@ -1110,7 +1124,9 @@ router.delete('/:id', async (req, res) => {
     await pool.query('DELETE FROM calidad_movimiento WHERE id_movimiento = $1', [id]);
     // Eliminar de servicios_movimiento
     await pool.query('DELETE FROM servicios_movimiento WHERE id_movimiento = $1', [id]);
-    
+    // Desvincular el mellizo FORMAL/INFORMAL si lo tiene, para no violar la FK al borrar cualquiera de los dos
+    await pool.query('UPDATE movimientos SET id_movimiento_vinculado = NULL WHERE id_movimiento_vinculado = $1', [id]);
+
     // Eliminar de movimientos
     const { rowCount } = await pool.query('DELETE FROM movimientos WHERE id = $1', [id]);
     if (rowCount === 0) {
