@@ -1,6 +1,25 @@
 const router = require('express').Router();
 const { pool } = require('../db');
 
+// Si viene precio de referencia + descuento %, calcula el precio final descontado.
+// Si no hay descuento pero sí referencia y precio manual, calcula el descuento % equivalente para mostrarlo.
+function resolverPrecioConDescuento(precioReferencia, descuentoPct, precioManual) {
+  const ref = precioReferencia !== undefined && precioReferencia !== null && precioReferencia !== ''
+    ? parseFloat(precioReferencia) : null;
+  const desc = descuentoPct !== undefined && descuentoPct !== null && descuentoPct !== ''
+    ? parseFloat(descuentoPct) : null;
+  const manual = precioManual !== undefined && precioManual !== null && precioManual !== ''
+    ? parseFloat(precioManual) : null;
+
+  if (ref !== null && !isNaN(ref) && desc !== null && !isNaN(desc)) {
+    return { precio: ref * (1 - desc / 100), descuento: desc, referencia: ref };
+  }
+  if (ref !== null && !isNaN(ref) && ref > 0 && manual !== null && !isNaN(manual)) {
+    return { precio: manual, descuento: (1 - manual / ref) * 100, referencia: ref };
+  }
+  return { precio: manual, descuento: null, referencia: ref };
+}
+
 // Recalcula y actualiza la cantidad de toneladas asignadas y el estado de un contrato
 async function recalcularContrato(id_contrato) {
   if (!id_contrato) return;
@@ -244,6 +263,10 @@ router.post('/', async (req, res) => {
     const num = last[0] ? parseInt(last[0].numero_contrato.split('-')[2]) + 1 : 1;
     const numero_contrato = `${prefix}-${year}-${String(num).padStart(4, '0')}`;
 
+    const precioResuelto = resolverPrecioConDescuento(
+      req.body.precio_referencia, req.body.descuento_precio_pct, precio_pactado
+    );
+
     const { rows } = await pool.query(`
       INSERT INTO contratos (
         numero_contrato, tipo_contrato, modalidad, tipo_liquidacion,
@@ -260,18 +283,18 @@ router.post('/', async (req, res) => {
         humedad_max_seco, otros_descripcion,
         costo_secada_destino_punto, costo_zarandeo_destino_tn, costo_paritaria_destino_tn,
         costo_fumigacion_destino_fijo, otros_destino_descripcion, costo_otros_destino_valor,
-        observaciones, base_calculo_peso, estado
+        observaciones, base_calculo_peso, precio_referencia, descuento_precio_pct, estado
       ) VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
         $16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,
         $28,$29,$30,$31,
         $32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,
-        $44,$45,'CONFIRMADO'
+        $44,$45,$46,$47,'CONFIRMADO'
       ) RETURNING *
     `, [numero_contrato, tipo_contrato, modalidad, tipo_liquidacion,
         fecha_contrato, fecha_entrega_desde||null, fecha_entrega_hasta||null,
         id_contraparte, id_especie, id_campana, cantidad_toneladas_pactadas,
-        tipo_precio, moneda, precio_pactado||null, referencia_fijacion||null,
+        tipo_precio, moneda, precioResuelto.precio, referencia_fijacion||null,
         diferencial_fijacion||null, tipo_diferencial||null, tipo_entrega,
         localidad_entrega, provincia_entrega, flete_estimado||null,
         forma_pago, plazo_pago_dias||0, condicion_pago||'CONTADO',
@@ -285,7 +308,7 @@ router.post('/', async (req, res) => {
         humedad_max_seco||13.5, otros_descripcion||null,
         costo_secada_destino_punto||0, costo_zarandeo_destino_tn||0, costo_paritaria_destino_tn||0,
         costo_fumigacion_destino_fijo||0, otros_destino_descripcion||null, costo_otros_destino_valor||0,
-        observaciones, base_calculo_peso||'BRUTO_CAMPO']);
+        observaciones, base_calculo_peso||'BRUTO_CAMPO', precioResuelto.referencia, precioResuelto.descuento]);
 
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -551,6 +574,10 @@ router.put('/:id', async (req, res) => {
       base_calculo_peso
     } = req.body;
 
+    const precioResuelto = resolverPrecioConDescuento(
+      req.body.precio_referencia, req.body.descuento_precio_pct, precio_pactado
+    );
+
     // Actualizar contrato
     const { rows } = await pool.query(`
       UPDATE contratos SET
@@ -597,13 +624,15 @@ router.put('/:id', async (req, res) => {
         otros_destino_descripcion = $41,
         costo_otros_destino_valor = $42,
         base_calculo_peso = COALESCE($43, base_calculo_peso),
+        precio_referencia = $45,
+        descuento_precio_pct = $46,
         updated_at = NOW()
       WHERE id = $44 RETURNING *
     `, [
       tipo_contrato, modalidad, tipo_liquidacion, fecha_contrato,
       fecha_entrega_desde, fecha_entrega_hasta, id_contraparte,
       id_especie, id_campana, cantidad_toneladas_pactadas,
-      tipo_precio, moneda, precio_pactado, referencia_fijacion,
+      tipo_precio, moneda, precioResuelto.precio, referencia_fijacion,
       diferencial_fijacion, tipo_diferencial, tipo_entrega,
       localidad_entrega, provincia_entrega, flete_estimado,
       forma_pago, plazo_pago_dias, condicion_pago,
@@ -615,7 +644,8 @@ router.put('/:id', async (req, res) => {
       costo_secada_destino_punto, costo_zarandeo_destino_tn, costo_paritaria_destino_tn,
       costo_fumigacion_destino_fijo, otros_destino_descripcion, costo_otros_destino_valor,
       base_calculo_peso,
-      id
+      id,
+      precioResuelto.referencia, precioResuelto.descuento
     ]);
 
     if (!rows[0]) {
@@ -679,7 +709,7 @@ router.get('/:id/fijaciones', async (req, res) => {
   try {
     const { id } = req.params;
     const { rows } = await pool.query(
-      'SELECT id, id_contrato, TO_CHAR(fecha, \'YYYY-MM-DD\') as fecha, cantidad_toneladas, precio_fijado, observaciones, created_at FROM fijaciones_contrato WHERE id_contrato = $1 ORDER BY fecha DESC, id DESC',
+      'SELECT id, id_contrato, TO_CHAR(fecha, \'YYYY-MM-DD\') as fecha, cantidad_toneladas, precio_fijado, precio_referencia, descuento_pct, observaciones, created_at FROM fijaciones_contrato WHERE id_contrato = $1 ORDER BY fecha DESC, id DESC',
       [id]
     );
     res.json(rows);
@@ -693,10 +723,15 @@ router.post('/:id/fijaciones', async (req, res) => {
   const client = await pool.connect();
   try {
     const { id } = req.params;
-    const { fecha, cantidad_toneladas, precio_fijado, observaciones } = req.body;
+    const { fecha, cantidad_toneladas, precio_fijado, precio_referencia, descuento_pct, observaciones } = req.body;
 
-    if (!fecha || !cantidad_toneladas || !precio_fijado) {
-      return res.status(400).json({ error: 'Faltan datos obligatorios (fecha, toneladas, precio).' });
+    if (!fecha || !cantidad_toneladas) {
+      return res.status(400).json({ error: 'Faltan datos obligatorios (fecha, toneladas).' });
+    }
+
+    const precioResuelto = resolverPrecioConDescuento(precio_referencia, descuento_pct, precio_fijado);
+    if (precioResuelto.precio === null || isNaN(precioResuelto.precio)) {
+      return res.status(400).json({ error: 'Falta el precio: indicá el precio fijado, o una referencia con su descuento %.' });
     }
 
     // El total fijado no puede superar ni las toneladas pactadas del contrato
@@ -728,8 +763,10 @@ router.post('/:id/fijaciones', async (req, res) => {
 
     // Insertar fijacion
     const { rows } = await client.query(
-      'INSERT INTO fijaciones_contrato (id_contrato, fecha, cantidad_toneladas, precio_fijado, observaciones) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [id, fecha, cantidad_toneladas, precio_fijado, observaciones]
+      `INSERT INTO fijaciones_contrato
+        (id_contrato, fecha, cantidad_toneladas, precio_fijado, observaciones, precio_referencia, descuento_pct)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [id, fecha, cantidad_toneladas, precioResuelto.precio, observaciones, precioResuelto.referencia, precioResuelto.descuento]
     );
 
     // Recalcular promedio ponderado y fecha de la ultima fijacion

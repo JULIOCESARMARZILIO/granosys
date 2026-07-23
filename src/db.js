@@ -383,6 +383,8 @@ async function initDB() {
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS calidad_tipo_ajuste VARCHAR(20) DEFAULT 'FACTOR';
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS calidad_valor_ajuste DECIMAL(12,4);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_movimiento_vinculado INTEGER REFERENCES movimientos(id);
+      ALTER TABLE fijaciones_contrato ADD COLUMN IF NOT EXISTS precio_referencia DECIMAL(14,4);
+      ALTER TABLE fijaciones_contrato ADD COLUMN IF NOT EXISTS descuento_pct DECIMAL(8,4);
 
       -- Inicializar estado_flete basado en campos de flete existentes
       UPDATE movimientos SET estado_flete = 'LIQUIDADO' WHERE nro_factura_flete IS NOT NULL AND (estado_flete IS NULL OR estado_flete = 'PENDIENTE');
@@ -663,7 +665,9 @@ async function initDB() {
       { name: "comprador_estimado_id", type: "INTEGER REFERENCES contrapartes(id)" },
       { name: "aplica_cpe", type: "BOOLEAN DEFAULT FALSE" },
       { name: "costo_cpe_pct", type: "DECIMAL(8,4)" },
-      { name: "costo_financiero_pct", type: "DECIMAL(8,4)" }
+      { name: "costo_financiero_pct", type: "DECIMAL(8,4)" },
+      { name: "precio_referencia", type: "DECIMAL(14,4)" },
+      { name: "descuento_precio_pct", type: "DECIMAL(8,4)" }
     ];
     for (const col of columnsContratos) {
       try {
