@@ -391,8 +391,6 @@ async function initDB() {
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS calidad_tipo_ajuste VARCHAR(20) DEFAULT 'FACTOR';
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS calidad_valor_ajuste DECIMAL(12,4);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_movimiento_vinculado INTEGER REFERENCES movimientos(id);
-      ALTER TABLE fijaciones_contrato ADD COLUMN IF NOT EXISTS precio_referencia DECIMAL(14,4);
-      ALTER TABLE fijaciones_contrato ADD COLUMN IF NOT EXISTS descuento_pct DECIMAL(8,4);
 
       -- Inicializar estado_flete basado en campos de flete existentes
       UPDATE movimientos SET estado_flete = 'LIQUIDADO' WHERE nro_factura_flete IS NOT NULL AND (estado_flete IS NULL OR estado_flete = 'PENDIENTE');
@@ -434,6 +432,8 @@ async function initDB() {
         observaciones VARCHAR(255),
         created_at TIMESTAMP DEFAULT NOW()
       );
+      ALTER TABLE fijaciones_contrato ADD COLUMN IF NOT EXISTS precio_referencia DECIMAL(14,4);
+      ALTER TABLE fijaciones_contrato ADD COLUMN IF NOT EXISTS descuento_pct DECIMAL(8,4);
 
       CREATE TABLE IF NOT EXISTS propuestas_aprobacion (
         id SERIAL PRIMARY KEY,
