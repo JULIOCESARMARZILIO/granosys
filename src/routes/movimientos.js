@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { pool } = require('../db');
 const { extraerDatosCPE, ExtraccionError } = require('../services/geminiExtraction');
+const { registrarAuditoria } = require('../services/auditoria');
 
 // POST /parse-cpe - interpreta con IA el texto de una Carta de Porte Electrónica
 // (el PDF se lee en el cliente con pdf.js; acá solo se estructura el texto plano).
@@ -382,6 +383,10 @@ router.post('/', async (req, res) => {
     // Recalcular toneladas y estado de contratos
     await recalcularContrato(final_id_contrato_compra);
     await recalcularContrato(final_id_contrato_venta);
+
+    await registrarAuditoria(req, {
+      accion: 'CREAR', modulo: 'movimientos', registro_id: createdMov.id, datos_despues: createdMov
+    });
 
     res.status(201).json(createdMov);
   } catch (err) {
@@ -1053,6 +1058,11 @@ router.put('/:id', async (req, res) => {
       await recalcularContrato(id_contrato_venta);
     }
 
+    await registrarAuditoria(req, {
+      accion: 'MODIFICAR', modulo: 'movimientos', registro_id: rows[0].id,
+      datos_antes: currentMov[0], datos_despues: rows[0]
+    });
+
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1112,8 +1122,8 @@ router.delete('/:id', async (req, res) => {
       return res.status(400).json({ error: 'No se puede eliminar un movimiento que ya está liquidado' });
     }
 
-    // Obtener contratos antes de borrar
-    const { rows: mov } = await pool.query('SELECT id_contrato_compra, id_contrato_venta FROM movimientos WHERE id = $1', [id]);
+    // Obtener el movimiento completo antes de borrar (para auditoria y para recalcular contratos)
+    const { rows: mov } = await pool.query('SELECT * FROM movimientos WHERE id = $1', [id]);
     if (mov.length === 0) {
       return res.status(404).json({ error: 'Movimiento no encontrado' });
     }
@@ -1136,6 +1146,10 @@ router.delete('/:id', async (req, res) => {
     // Recalcular contratos
     await recalcularContrato(oldCompraId);
     await recalcularContrato(oldVentaId);
+
+    await registrarAuditoria(req, {
+      accion: 'ELIMINAR', modulo: 'movimientos', registro_id: parseInt(id), datos_antes: mov[0]
+    });
 
     res.json({ ok: true });
   } catch (err) {

@@ -8,7 +8,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // CORS abierto para cualquier origen
-app.use(cors({ origin: '*', methods: ['GET','POST','PUT','DELETE','OPTIONS'], allowedHeaders: ['Content-Type'] }));
+app.use(cors({ origin: '*', methods: ['GET','POST','PUT','DELETE','OPTIONS'], allowedHeaders: ['Content-Type', 'X-Usuario-Actual'] }));
 app.options('*', cors());
 app.use(express.json());
 
@@ -30,6 +30,7 @@ app.use('/api/usuarios',     require('./routes/usuarios'));
 app.use('/api/agent',        require('./routes/agent'));
 app.use('/api/whatsapp',     require('./routes/whatsapp'));
 app.use('/api/ubicaciones',  require('./routes/ubicaciones'));
+app.use('/api/auditoria',    require('./routes/auditoria'));
 
 // Endpoint de diagnóstico temporal para ver archivos y commits en Railway
 app.get('/api/debug-files', (req, res) => {

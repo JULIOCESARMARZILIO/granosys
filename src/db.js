@@ -685,6 +685,36 @@ async function initDB() {
       }
     }
 
+    // Auditoria: registro de quien hizo cada cambio. La tabla es de solo
+    // lectura para la aplicacion (solo INSERT); el trigger bloquea a nivel
+    // de base de datos cualquier UPDATE o DELETE, incluso si hay un bug o
+    // un acceso directo a la base, para que el historial no se pueda alterar.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS auditoria (
+        id SERIAL PRIMARY KEY,
+        fecha TIMESTAMP DEFAULT NOW(),
+        usuario VARCHAR(100) NOT NULL,
+        accion VARCHAR(30) NOT NULL,
+        modulo VARCHAR(50) NOT NULL,
+        registro_id INTEGER,
+        datos_antes JSONB,
+        datos_despues JSONB,
+        ip VARCHAR(50)
+      );
+
+      CREATE OR REPLACE FUNCTION bloquear_modificacion_auditoria()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        RAISE EXCEPTION 'La tabla auditoria es de solo lectura: no se pueden modificar ni borrar registros existentes.';
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS trg_auditoria_inmutable ON auditoria;
+      CREATE TRIGGER trg_auditoria_inmutable
+      BEFORE UPDATE OR DELETE ON auditoria
+      FOR EACH ROW EXECUTE FUNCTION bloquear_modificacion_auditoria();
+    `);
+
     console.log('Base de datos inicializada correctamente');
   } finally {
     client.release();

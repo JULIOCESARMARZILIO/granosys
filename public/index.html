@@ -94,7 +94,14 @@ const API_URL = window.location.hostname === "localhost"
   ? "http://localhost:3000"
   : window.location.origin;
 
+// Usuario logueado actual, para identificar quien hace cada cambio en la
+// auditoria del backend. Se completa en App al iniciar sesion (ver setUsuario).
+let _usuarioActualParaAuditoria = null;
+
 const api = {
+  setUsuario: (u) => {
+    _usuarioActualParaAuditoria = u ? (u.usuario || u.nombre || null) : null;
+  },
   get: async (path) => {
     try {
       const r = await fetch(`${API_URL}${path}`);
@@ -109,7 +116,7 @@ const api = {
     try {
       const r = await fetch(`${API_URL}${path}`, {
         method: "POST",
-        headers: {"Content-Type":"application/json"},
+        headers: {"Content-Type":"application/json", "X-Usuario-Actual": _usuarioActualParaAuditoria || ""},
         body: JSON.stringify(data)
       });
       if (!r.ok) throw new Error(await r.text());
@@ -123,7 +130,7 @@ const api = {
     try {
       const r = await fetch(`${API_URL}${path}`, {
         method: "PUT",
-        headers: {"Content-Type":"application/json"},
+        headers: {"Content-Type":"application/json", "X-Usuario-Actual": _usuarioActualParaAuditoria || ""},
         body: JSON.stringify(data)
       });
       if (!r.ok) throw new Error(await r.text());
@@ -136,7 +143,8 @@ const api = {
   delete: async (path) => {
     try {
       const r = await fetch(`${API_URL}${path}`, {
-        method: "DELETE"
+        method: "DELETE",
+        headers: {"X-Usuario-Actual": _usuarioActualParaAuditoria || ""}
       });
       if (!r.ok) throw new Error(await r.text());
       return await r.json();
@@ -10007,6 +10015,126 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
   );
 };
 
+// ── COMPONENTE AUDITORÍA ──
+const RegistroAuditoria = ({r}) => {
+  const [expandido, setExpandido] = useState(false);
+  return (
+    <React.Fragment>
+      <tr style={{borderBottom:"1px solid #1e212e"}}>
+        <td style={{padding:8,whiteSpace:"nowrap"}}>{new Date(r.fecha).toLocaleString("es-AR")}</td>
+        <td style={{padding:8}}>{r.usuario}</td>
+        <td style={{padding:8}}>{r.accion}</td>
+        <td style={{padding:8}}>{r.modulo}</td>
+        <td style={{padding:8}}>{r.registro_id ?? "-"}</td>
+        <td style={{padding:8}}>
+          {(r.datos_antes || r.datos_despues) && (
+            <button onClick={()=>setExpandido(!expandido)} style={{background:"none",border:"none",color:"#3498db",cursor:"pointer",fontSize:12}}>
+              {expandido ? "Ocultar" : "Ver detalle"}
+            </button>
+          )}
+        </td>
+      </tr>
+      {expandido && (
+        <tr>
+          <td colSpan={6} style={{padding:"8px 12px",background:"#0f1117"}}>
+            {r.datos_antes && (
+              <div style={{marginBottom:8}}>
+                <div style={{color:"#8890a8",fontSize:11,marginBottom:4}}>ANTES:</div>
+                <pre style={{whiteSpace:"pre-wrap",fontSize:11,color:"#e8eaf0",margin:0}}>{JSON.stringify(r.datos_antes,null,2)}</pre>
+              </div>
+            )}
+            {r.datos_despues && (
+              <div>
+                <div style={{color:"#8890a8",fontSize:11,marginBottom:4}}>DESPUÉS:</div>
+                <pre style={{whiteSpace:"pre-wrap",fontSize:11,color:"#e8eaf0",margin:0}}>{JSON.stringify(r.datos_despues,null,2)}</pre>
+              </div>
+            )}
+          </td>
+        </tr>
+      )}
+    </React.Fragment>
+  );
+};
+
+const Auditoria = () => {
+  const [registros, setRegistros] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [filtroModulo, setFiltroModulo] = useState("");
+  const [filtroUsuario, setFiltroUsuario] = useState("");
+  const [filtroAccion, setFiltroAccion] = useState("");
+
+  const cargar = async () => {
+    setCargando(true);
+    const params = new URLSearchParams();
+    if (filtroModulo) params.set("modulo", filtroModulo);
+    if (filtroUsuario) params.set("usuario", filtroUsuario);
+    if (filtroAccion) params.set("accion", filtroAccion);
+    const data = await api.get(`/api/auditoria?${params.toString()}`);
+    setRegistros(data || []);
+    setCargando(false);
+  };
+
+  useEffect(() => { cargar(); }, []);
+
+  const inputStyle = {padding:"6px 10px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4};
+
+  return (
+    <div style={{padding:24}}>
+      <h2 style={{marginBottom:4}}>Auditoría</h2>
+      <div style={{color:"#8890a8",fontSize:12,marginBottom:16}}>
+        Historial de cambios del sistema. Es de solo lectura: ningún usuario, incluido el administrador, puede editar o borrar estos registros.
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+        <input placeholder="Buscar por usuario..." value={filtroUsuario} onChange={e=>setFiltroUsuario(e.target.value)} style={inputStyle}/>
+        <select value={filtroModulo} onChange={e=>setFiltroModulo(e.target.value)} style={inputStyle}>
+          <option value="">Todos los módulos</option>
+          <option value="contratos">Contratos</option>
+          <option value="movimientos">Movimientos</option>
+          <option value="liquidaciones">Liquidaciones</option>
+          <option value="usuarios">Usuarios</option>
+          <option value="CONTRAPARTES">Propuestas IA: Contrapartes</option>
+          <option value="CONTRATOS">Propuestas IA: Contratos</option>
+          <option value="MOVIMIENTOS">Propuestas IA: Movimientos</option>
+          <option value="LIQUIDACIONES">Propuestas IA: Liquidaciones</option>
+        </select>
+        <select value={filtroAccion} onChange={e=>setFiltroAccion(e.target.value)} style={inputStyle}>
+          <option value="">Todas las acciones</option>
+          <option value="CREAR">Crear</option>
+          <option value="MODIFICAR">Modificar</option>
+          <option value="ELIMINAR">Eliminar</option>
+          <option value="CAMBIAR_ESTADO">Cambiar estado</option>
+          <option value="CREAR_PROPUESTA">Propuesta creada (Agente IA)</option>
+          <option value="APROBAR_PROPUESTA">Propuesta aprobada</option>
+          <option value="RECHAZAR_PROPUESTA">Propuesta rechazada</option>
+        </select>
+        <Btn onClick={cargar} size="sm">Filtrar</Btn>
+      </div>
+      {cargando ? <div>Cargando...</div> : (
+        <div style={{overflowX:"auto",border:"1px solid #2a2d3e",borderRadius:8}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+            <thead>
+              <tr style={{textAlign:"left",borderBottom:"1px solid #2a2d3e",color:"#8890a8"}}>
+                <th style={{padding:8}}>Fecha</th>
+                <th style={{padding:8}}>Usuario</th>
+                <th style={{padding:8}}>Acción</th>
+                <th style={{padding:8}}>Módulo</th>
+                <th style={{padding:8}}>Registro</th>
+                <th style={{padding:8}}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {registros.map(r => <RegistroAuditoria key={r.id} r={r}/>)}
+              {registros.length === 0 && (
+                <tr><td colSpan={6} style={{padding:16,textAlign:"center",color:"#565d7a"}}>No hay registros para estos filtros.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── APP PRINCIPAL ──
 const MENU_FORMAL = [
   {id:"dashboard",label:"Dashboard",icon:"⊞"},
@@ -10020,6 +10148,7 @@ const MENU_FORMAL = [
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬",group:"Reportes"},
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌",group:"Reportes"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
+  {id:"auditoria",label:"Auditoría",icon:"🕵"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
 ];
 
@@ -10036,6 +10165,7 @@ const MENU_INFORMAL = [
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬",group:"Reportes"},
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌",group:"Reportes"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
+  {id:"auditoria",label:"Auditoría",icon:"🕵"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
 ];
 
@@ -10559,7 +10689,7 @@ function App() {
     }
   }, [logueado]);
 
-  if(!logueado) return <Login onLogin={(u)=>{setLogueado(true);setUsuario(u);}}/>;
+  if(!logueado) return <Login onLogin={(u)=>{setLogueado(true);setUsuario(u);api.setUsuario(u);}}/>;
 
   const idContraparteNuevaUbicacion = new URLSearchParams(window.location.search).get('nueva_ubicacion');
   if (idContraparteNuevaUbicacion) {
@@ -10579,7 +10709,8 @@ function App() {
     }
   };
 
-  const menuActual = modulo==="FORMAL"?MENU_FORMAL:modulo==="INFORMAL"?MENU_INFORMAL:MENU_CONSOLIDADO;
+  const menuBase = modulo==="FORMAL"?MENU_FORMAL:modulo==="INFORMAL"?MENU_INFORMAL:MENU_CONSOLIDADO;
+  const menuActual = menuBase.filter(item => item.id !== "auditoria" || (usuario && usuario.rol === "ADMIN"));
 
   const render = () => {
     const userStr = usuario ? usuario.usuario : "";
@@ -10617,6 +10748,7 @@ function App() {
       case "posicion_abierta": return <PosicionAbierta {...p}/>;
       case "importador_excel": return <ImportadorExcel {...p} setSec={setSec}/>;
       case "agente_ia": return <AgenteIA {...p}/>;
+      case "auditoria": return <Auditoria/>;
       case "configuracion": return <Configuracion usuario={usuario} defaultTab={configDefaultTab} setDefaultTab={setConfigDefaultTab}/>;
       default: return <Dashboard {...p}/>;
     }
@@ -10757,6 +10889,7 @@ function App() {
                 onClick={() => {
                   setLogueado(false);
                   setUsuario("");
+                  api.setUsuario(null);
                 }}
                 style={{
                   flex:1,

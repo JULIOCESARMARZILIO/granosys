@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { pool } = require('../db');
+const { registrarAuditoria } = require('../services/auditoria');
 
 // Si viene precio de referencia + descuento %, calcula el precio final descontado.
 // Si no hay descuento pero sí referencia y precio manual, calcula el descuento % equivalente para mostrarlo.
@@ -310,6 +311,10 @@ router.post('/', async (req, res) => {
         costo_fumigacion_destino_fijo||0, otros_destino_descripcion||null, costo_otros_destino_valor||0,
         observaciones, base_calculo_peso||'BRUTO_CAMPO', precioResuelto.referencia, precioResuelto.descuento]);
 
+    await registrarAuditoria(req, {
+      accion: 'CREAR', modulo: 'contratos', registro_id: rows[0].id, datos_despues: rows[0]
+    });
+
     res.status(201).json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -530,10 +535,15 @@ router.put('/canje/:id', async (req, res) => {
 router.put('/:id/estado', async (req, res) => {
   try {
     const { estado } = req.body;
+    const { rows: antesRows } = await pool.query('SELECT estado FROM contratos WHERE id=$1', [req.params.id]);
     const { rows } = await pool.query(
       'UPDATE contratos SET estado=$1, updated_at=NOW() WHERE id=$2 RETURNING *',
       [estado, req.params.id]
     );
+    await registrarAuditoria(req, {
+      accion: 'CAMBIAR_ESTADO', modulo: 'contratos', registro_id: parseInt(req.params.id),
+      datos_antes: antesRows[0] || null, datos_despues: { estado }
+    });
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -555,6 +565,8 @@ router.put('/:id', async (req, res) => {
         error: 'No se puede modificar el contrato porque ya tiene liquidaciones asociadas.'
       });
     }
+
+    const { rows: antesRows } = await pool.query('SELECT * FROM contratos WHERE id = $1', [id]);
 
     const {
       tipo_contrato, modalidad, tipo_liquidacion, fecha_contrato,
@@ -655,6 +667,11 @@ router.put('/:id', async (req, res) => {
     // Recalcular contrato (para actualizar estado según pactadas vs asignadas)
     await recalcularContrato(id);
 
+    await registrarAuditoria(req, {
+      accion: 'MODIFICAR', modulo: 'contratos', registro_id: rows[0].id,
+      datos_antes: antesRows[0] || null, datos_despues: rows[0]
+    });
+
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -697,6 +714,12 @@ router.delete('/:id', async (req, res) => {
       'UPDATE contratos SET activo = FALSE, updated_at = NOW() WHERE id = ANY($1) RETURNING *',
       [ids]
     );
+
+    for (const r of rows) {
+      await registrarAuditoria(req, {
+        accion: 'ELIMINAR', modulo: 'contratos', registro_id: r.id, datos_antes: r
+      });
+    }
 
     res.json({ ok: true });
   } catch (err) {

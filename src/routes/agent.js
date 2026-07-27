@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { pool } = require('../db');
+const { registrarAuditoria } = require('../services/auditoria');
 
 // helper function to query contracts tons and states
 async function recalcularContrato(id_contrato) {
@@ -304,6 +305,13 @@ router.post('/proposals/:id/approve', async (req, res) => {
     `, [usuario_aprobador, id]);
 
     await client.query('COMMIT');
+
+    await registrarAuditoria(req, {
+      accion: 'APROBAR_PROPUESTA', modulo: prop.modulo, registro_id: resultRecord ? resultRecord.id : null,
+      datos_antes: { proposal_id: prop.id, tipo_accion: prop.tipo_accion, datos_propuesta: prop.datos_propuesta },
+      datos_despues: { usuario_aprobador, resultado: resultRecord }
+    });
+
     res.json({ success: true, proposal_id: id, result: resultRecord });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -330,6 +338,12 @@ router.post('/proposals/:id/reject', async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Propuesta no encontrada o no pendiente.' });
     }
+
+    await registrarAuditoria(req, {
+      accion: 'RECHAZAR_PROPUESTA', modulo: rows[0].modulo, registro_id: rows[0].id,
+      datos_antes: { tipo_accion: rows[0].tipo_accion, datos_propuesta: rows[0].datos_propuesta },
+      datos_despues: { usuario_aprobador: rows[0].usuario_aprobador }
+    });
 
     res.json({ success: true, proposal: rows[0] });
   } catch (err) {
@@ -656,6 +670,10 @@ Responde de forma concisa, clara, estructurada y en español.`;
 
       if (toolResult && toolResult.status === 'PROPOSED') {
         lastProposal = toolResult.proposal;
+        await registrarAuditoria(req, {
+          accion: 'CREAR_PROPUESTA', modulo, registro_id: toolResult.proposal.id,
+          datos_despues: { tipo_accion: actionType, datos_propuesta: args }
+        });
       }
 
       // Encadenar el resultado de la herramienta y darle otra vuelta al modelo
