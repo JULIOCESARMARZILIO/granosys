@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -10010,33 +10010,31 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
 // ── APP PRINCIPAL ──
 const MENU_FORMAL = [
   {id:"dashboard",label:"Dashboard",icon:"⊞"},
-  {id:"contrapartes",label:"Contrapartes",icon:"👤"},
-  {id:"contratos",label:"Contratos",icon:"📋"},
-  {id:"movimientos",label:"Movimientos",icon:"🚛"},
-  {id:"liquidaciones",label:"Liquidaciones",icon:"📊"},
-  {id:"cc",label:"Cuenta Corriente",icon:"💰"},
-  {id:"stock",label:"Stock",icon:"🌾"},
-  {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚"},
-  {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
-  {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
-  {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
+  {id:"contratos",label:"Contratos",icon:"📋",group:"Operaciones"},
+  {id:"movimientos",label:"Movimientos",icon:"🚛",group:"Operaciones"},
+  {id:"contrapartes",label:"Contrapartes",icon:"👤",group:"Cargas"},
+  {id:"liquidaciones",label:"Liquidaciones",icon:"📊",group:"Finanzas"},
+  {id:"cc",label:"Cuenta Corriente",icon:"💰",group:"Finanzas"},
+  {id:"stock",label:"Stock",icon:"🌾",group:"Finanzas"},
+  {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚",group:"Reportes"},
+  {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬",group:"Reportes"},
+  {id:"posicion_abierta",label:"Posición Abierta",icon:"📌",group:"Reportes"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
 ];
 
 const MENU_INFORMAL = [
   {id:"dashboard",label:"Dashboard",icon:"⊞"},
-  {id:"contrapartes",label:"Contrapartes",icon:"👤"},
-  {id:"contratos",label:"Contratos",icon:"📋"},
-  {id:"movimientos",label:"Movimientos",icon:"🚛"},
-  {id:"liquidaciones",label:"Liquidaciones",icon:"📊"},
-  {id:"cc",label:"Cuenta Corriente",icon:"💰"},
-  {id:"stock",label:"Stock",icon:"🌾"},
-  {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚"},
-  {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
-  {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
-  {id:"importador_excel",label:"Importar Excel",icon:"📥"},
-  {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
+  {id:"contratos",label:"Contratos",icon:"📋",group:"Operaciones"},
+  {id:"movimientos",label:"Movimientos",icon:"🚛",group:"Operaciones"},
+  {id:"contrapartes",label:"Contrapartes",icon:"👤",group:"Cargas"},
+  {id:"importador_excel",label:"Importar Excel",icon:"📥",group:"Cargas"},
+  {id:"liquidaciones",label:"Liquidaciones",icon:"📊",group:"Finanzas"},
+  {id:"cc",label:"Cuenta Corriente",icon:"💰",group:"Finanzas"},
+  {id:"stock",label:"Stock",icon:"🌾",group:"Finanzas"},
+  {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚",group:"Reportes"},
+  {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬",group:"Reportes"},
+  {id:"posicion_abierta",label:"Posición Abierta",icon:"📌",group:"Reportes"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
 ];
@@ -10046,7 +10044,6 @@ const MENU_CONSOLIDADO = [
   {id:"stock",label:"Stock Consolidado",icon:"🌾"},
   {id:"cc",label:"CC Consolidada",icon:"💰"},
   {id:"posicion_abierta",label:"Posición Global",icon:"📌"},
-  {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
 ];
 
@@ -10456,717 +10453,6 @@ const AgenteIA = ({ modulo, usuario }) => {
   );
 };
 
-// ── COMPONENTE REPORTES IA ──
-const ReportesIA = ({modulo, usuario}) => {
-  const [titulo, setTitulo] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [sqlQuery, setSqlQuery] = useState("");
-  const [columnas, setColumnas] = useState([]);
-  const [filas, setFilas] = useState([]);
-  const [multitabla, setMultitabla] = useState(false);
-  const [tablas, setTablas] = useState([]);
-  const [historial, setHistorial] = useState([]);
-  const [cargando, setCargando] = useState(false);
-  const [filtros, setFiltros] = useState([]);
-  const [columnaSeleccionada, setColumnaSeleccionada] = useState("");
-  
-  // Controles del nuevo filtro a agregar
-  const [filtroMinVal, setFiltroMinVal] = useState("");
-  const [filtroMaxVal, setFiltroMaxVal] = useState("");
-  const [filtroMinDate, setFiltroMinDate] = useState("");
-  const [filtroMaxDate, setFiltroMaxDate] = useState("");
-  const [filtroValoresSeleccionados, setFiltroValoresSeleccionados] = useState([]);
-
-  useEffect(() => {
-    cargarHistorial();
-  }, []);
-
-  const cargarHistorial = async () => {
-    try {
-      const data = await api.get("/api/reportes/ia");
-      setHistorial(data || []);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const generarReporte = async () => {
-    if (!prompt.trim()) return alert("Ingresá un prompt para pedirle a la IA");
-    setCargando(true);
-    setFiltros([]); // Limpiar filtros al generar nueva consulta
-    try {
-      const res = await api.post("/api/reportes/generar-ia", { prompt, modalidad: modulo });
-      if (res) {
-        setSqlQuery(res.sql || "");
-        if (res.multitabla) {
-          setMultitabla(true);
-          setTablas(res.tablas || []);
-          setColumnas(res.tablas[0]?.columnas || []);
-          setFilas(res.tablas[0]?.filas || []);
-        } else {
-          setMultitabla(false);
-          setTablas([]);
-          setColumnas(res.columnas || []);
-          setFilas(res.filas || []);
-        }
-        if (!titulo) {
-          setTitulo(`Reporte: ${prompt.substring(0, 30)}${prompt.length > 30 ? "..." : ""}`);
-        }
-      }
-    } catch (e) {
-      alert("Error al generar reporte: " + e.message);
-    } finally {
-      setCargando(false);
-    }
-  };
-
-  const guardarReporte = async () => {
-    if (!titulo.trim()) return alert("Ingresá un título para el reporte");
-    if (!sqlQuery) return alert("Generá un reporte antes de guardarlo");
-    try {
-      await api.post("/api/reportes/ia", {
-        titulo,
-        prompt,
-        sql_query: sqlQuery,
-        columnas
-      });
-      alert("✓ Reporte guardado exitosamente");
-      cargarHistorial();
-    } catch (e) {
-      alert("Error al guardar: " + e.message);
-    }
-  };
-
-  const cargarReporteGuardado = async (id) => {
-    setCargando(true);
-    setFiltros([]);
-    try {
-      const res = await api.get(`/api/reportes/ia/${id}`);
-      if (res) {
-        setTitulo(res.titulo);
-        setPrompt(res.prompt);
-        setSqlQuery(res.sql_query);
-        if (res.multitabla) {
-          setMultitabla(true);
-          setTablas(res.tablas || []);
-          setColumnas(res.tablas[0]?.columnas || []);
-          setFilas(res.tablas[0]?.filas || []);
-        } else {
-          setMultitabla(false);
-          setTablas([]);
-          setColumnas(res.columnas || []);
-          setFilas(res.filas || []);
-        }
-      }
-    } catch (e) {
-      alert("Error al cargar reporte: " + e.message);
-    } finally {
-      setCargando(false);
-    }
-  };
-
-  const getColumnaTipo = (col) => {
-    const colLower = col.toLowerCase();
-    if (colLower.includes("fecha") || colLower.includes("vencimiento") || colLower.includes("creación")) return "date-range";
-    if (colLower.includes("neto") || colLower.includes("tara") || colLower.includes("bruto") || colLower.includes("faltante") || colLower.includes("kg") || colLower.includes("toneladas") || colLower.includes("precio") || colLower.includes("monto") || colLower.includes("tarifa") || colLower.includes("km") || colLower.includes("factor") || colLower.includes("humedad") || colLower.includes("descuento")) {
-      return "number-range";
-    }
-    for (let r of filas) {
-      const val = r[col];
-      if (val !== null && val !== undefined) {
-        if (typeof val === "number") return "number-range";
-        if (typeof val === "string") {
-          if (/^\d{4}-\d{2}-\d{2}/.test(val) || /^\d{2}\/\d{2}\/\d{4}/.test(val)) return "date-range";
-        }
-      }
-    }
-    return "multiselect";
-  };
-
-  // Obtener valores únicos de una columna
-  const getValoresUnicos = (col) => {
-    const vals = new Set();
-    filas.forEach(r => {
-      const val = r[col];
-      if (val !== null && val !== undefined && val !== "") {
-        vals.add(String(val));
-      }
-    });
-    return Array.from(vals).sort();
-  };
-
-  const agregarFiltro = () => {
-    if (!columnaSeleccionada) return;
-    
-    // Verificar si ya existe filtro para esta columna
-    if (filtros.some(f => f.columna === columnaSeleccionada)) {
-      alert("Ya existe un filtro activo para la columna " + columnaSeleccionada);
-      return;
-    }
-
-    const tipo = getColumnaTipo(columnaSeleccionada);
-    
-    const nuevoFiltro = {
-      columna: columnaSeleccionada,
-      tipo,
-      minVal: filtroMinVal,
-      maxVal: filtroMaxVal,
-      minDate: filtroMinDate,
-      maxDate: filtroMaxDate,
-      selectedValues: [...filtroValoresSeleccionados]
-    };
-
-    setFiltros([...filtros, nuevoFiltro]);
-    
-    // Resetear campos
-    setColumnaSeleccionada("");
-    setFiltroMinVal("");
-    setFiltroMaxVal("");
-    setFiltroMinDate("");
-    setFiltroMaxDate("");
-    setFiltroValoresSeleccionados([]);
-  };
-
-  const removerFiltro = (index) => {
-    setFiltros(filtros.filter((_, i) => i !== index));
-  };
-
-  // Aplicar filtros a las filas
-  const filasFiltradas = filas.filter(row => {
-    return filtros.every(f => {
-      const val = row[f.columna];
-      if (f.tipo === "date-range") {
-        if (!val) return false;
-        const dVal = new Date(val).getTime();
-        if (f.minDate && new Date(f.minDate).getTime() > dVal) return false;
-        if (f.maxDate && new Date(f.maxDate).getTime() < dVal) return false;
-        return true;
-      }
-      if (f.tipo === "number-range") {
-        const nVal = parseFloat(val);
-        if (isNaN(nVal)) return false;
-        if (f.minVal !== "" && f.minVal !== null && parseFloat(f.minVal) > nVal) return false;
-        if (f.maxVal !== "" && f.maxVal !== null && parseFloat(f.maxVal) < nVal) return false;
-        return true;
-      }
-      if (f.tipo === "multiselect") {
-        if (f.selectedValues.length === 0) return true;
-        return f.selectedValues.includes(String(val));
-      }
-      return true;
-    });
-  });
-
-  // Exportar a Excel
-  const exportarExcel = () => {
-    let worksheet;
-    const workbook = XLSX.utils.book_new();
-
-    if (multitabla) {
-      const aoa = [];
-      tablas.forEach((tbl) => {
-        // Título de la tabla
-        aoa.push([tbl.titulo.toUpperCase()]);
-        // Columnas
-        aoa.push(tbl.columnas);
-        // Filas
-        tbl.filas.forEach((row) => {
-          const rowData = tbl.columnas.map(col => {
-            const val = row[col];
-            return val !== null && val !== undefined ? val : "";
-          });
-          aoa.push(rowData);
-        });
-        // Separador
-        aoa.push([]);
-        aoa.push([]);
-      });
-      worksheet = XLSX.utils.aoa_to_sheet(aoa);
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Resumen Contratos");
-    } else {
-      if (filasFiltradas.length === 0) return alert("No hay datos para exportar");
-      
-      const dataToExport = filasFiltradas.map(row => {
-        const obj = {};
-        // ID del movimiento obligatoriamente en la primera columna para cruzamientos
-        obj["ID Movimiento"] = row.id || row.ID || "";
-        
-        // Mapear el resto de las columnas del reporte de IA
-        columnas.forEach(col => {
-          if (col.toLowerCase() !== "id") {
-            obj[col] = row[col] !== null && row[col] !== undefined ? row[col] : "";
-          }
-        });
-        return obj;
-      });
-
-      worksheet = XLSX.utils.json_to_sheet(dataToExport);
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Reporte IA");
-    }
-    
-    const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-    const blob = new Blob([wbout], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${titulo.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'reporte_ia'}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  return (
-    <div className="fade-in" style={{paddingBottom: 40}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-        <div>
-          <h2 style={{fontSize:20,fontWeight:700}}>🤖 Generador de Reportes con IA</h2>
-          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Pedile al sistema en lenguaje natural qué información querés ver y la IA generará la consulta SQL correspondiente.</p>
-        </div>
-      </div>
-
-      <div style={{display:"grid",gridTemplateColumns:"260px 1fr",gap:20,alignItems:"start"}}>
-        {/* HISTORIAL / LATERAL */}
-        <div className="card" style={{padding:"16px 18px"}}>
-          <div style={{fontWeight:600,fontSize:13,color:"#f5a623",textTransform:"uppercase",letterSpacing:".05em",marginBottom:14,borderBottom:"1px solid #2a2d3e",paddingBottom:8}}>
-            📋 Reportes Guardados
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:450,overflowY:"auto"}}>
-            {historial.length === 0 ? (
-              <div style={{fontSize:12,color:"#565d7a",textAlign:"center",padding:"10px 0"}}>No hay reportes guardados aún.</div>
-            ) : (
-              historial.map(h => (
-                <button
-                  key={h.id}
-                  onClick={() => cargarReporteGuardado(h.id)}
-                  style={{
-                    background: "rgba(255,255,255,.02)",
-                    border: "1px solid #2a2d3e",
-                    borderRadius: 6,
-                    padding: "8px 10px",
-                    textAlign: "left",
-                    cursor: "pointer",
-                    transition: "all .2s"
-                  }}
-                  onMouseEnter={e => e.target.style.background = "rgba(255,255,255,.05)"}
-                  onMouseLeave={e => e.target.style.background = "rgba(255,255,255,.02)"}
-                >
-                  <div style={{fontSize:12,fontWeight:600,color:"#e8eaf0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.titulo}</div>
-                  <div style={{fontSize:10,color:"#565d7a",marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.prompt}</div>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* CONTENIDO PRINCIPAL */}
-        <div style={{display:"flex",flexDirection:"column",gap:20}}>
-          {/* FORMULARIO DE CONSULTA */}
-          <div className="card" style={{padding:20}}>
-            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:16,marginBottom:16}}>
-              <FF label="Título del Reporte">
-                <input
-                  type="text"
-                  placeholder="Ej: Reporte de Movimientos de Soja de la campaña 24/25"
-                  value={titulo}
-                  onChange={e => setTitulo(e.target.value)}
-                />
-              </FF>
-              <FF label="Modalidad Actual">
-                <input readOnly value={modulo === "CONSOLIDADO" ? "Consolidado" : modulo === "FORMAL" ? "📋 Formal" : "📝 Informal"} style={{background:"rgba(255,255,255,.02)",color:"#8890a8"}}/>
-              </FF>
-            </div>
-            
-            <FF label="¿Qué información querés ver? (Pedile a la IA en lenguaje natural)">
-              <textarea
-                placeholder="Ej: Mostrame todos los movimientos de soja en tránsito de la campaña 24/25 filtrados por productor García"
-                value={prompt}
-                onChange={e => setPrompt(e.target.value)}
-                style={{
-                  width: "100%",
-                  height: 70,
-                  padding: "10px 14px",
-                  fontSize: 13,
-                  background: "#0f1117",
-                  border: "1px solid #2a2d3e",
-                  borderRadius: 6,
-                  color: "#e8eaf0",
-                  resize: "none"
-                }}
-              />
-            </FF>
-
-            <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:16}}>
-              {sqlQuery && (
-                <button
-                  onClick={guardarReporte}
-                  style={{
-                    padding: "8px 16px",
-                    background: "transparent",
-                    color: "#f5a623",
-                    border: "1px solid #f5a623",
-                    borderRadius: 6,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    cursor: "pointer"
-                  }}
-                >
-                  💾 Guardar Reporte
-                </button>
-              )}
-              <button
-                onClick={generarReporte}
-                disabled={cargando}
-                style={{
-                  padding: "8px 18px",
-                  background: "#f5a623",
-                  color: "#000",
-                  border: "none",
-                  borderRadius: 6,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  opacity: cargando ? 0.7 : 1
-                }}
-              >
-                {cargando ? "Generando consulta..." : "🔍 Consultar IA"}
-              </button>
-            </div>
-          </div>
-
-          {/* VISOR SQL */}
-          {sqlQuery && (
-            <div className="card" style={{padding:"14px 18px",background:"#0a0b0f",border:"1px solid #1a1d27"}}>
-              <div style={{fontSize:11,fontWeight:700,color:"#565d7a",textTransform:"uppercase",marginBottom:6}}>
-                🖥️ Consulta SQL Generada
-              </div>
-              <pre style={{
-                fontFamily: "'IBM Plex Mono', monospace",
-                fontSize: 12,
-                color: "#8890a8",
-                overflowX: "auto",
-                whiteSpace: "pre-wrap",
-                margin: 0,
-                background: "rgba(0,0,0,.2)",
-                padding: "8px 10px",
-                borderRadius: 4
-              }}>
-                {sqlQuery}
-              </pre>
-            </div>
-          )}
-
-          {/* GRILLA DE RESULTADOS Y FILTROS */}
-          {filas.length > 0 ? (
-            <div className="card" style={{padding:20}}>
-              {/* PANEL DE FILTROS */}
-              <div style={{marginBottom:18,borderBottom:"1px solid #2a2d3e",paddingBottom:16}}>
-                <div style={{fontWeight:600,fontSize:14,color:"#e8eaf0",marginBottom:12}}>
-                  🛠️ Filtros de Reporte Avanzados
-                </div>
-                
-                {/* FILTROS ACTIVOS */}
-                {filtros.length > 0 && (
-                  <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
-                    {filtros.map((f, idx) => (
-                      <div
-                        key={idx}
-                        style={{
-                          background: "rgba(245,166,35,.12)",
-                          border: "1px solid rgba(245,166,35,.3)",
-                          color: "#f5a623",
-                          borderRadius: 6,
-                          padding: "4px 10px",
-                          fontSize: 11,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6
-                        }}
-                      >
-                        <span>
-                          <strong>{f.columna}:</strong>{" "}
-                          {f.tipo === "multiselect"
-                            ? f.selectedValues.join(", ")
-                            : f.tipo === "number-range"
-                            ? `${f.minVal || "Min"} - ${f.maxVal || "Max"}`
-                            : `${f.minDate || "Min"} a ${f.maxDate || "Max"}`
-                          }
-                        </span>
-                        <button
-                          onClick={() => removerFiltro(idx)}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            color: "#f5a623",
-                            fontSize: 14,
-                            cursor: "pointer",
-                            padding: "0 2px"
-                          }}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* AGREGAR FILTRO FORM */}
-                <div style={{display:"flex",alignItems:"end",gap:12,flexWrap:"wrap",background:"rgba(255,255,255,.02)",padding:"12px 14px",borderRadius:6,border:"1px solid #2a2d3e"}}>
-                  <div style={{minWidth:160}}>
-                    <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Columna</label>
-                    <select
-                      value={columnaSeleccionada}
-                      onChange={e => {
-                        setColumnaSeleccionada(e.target.value);
-                        setFiltroMinVal("");
-                        setFiltroMaxVal("");
-                        setFiltroMinDate("");
-                        setFiltroMaxDate("");
-                        setFiltroValoresSeleccionados([]);
-                      }}
-                      style={{width:"100%"}}
-                    >
-                      <option value="">Seleccionar...</option>
-                      {columnas.map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {columnaSeleccionada && (() => {
-                    const tipo = getColumnaTipo(columnaSeleccionada);
-                    if (tipo === "number-range") {
-                      return (
-                        <>
-                          <div>
-                            <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Min</label>
-                            <input
-                              type="number"
-                              value={filtroMinVal}
-                              onChange={e => setFiltroMinVal(e.target.value)}
-                              style={{width:100}}
-                            />
-                          </div>
-                          <div>
-                            <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Max</label>
-                            <input
-                              type="number"
-                              value={filtroMaxVal}
-                              onChange={e => setFiltroMaxVal(e.target.value)}
-                              style={{width:100}}
-                            />
-                          </div>
-                        </>
-                      );
-                    }
-                    if (tipo === "date-range") {
-                      return (
-                        <>
-                          <div>
-                            <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Desde</label>
-                            <input
-                              type="date"
-                              value={filtroMinDate}
-                              onChange={e => setFiltroMinDate(e.target.value)}
-                              style={{width:130}}
-                            />
-                          </div>
-                          <div>
-                            <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Hasta</label>
-                            <input
-                              type="date"
-                              value={filtroMaxDate}
-                              onChange={e => setFiltroMaxDate(e.target.value)}
-                              style={{width:130}}
-                            />
-                          </div>
-                        </>
-                      );
-                    }
-                    if (tipo === "multiselect") {
-                      const unicos = getValoresUnicos(columnaSeleccionada);
-                      return (
-                        <div style={{minWidth:200}}>
-                          <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Valores</label>
-                          <div style={{
-                            maxHeight:110,
-                            overflowY:"auto",
-                            background:"#0f1117",
-                            border:"1px solid #2a2d3e",
-                            borderRadius:6,
-                            padding:"6px 10px",
-                            display:"flex",
-                            flexDirection:"column",
-                            gap:4
-                          }}>
-                            {unicos.map(val => (
-                              <label key={val} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}>
-                                <input
-                                  type="checkbox"
-                                  checked={filtroValoresSeleccionados.includes(val)}
-                                  onChange={e => {
-                                    if (e.target.checked) {
-                                      setFiltroValoresSeleccionados([...filtroValoresSeleccionados, val]);
-                                    } else {
-                                      setFiltroValoresSeleccionados(filtroValoresSeleccionados.filter(v => v !== val));
-                                    }
-                                  }}
-                                />
-                                {val}
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()}
-
-                  {columnaSeleccionada && (
-                    <button
-                      onClick={agregarFiltro}
-                      style={{
-                        padding: "8px 14px",
-                        background: "#3498db",
-                        color: "#fff",
-                        border: "none",
-                        borderRadius: 6,
-                        fontWeight: 600,
-                        fontSize: 12,
-                        cursor: "pointer"
-                      }}
-                    >
-                      + Aplicar Filtro
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* CONTROLES EXPORTACION */}
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-                <div style={{fontSize:13,color:"#8890a8"}}>
-                  Mostrando <strong>{filasFiltradas.length}</strong> de {filas.length} filas
-                </div>
-                <button
-                  onClick={exportarExcel}
-                  style={{
-                    padding: "7px 14px",
-                    background: "rgba(39,174,96,.12)",
-                    color: "#27ae60",
-                    border: "1px solid rgba(39,174,96,.3)",
-                    borderRadius: 6,
-                    fontWeight: 600,
-                    fontSize: 12,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6
-                  }}
-                >
-                  📥 Exportar a Excel
-                </button>
-              </div>
-
-              {/* GRILLA */}
-              {multitabla ? (
-                <div style={{display:"flex",flexDirection:"column",gap:24}}>
-                  {tablas.map((tbl, idx) => (
-                    <div key={idx} className="card" style={{padding:18,background:"#0c0d13",border:"1px solid #2a2d3e",borderRadius:8}}>
-                      <h3 style={{fontSize:15,fontWeight:700,color:"#f5a623",marginBottom:14,textTransform:"uppercase",letterSpacing:".05em",borderBottom:"1px solid #1a1c28",paddingBottom:8}}>{tbl.titulo}</h3>
-                      <div style={{overflowX:"auto"}}>
-                        <table>
-                          <thead>
-                            <tr>
-                              {tbl.columnas.map(col => <th key={col}>{col}</th>)}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {tbl.filas.map((row, fIdx) => (
-                              <tr key={fIdx}>
-                                {tbl.columnas.map(col => {
-                                  const val = row[col];
-                                  let renderVal = val !== null && val !== undefined ? String(val) : "—";
-                                  
-                                  // Formateo de números de Tn o Kg
-                                  if (col.toLowerCase().includes("tn") || col.toLowerCase().includes("toneladas") || col.toLowerCase().includes("pactadas") || col.toLowerCase().includes("asignadas") || col.toLowerCase().includes("pendientes") || col.toLowerCase().includes("comprado") || col.toLowerCase().includes("recibir")) {
-                                    const n = parseFloat(val);
-                                    if (!isNaN(n)) renderVal = n.toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 2});
-                                  }
-                                  
-                                  // Formateo de precios
-                                  if (col.toLowerCase().includes("precio") || col.toLowerCase().includes("monto") || col.toLowerCase().includes("tarifa")) {
-                                    const n = parseFloat(val);
-                                    if (!isNaN(n)) renderVal = `$ ${n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-                                  }
-                                  
-                                  return <td key={col} className={typeof val === "number" ? "mono" : ""}>{renderVal}</td>;
-                                })}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div style={{overflowX:"auto"}}>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th style={{background:"rgba(52,152,219,.1)",color:"#3498db",fontWeight:600}}>ID Movimiento</th>
-                        {columnas.map(col => {
-                          if (col.toLowerCase() !== "id") {
-                            return <th key={col}>{col}</th>;
-                          }
-                          return null;
-                        })}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filasFiltradas.map((row, idx) => (
-                        <tr key={idx}>
-                          <td style={{fontFamily:"'IBM Plex Mono', monospace",fontSize:11,color:"#3498db",fontWeight:600}}>{row.id || row.ID || "—"}</td>
-                          {columnas.map(col => {
-                            if (col.toLowerCase() !== "id") {
-                              const val = row[col];
-                              let renderVal = val !== null && val !== undefined ? String(val) : "—";
-                              
-                              // Formateo de números de kg
-                              if (col.toLowerCase().includes("kg") || col.toLowerCase().includes("neto") || col.toLowerCase().includes("tara") || col.toLowerCase().includes("bruto") || col.toLowerCase().includes("liquidable")) {
-                                const n = parseFloat(val);
-                                if (!isNaN(n)) renderVal = Math.round(n).toLocaleString();
-                              }
-                              // Formateo de fletes o precios
-                              if (col.toLowerCase().includes("precio") || col.toLowerCase().includes("monto") || col.toLowerCase().includes("tarifa")) {
-                                const n = parseFloat(val);
-                                if (!isNaN(n)) renderVal = `$ ${n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-                              }
-                              
-                              return <td key={col} className={typeof val === "number" ? "mono" : ""}>{renderVal}</td>;
-                            }
-                            return null;
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          ) : (
-            !cargando && sqlQuery && (
-              <div className="card" style={{padding:"30px 20px",textAlign:"center",color:"#565d7a"}}>
-                La consulta se ejecutó pero no devolvió filas. Probá ampliando los criterios de búsqueda.
-              </div>
-            )
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
 const NuevaUbicacionRapida = ({ idContraparte }) => {
   const [nombre, setNombre] = useState("");
   const [localidad, setLocalidad] = useState("");
@@ -11314,7 +10600,6 @@ function App() {
         case "stock": return <StockConsolidado {...p}/>;
         case "cc": return <CCConsolidada {...p}/>;
         case "posicion_abierta": return <PosicionAbierta {...p}/>;
-        case "reportes_ia": return <ReportesIA {...p}/>;
         case "agente_ia": return <AgenteIA {...p}/>;
         default: return <DashboardConsolidado {...p}/>;
       }
@@ -11331,7 +10616,6 @@ function App() {
       case "rep_calidades": return <ReporteCalidades {...p}/>;
       case "posicion_abierta": return <PosicionAbierta {...p}/>;
       case "importador_excel": return <ImportadorExcel {...p} setSec={setSec}/>;
-      case "reportes_ia": return <ReportesIA {...p}/>;
       case "agente_ia": return <AgenteIA {...p}/>;
       case "configuracion": return <Configuracion usuario={usuario} defaultTab={configDefaultTab} setDefaultTab={setConfigDefaultTab}/>;
       default: return <Dashboard {...p}/>;
@@ -11389,11 +10673,25 @@ function App() {
           </div>
         </div>
         <nav style={{flex:1,padding:"8px 8px",overflowY:"auto"}}>
-          {menuActual.map(item=>(
-            <button key={item.id} onClick={()=>{ setSec(item.id); if (item.id === "configuracion") setConfigDefaultTab("especies"); }} className={`nav-btn ${sec===item.id?"active":""}`}>
-              <span style={{fontSize:14}}>{item.icon}</span>{item.label}
-            </button>
-          ))}
+          {(() => {
+            let grupoAnterior = null;
+            return menuActual.map(item=>{
+              const mostrarTitulo = item.group && item.group !== grupoAnterior;
+              grupoAnterior = item.group || null;
+              return (
+                <React.Fragment key={item.id}>
+                  {mostrarTitulo && (
+                    <div style={{fontSize:10,color:"#565d7a",margin:"14px 10px 4px",textTransform:"uppercase",letterSpacing:".06em",fontWeight:600}}>
+                      {item.group}
+                    </div>
+                  )}
+                  <button onClick={()=>{ setSec(item.id); if (item.id === "configuracion") setConfigDefaultTab("especies"); }} className={`nav-btn ${sec===item.id?"active":""}`}>
+                    <span style={{fontSize:14}}>{item.icon}</span>{item.label}
+                  </button>
+                </React.Fragment>
+              );
+            });
+          })()}
         </nav>
         {/* PROFILE CARD */}
         {usuario && (
