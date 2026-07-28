@@ -48,7 +48,8 @@ router.get('/consolidada', async (req, res) => {
       LEFT JOIN contratos cv ON m.id_contrato_venta = cv.id
       WHERE m.estado_liquidacion != 'LIQUIDADO'
         AND m.kg_liquidables IS NOT NULL
-    `);
+        AND ($1::text IS NULL OR m.modalidad = $1)
+    `, [req.query.modalidad || null]);
 
     // Agrupar por especie + ubicacion (propia por id, o "tercero" por nombre de destino)
     const grupos = new Map();
@@ -200,6 +201,53 @@ router.get('/capacidad-pago', async (req, res) => {
       falta_algun_precio: faltaAlgunPrecio,
       detalle
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/posicion/exposicion-neta
+// Posicion neta abierta al riesgo de precio, por producto: toneladas
+// compradas "a fijar" (sin precio cerrado todavia) menos toneladas
+// vendidas "a fijar". Si da positivo, estas "largo" (comprado neto, te
+// perjudica que el precio baje); si da negativo, estas "corto" (vendido
+// neto, te perjudica que el precio suba). Usa fijaciones_contrato para
+// descontar lo que ya se fue fijando parcialmente de cada contrato.
+router.get('/exposicion-neta', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        c.id, c.tipo_contrato, c.id_especie, e.nombre as especie_nombre,
+        c.cantidad_toneladas_pactadas,
+        COALESCE((SELECT SUM(f.cantidad_toneladas) FROM fijaciones_contrato f WHERE f.id_contrato = c.id), 0) as toneladas_fijadas
+      FROM contratos c
+      JOIN especies e ON c.id_especie = e.id
+      WHERE c.tipo_precio = 'A_FIJAR'
+        AND c.activo = TRUE
+        AND c.estado NOT IN ('CANCELADO')
+        AND ($1::text IS NULL OR c.modalidad = $1)
+    `, [req.query.modalidad || null]);
+
+    const porEspecie = new Map();
+    for (const c of rows) {
+      const abierto = Math.max(0, parseFloat(c.cantidad_toneladas_pactadas) - parseFloat(c.toneladas_fijadas));
+      if (abierto <= 0) continue;
+      if (!porEspecie.has(c.id_especie)) {
+        porEspecie.set(c.id_especie, { especie_nombre: c.especie_nombre, tn_compradas_a_fijar: 0, tn_vendidas_a_fijar: 0 });
+      }
+      const grupo = porEspecie.get(c.id_especie);
+      if (c.tipo_contrato === 'COMPRA') grupo.tn_compradas_a_fijar += abierto;
+      else if (c.tipo_contrato === 'VENTA') grupo.tn_vendidas_a_fijar += abierto;
+    }
+
+    const resultado = Array.from(porEspecie.values()).map(g => ({
+      especie_nombre: g.especie_nombre,
+      tn_compradas_a_fijar: Math.round(g.tn_compradas_a_fijar * 1000) / 1000,
+      tn_vendidas_a_fijar: Math.round(g.tn_vendidas_a_fijar * 1000) / 1000,
+      posicion_neta: Math.round((g.tn_compradas_a_fijar - g.tn_vendidas_a_fijar) * 1000) / 1000
+    })).sort((a, b) => Math.abs(b.posicion_neta) - Math.abs(a.posicion_neta));
+
+    res.json(resultado);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

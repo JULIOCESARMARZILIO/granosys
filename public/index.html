@@ -8711,15 +8711,27 @@ const ReporteCalidades = ({modulo}) => {
 const PosicionAbierta = ({modulo}) => {
   const [data,setData]=useState(null);
   const [cargando,setCargando]=useState(true);
+  const [tab,setTab]=useState("valorizado");
+  const [exposicion,setExposicion]=useState(null);
+  const [cargandoExp,setCargandoExp]=useState(true);
+
+  const filtroModalidad = (modulo==="FORMAL"||modulo==="INFORMAL") ? `?modalidad=${modulo}` : "";
 
   const cargar = async () => {
     setCargando(true);
-    const res = await api.get("/api/posicion/consolidada");
+    const res = await api.get(`/api/posicion/consolidada${filtroModalidad}`);
     setData(res);
     setCargando(false);
   };
 
-  useEffect(()=>{ cargar(); },[]);
+  const cargarExposicion = async () => {
+    setCargandoExp(true);
+    const res = await api.get(`/api/posicion/exposicion-neta${filtroModalidad}`);
+    setExposicion(res);
+    setCargandoExp(false);
+  };
+
+  useEffect(()=>{ cargar(); cargarExposicion(); },[modulo]);
 
   const fmtMoney = (v) => v==null ? "—" : `$ ${Number(v).toLocaleString("es-AR",{maximumFractionDigits:0})}`;
   const fmtTn = (v) => `${Number(v).toLocaleString("es-AR",{minimumFractionDigits:3,maximumFractionDigits:3})} tn`;
@@ -8733,10 +8745,40 @@ const PosicionAbierta = ({modulo}) => {
             Todo lo que todavía no está liquidado, valuado a precio de venta si ya lo tiene, o a precio de referencia (neto de flete) si está a fijar. No importa en qué planta esté físicamente.
           </p>
         </div>
-        <Btn variant="secondary" size="sm" onClick={cargar}>↻ Actualizar</Btn>
+        <Btn variant="secondary" size="sm" onClick={()=>{cargar();cargarExposicion();}}>↻ Actualizar</Btn>
       </div>
 
-      {cargando ? <div>Cargando...</div> : !data ? (
+      <div className="tab-bar" style={{marginBottom:20}}>
+        <button className={`tab ${tab==="valorizado"?"active":""}`} onClick={()=>setTab("valorizado")}>Valorizado</button>
+        <button className={`tab ${tab==="exposicion"?"active":""}`} onClick={()=>setTab("exposicion")}>Exposición Neta</button>
+      </div>
+
+      {tab==="exposicion" ? (
+        cargandoExp ? <div>Cargando...</div> : !exposicion || exposicion.length===0 ? (
+          <div style={{padding:40,textAlign:"center",color:"#27ae60",fontWeight:600}}>✓ No hay posición abierta a fijar</div>
+        ) : (
+          <div className="card">
+            <div style={{padding:"14px 18px",fontSize:12,color:"#8890a8"}}>
+              Toneladas compradas "a fijar" menos vendidas "a fijar", por producto. Positivo (largo) = te perjudica que el precio BAJE. Negativo (corto) = te perjudica que el precio SUBA.
+            </div>
+            <table>
+              <thead><tr><th>Producto</th><th>Compradas a fijar</th><th>Vendidas a fijar</th><th>Posición neta</th></tr></thead>
+              <tbody>
+                {exposicion.map((e,i)=>(
+                  <tr key={i}>
+                    <td style={{fontWeight:600}}>{e.especie_nombre}</td>
+                    <td className="mono">{fmtTn(e.tn_compradas_a_fijar)}</td>
+                    <td className="mono">{fmtTn(e.tn_vendidas_a_fijar)}</td>
+                    <td className="mono" style={{fontWeight:700,color:e.posicion_neta>0?"#3498db":e.posicion_neta<0?"#e74c3c":"#8890a8"}}>
+                      {e.posicion_neta>0?"+":""}{fmtTn(e.posicion_neta)} {e.posicion_neta>0?"(largo)":e.posicion_neta<0?"(corto)":""}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : cargando ? <div>Cargando...</div> : !data ? (
         <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No se pudo cargar la posición.</div>
       ) : (
         <React.Fragment>
