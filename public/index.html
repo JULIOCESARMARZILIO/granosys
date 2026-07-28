@@ -10469,6 +10469,123 @@ const RegularizacionProductor = () => {
   );
 };
 
+// ── COMPONENTE INDICADORES (KPIs) ──
+const Indicadores = () => {
+  const [tab, setTab] = useState("margen");
+  const [margenes, setMargenes] = useState(null);
+  const [saldos, setSaldos] = useState(null);
+  const [rotacion, setRotacion] = useState(null);
+  const [cargando, setCargando] = useState(true);
+
+  const cargar = async () => {
+    setCargando(true);
+    const [m, s, r] = await Promise.all([
+      api.get("/api/kpis/margen-clientes"),
+      api.get("/api/kpis/antiguedad-saldos"),
+      api.get("/api/kpis/rotacion-stock")
+    ]);
+    setMargenes(m||[]);
+    setSaldos(s||[]);
+    setRotacion(r||[]);
+    setCargando(false);
+  };
+
+  useEffect(()=>{ cargar(); },[]);
+
+  const fmtMoney = (v) => `$ ${Number(v).toLocaleString("es-AR",{maximumFractionDigits:0})}`;
+  const fmtTn = (v) => `${Number(v).toLocaleString("es-AR",{minimumFractionDigits:3,maximumFractionDigits:3})} tn`;
+
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <h2 style={{fontSize:18,fontWeight:700}}>Indicadores</h2>
+          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Margen por cliente, antigüedad de saldos y rotación de stock.</p>
+        </div>
+        <Btn variant="secondary" size="sm" onClick={cargar}>↻ Actualizar</Btn>
+      </div>
+
+      <div className="tab-bar" style={{marginBottom:20}}>
+        <button className={`tab ${tab==="margen"?"active":""}`} onClick={()=>setTab("margen")}>Margen por Cliente</button>
+        <button className={`tab ${tab==="saldos"?"active":""}`} onClick={()=>setTab("saldos")}>Antigüedad de Saldos</button>
+        <button className={`tab ${tab==="rotacion"?"active":""}`} onClick={()=>setTab("rotacion")}>Rotación de Stock</button>
+      </div>
+
+      {cargando ? <div>Cargando...</div> : (
+        <React.Fragment>
+          {tab==="margen" && (
+            margenes.length===0 ? <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay liquidaciones de venta todavía.</div> : (
+              <div className="card">
+                <div style={{padding:"10px 16px",fontSize:12,color:"#8890a8"}}>
+                  El margen usa el precio de compra del contrato vinculado a cada movimiento cuando existe; si no, esas toneladas quedan aparte (sin costo de referencia) para no inventar un número.
+                </div>
+                <table>
+                  <thead><tr><th>Cliente</th><th>Toneladas</th><th>Ingreso</th><th>Costo</th><th>Margen bruto</th><th>Sin costo de ref.</th></tr></thead>
+                  <tbody>
+                    {margenes.map((g,i)=>(
+                      <tr key={i}>
+                        <td style={{fontWeight:600}}>{g.cliente}</td>
+                        <td className="mono">{fmtTn(g.toneladas)}</td>
+                        <td className="mono">{fmtMoney(g.ingreso_total)}</td>
+                        <td className="mono">{fmtMoney(g.costo_total)}</td>
+                        <td className="mono" style={{fontWeight:700,color:g.margen_bruto>=0?"#27ae60":"#e74c3c"}}>{fmtMoney(g.margen_bruto)}</td>
+                        <td className="mono" style={{color:"#8890a8"}}>{g.toneladas_sin_costo_de_referencia>0?fmtTn(g.toneladas_sin_costo_de_referencia):"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+
+          {tab==="saldos" && (
+            saldos.length===0 ? <div style={{padding:40,textAlign:"center",color:"#27ae60",fontWeight:600}}>✓ No hay saldos abiertos</div> : (
+              <div className="card">
+                <table>
+                  <thead><tr><th>Contraparte</th><th>0-30 días</th><th>31-60 días</th><th>61-90 días</th><th>+90 días</th><th>Total</th></tr></thead>
+                  <tbody>
+                    {saldos.map((g,i)=>(
+                      <tr key={i}>
+                        <td style={{fontWeight:600}}>{g.contraparte}</td>
+                        <td className="mono">{fmtMoney(g.d0_30)}</td>
+                        <td className="mono">{fmtMoney(g.d31_60)}</td>
+                        <td className="mono" style={{color:g.d61_90!==0?"#f5a623":"inherit"}}>{fmtMoney(g.d61_90)}</td>
+                        <td className="mono" style={{color:g.d90_mas!==0?"#e74c3c":"inherit"}}>{fmtMoney(g.d90_mas)}</td>
+                        <td className="mono" style={{fontWeight:700}}>{fmtMoney(g.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+
+          {tab==="rotacion" && (
+            rotacion.length===0 ? <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay stock cargado todavía.</div> : (
+              <div className="card">
+                <table>
+                  <thead><tr><th>Producto</th><th>Ubicación</th><th>Stock actual</th><th>Entraron (30d)</th><th>Salieron (30d)</th></tr></thead>
+                  <tbody>
+                    {rotacion.map((g,i)=>(
+                      <tr key={i}>
+                        <td style={{fontWeight:600}}>{g.especie_nombre}</td>
+                        <td>{g.ubicacion_nombre}</td>
+                        <td className="mono">{fmtTn(g.stock_actual)}</td>
+                        <td className="mono" style={{color:"#27ae60"}}>{fmtTn(g.entraron_30d)}</td>
+                        <td className="mono" style={{color:"#e74c3c"}}>{fmtTn(g.salieron_30d)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+        </React.Fragment>
+      )}
+    </div>
+  );
+};
+
 // ── COMPONENTE BOLSA POR ZONA ──
 // Descargas sin contrato entran a la bolsa de su zona (via el motor de
 // stock); desde aca se "saca" de esa bolsa para completar contratos de
@@ -10791,6 +10908,7 @@ const MENU_FORMAL = [
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬",group:"Reportes"},
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌",group:"Reportes"},
   {id:"regularizacion",label:"Regularización Productor",icon:"🔁",group:"Reportes"},
+  {id:"indicadores",label:"Indicadores",icon:"📈",group:"Reportes"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
   {id:"auditoria",label:"Auditoría",icon:"🕵"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
@@ -10812,6 +10930,7 @@ const MENU_INFORMAL = [
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬",group:"Reportes"},
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌",group:"Reportes"},
   {id:"regularizacion",label:"Regularización Productor",icon:"🔁",group:"Reportes"},
+  {id:"indicadores",label:"Indicadores",icon:"📈",group:"Reportes"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
   {id:"auditoria",label:"Auditoría",icon:"🕵"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
@@ -11398,6 +11517,7 @@ function App() {
       case "rep_calidades": return <ReporteCalidades {...p}/>;
       case "posicion_abierta": return <PosicionAbierta {...p}/>;
       case "regularizacion": return <RegularizacionProductor/>;
+      case "indicadores": return <Indicadores/>;
       case "importador_excel": return <ImportadorExcel {...p} setSec={setSec}/>;
       case "agente_ia": return <AgenteIA {...p}/>;
       case "auditoria": return <Auditoria/>;
