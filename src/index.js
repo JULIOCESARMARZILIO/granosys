@@ -35,6 +35,7 @@ app.use('/api/precios',      require('./routes/precios'));
 app.use('/api/posicion',     require('./routes/posicion'));
 app.use('/api/kpis',         require('./routes/kpis'));
 app.use('/api/regularizacion', require('./routes/regularizacion'));
+app.use('/api/retiros-productor', require('./routes/retiros'));
 
 // Endpoint de diagnóstico temporal para ver archivos y commits en Railway
 app.get('/api/debug-files', (req, res) => {

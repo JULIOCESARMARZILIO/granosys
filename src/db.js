@@ -382,6 +382,25 @@ async function initDB() {
       -- descarga entra a la bolsa de su zona (via el motor de stock ya
       -- existente); esto es la operacion de "sacar" de esa bolsa para
       -- completar un contrato puntual.
+      -- Retiro de Productor: un productor retira o se le transfiere formalmente
+      -- una parte de lo que hay en la bolsa de una zona (el equivalente al
+      -- C1116A -- grano depositado, certificado, sin vender todavia). No
+      -- toca ningun contrato; numero_1116rt se completa cuando se tramita
+      -- por fuera en ARCA (la emision automatica queda para mas adelante).
+      CREATE TABLE IF NOT EXISTS retiros_productor (
+        id SERIAL PRIMARY KEY,
+        id_contraparte INTEGER NOT NULL REFERENCES contrapartes(id),
+        zona VARCHAR(50) NOT NULL,
+        id_especie INTEGER NOT NULL REFERENCES especies(id),
+        id_campana INTEGER NOT NULL REFERENCES campanas(id),
+        toneladas DECIMAL(12,3) NOT NULL,
+        numero_1116rt VARCHAR(50),
+        observaciones VARCHAR(255),
+        usuario VARCHAR(100) NOT NULL,
+        fecha DATE DEFAULT CURRENT_DATE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
       CREATE TABLE IF NOT EXISTS contrato_aplicaciones_stock (
         id SERIAL PRIMARY KEY,
         id_contrato INTEGER NOT NULL REFERENCES contratos(id) ON DELETE CASCADE,

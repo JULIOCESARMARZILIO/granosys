@@ -10641,14 +10641,22 @@ const BolsaPorZona = ({modulo}) => {
   const [toneladasSel, setToneladasSel] = useState("");
   const [guardando, setGuardando] = useState(false);
 
+  const [retirando, setRetirando] = useState(null); // clave de la bolsa con retiro abierto
+  const [contrapartes, setContrapartes] = useState([]);
+  const [productorSel, setProductorSel] = useState("");
+  const [toneladasRetiro, setToneladasRetiro] = useState("");
+  const [numero1116rt, setNumero1116rt] = useState("");
+
   const cargar = async () => {
     setCargando(true);
-    const [b, c] = await Promise.all([
+    const [b, c, cp] = await Promise.all([
       api.get("/api/stock/por-zona"),
-      api.get("/api/contratos")
+      api.get("/api/contratos"),
+      api.get("/api/contrapartes")
     ]);
     setBolsas(b||[]);
     setContratos((c||[]).filter(x=>x.tipo_contrato==="COMPRA" && x.modalidad===modulo && x.estado!=="CUMPLIDO" && x.activo!==false));
+    setContrapartes((cp||[]).filter(x=>x.tipo_contraparte==="PRODUCTOR"||x.tipo_contraparte==="AMBOS"));
     setCargando(false);
   };
 
@@ -10683,6 +10691,34 @@ const BolsaPorZona = ({modulo}) => {
 
   const contratosDeEspecie = (idEspecie) => contratos.filter(c=>c.id_especie===idEspecie);
 
+  const abrirRetiro = (bolsa) => {
+    const clave = `${bolsa.zona}|${bolsa.id_especie}|${bolsa.id_campana}`;
+    setRetirando(clave);
+    setProductorSel("");
+    setToneladasRetiro("");
+    setNumero1116rt("");
+  };
+
+  const confirmarRetiro = async (bolsa) => {
+    if (!productorSel || !toneladasRetiro) { alert("Elegí el productor y las toneladas"); return; }
+    setGuardando(true);
+    try {
+      const r = await api.post("/api/retiros-productor", {
+        id_contraparte: parseInt(productorSel), zona: bolsa.zona,
+        id_especie: bolsa.id_especie, id_campana: bolsa.id_campana,
+        toneladas: parseFloat(toneladasRetiro), numero_1116rt: numero1116rt || null
+      });
+      if (r && r.retiro) {
+        alert(`✓ Retiro registrado: ${r.retiro.toneladas}tn`);
+        setRetirando(null);
+        cargar();
+      } else {
+        alert("Error: " + (r?.error || "no se pudo registrar"));
+      }
+    } catch(e) { alert("Error: " + (e.response?.data?.error || e.message)); }
+    finally { setGuardando(false); }
+  };
+
   return (
     <div className="fade-in">
       <div style={{marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -10700,7 +10736,7 @@ const BolsaPorZona = ({modulo}) => {
       ) : (
         <div className="card">
           <table>
-            <thead><tr><th>Zona</th><th>Producto</th><th>Toneladas</th><th>Costo promedio</th><th></th></tr></thead>
+            <thead><tr><th>Zona</th><th>Producto</th><th>Toneladas</th><th>Costo promedio</th><th colSpan={2}></th></tr></thead>
             <tbody>
               {bolsas.map((b,i)=>{
                 const clave = `${b.zona}|${b.id_especie}|${b.id_campana}`;
@@ -10712,10 +10748,11 @@ const BolsaPorZona = ({modulo}) => {
                       <td className="mono">{fmtTn(b.toneladas_totales)}</td>
                       <td className="mono">$ {Number(b.costo_promedio_ponderado).toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
                       <td><Btn size="sm" variant="secondary" onClick={()=>abrirAplicar(b)}>Aplicar a contrato</Btn></td>
+                      <td><Btn size="sm" variant="secondary" onClick={()=>abrirRetiro(b)}>Retiro de Productor</Btn></td>
                     </tr>
                     {aplicando===clave && (
                       <tr>
-                        <td colSpan={5} style={{padding:"10px 16px",background:"#0f1117"}}>
+                        <td colSpan={6} style={{padding:"10px 16px",background:"#0f1117"}}>
                           <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"}}>
                             <FF label="Contrato de compra">
                               <select value={contratoSel} onChange={e=>setContratoSel(e.target.value)}>
@@ -10728,6 +10765,24 @@ const BolsaPorZona = ({modulo}) => {
                             <FF label="Toneladas a aplicar"><input type="number" value={toneladasSel} onChange={e=>setToneladasSel(e.target.value)} placeholder={`máx ${b.toneladas_totales}`}/></FF>
                             <Btn size="sm" disabled={guardando} onClick={()=>aplicar(b)}>{guardando?"Aplicando...":"Confirmar"}</Btn>
                             <Btn size="sm" variant="ghost" onClick={()=>setAplicando(null)}>Cancelar</Btn>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {retirando===clave && (
+                      <tr>
+                        <td colSpan={6} style={{padding:"10px 16px",background:"#0f1117"}}>
+                          <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"}}>
+                            <FF label="Productor">
+                              <select value={productorSel} onChange={e=>setProductorSel(e.target.value)}>
+                                <option value="">Seleccionar...</option>
+                                {contrapartes.map(c=><option key={c.id} value={c.id}>{c.razon_social}</option>)}
+                              </select>
+                            </FF>
+                            <FF label="Toneladas a retirar"><input type="number" value={toneladasRetiro} onChange={e=>setToneladasRetiro(e.target.value)} placeholder={`máx ${b.toneladas_totales}`}/></FF>
+                            <FF label="N° 1116RT (si ya lo tramitaste)"><input value={numero1116rt} onChange={e=>setNumero1116rt(e.target.value)} placeholder="Opcional"/></FF>
+                            <Btn size="sm" disabled={guardando} onClick={()=>confirmarRetiro(b)}>{guardando?"Guardando...":"Confirmar retiro"}</Btn>
+                            <Btn size="sm" variant="ghost" onClick={()=>setRetirando(null)}>Cancelar</Btn>
                           </div>
                         </td>
                       </tr>
