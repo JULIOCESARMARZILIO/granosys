@@ -9763,11 +9763,12 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
     } catch(e) { alert("Error: "+e.message); }
   };
 
+  const sinZonaCount = ubicaciones.filter(u=>!u.zona).length;
   const tabs = [
     {id:"especies",label:"Especies / Productos"},
     {id:"campanas",label:"Campañas"},
     {id:"precios",label:"Precios de Referencia"},
-    {id:"ubicaciones",label:"Ubicaciones / Zonas"},
+    {id:"ubicaciones",label:sinZonaCount>0?`Ubicaciones / Zonas ⚠ ${sinZonaCount} sin clasificar`:"Ubicaciones / Zonas"},
     {id:"arca",label:"Conexión ARCA"}
   ];
   if (usuario && usuario.rol === 'ADMIN') {
@@ -9941,12 +9942,13 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
           <div className="card-header"><span style={{fontWeight:600}}>Ubicaciones y zonas de referencia</span></div>
           <div style={{padding:"10px 16px",fontSize:12,color:"#8890a8"}}>
             La "Zona" agrupa varias ubicaciones en una misma bolsa de stock (ej. "Rosario Norte") para poder aplicar stock a contratos sin depender de una planta puntual. La distancia (km) se usa para calcular el precio neto de flete en Posición Consolidada.
+            {sinZonaCount>0 && <div style={{color:"#e74c3c",marginTop:6,fontWeight:600}}>⚠ Hay {sinZonaCount} ubicación(es) nueva(s) sin zona asignada todavía — quedan cargadas igual, pero conviene clasificarlas para que entren en la Bolsa por Zona.</div>}
           </div>
           <table><thead><tr><th>Nombre</th><th>Tipo</th><th>Localidad</th><th>Zona</th><th>Sub-zona</th><th>Km a referencia</th></tr></thead>
           <tbody>
-            {ubicaciones.map(u=>(
-              <tr key={u.id}>
-                <td style={{fontWeight:500}}>{u.nombre}</td>
+            {[...ubicaciones].sort((a,b)=>(a.zona?1:0)-(b.zona?1:0)).map(u=>(
+              <tr key={u.id} style={!u.zona?{background:"#2a1515"}:{}}>
+                <td style={{fontWeight:500}}>{u.nombre}{!u.zona && <span style={{marginLeft:6,fontSize:11,color:"#e74c3c"}}>⚠ sin clasificar</span>}</td>
                 <td style={{fontSize:12,color:"#8890a8"}}>{u.tipo}</td>
                 <td style={{fontSize:12,color:"#8890a8"}}>{u.localidad||"—"}</td>
                 <td>
