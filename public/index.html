@@ -9645,10 +9645,17 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
   const [ubicaciones,setUbicaciones]=useState([]);
   const cargarUbicaciones = () => api.get("/api/ubicaciones").then(d=>setUbicaciones(d||[])).catch(()=>{});
 
+  const [ubicacionesSinComprador,setUbicacionesSinComprador]=useState([]);
+  const [compradoresLista,setCompradoresLista]=useState([]);
+  const cargarUbicacionesSinComprador = () => api.get("/api/ubicaciones/sin-comprador").then(d=>setUbicacionesSinComprador(d||[])).catch(()=>{});
+  const sinCompradorCount = ubicacionesSinComprador.length;
+
   useEffect(()=>{
     api.get("/api/especies").then(d=>setEspecies(d)).catch(()=>{});
     api.get("/api/campanas").then(d=>setCampanas(d)).catch(()=>{});
     cargarUbicaciones();
+    cargarUbicacionesSinComprador();
+    api.get("/api/contrapartes").then(d=>setCompradoresLista((d||[]).filter(c=>c.tipo_contraparte==="COMPRADOR"||c.tipo_contraparte==="AMBOS"))).catch(()=>{});
   },[]);
 
   useEffect(() => {
@@ -9987,6 +9994,39 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
               </tr>
             ))}
             {ubicaciones.length===0&&<tr><td colSpan={6} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay ubicaciones cargadas</td></tr>}
+          </tbody></table>
+        </div>
+      )}
+
+      {tab==="ubicaciones"&&(
+        <div className="card" style={{marginTop:16}}>
+          <div className="card-header"><span style={{fontWeight:600}}>Plantas sin comprador asociado {sinCompradorCount>0 && `(${sinCompradorCount})`}</span></div>
+          <div style={{padding:"10px 16px",fontSize:12,color:"#8890a8"}}>
+            Estas plantas no están vinculadas a ningún comprador todavía — por eso no aparecen como sugerencia al elegir destino en Movimientos.
+          </div>
+          <table><thead><tr><th>Nombre</th><th>Localidad</th><th>Zona</th><th>Asociar a comprador</th></tr></thead>
+          <tbody>
+            {ubicacionesSinComprador.map(u=>(
+              <tr key={u.id}>
+                <td style={{fontWeight:500}}>{u.nombre}</td>
+                <td style={{fontSize:12,color:"#8890a8"}}>{u.localidad||"—"}</td>
+                <td style={{fontSize:12,color:u.zona?"#8890a8":"#e74c3c"}}>{u.zona||"sin clasificar"}</td>
+                <td>
+                  <select style={{fontSize:12}} defaultValue="" onChange={async(ev)=>{
+                    const idComprador = ev.target.value;
+                    if (!idComprador) return;
+                    try {
+                      await api.post(`/api/contrapartes/${idComprador}/ubicaciones`, { id_ubicacion: u.id });
+                      cargarUbicacionesSinComprador();
+                    } catch(err){ alert("Error: "+err.message); }
+                  }}>
+                    <option value="">Seleccionar comprador...</option>
+                    {compradoresLista.map(c=><option key={c.id} value={c.id}>{c.razon_social}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+            {ubicacionesSinComprador.length===0&&<tr><td colSpan={4} style={{textAlign:"center",color:"#27ae60",padding:20}}>✓ Todas las plantas tienen comprador asociado</td></tr>}
           </tbody></table>
         </div>
       )}

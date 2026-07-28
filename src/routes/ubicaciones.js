@@ -133,6 +133,24 @@ router.post('/referencias/zonas-nombre', async (req, res) => {
   }
 });
 
+// GET /api/ubicaciones/sin-comprador - plantas/destinos que todavia no estan
+// asociadas a ninguna contraparte (comprador), para poder ir completando esa
+// relacion (la que usa el formulario de Movimientos para sugerir destinos).
+router.get('/sin-comprador', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT u.* FROM ubicaciones u
+      WHERE u.activo = true
+        AND u.tipo != 'PLANTA_PROPIA'
+        AND NOT EXISTS (SELECT 1 FROM contraparte_ubicaciones cu WHERE cu.id_ubicacion = u.id)
+      ORDER BY u.zona NULLS FIRST, u.nombre
+    `);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE /api/ubicaciones/:id - baja lógica (deja de aparecer en listados/selectores)
 router.delete('/:id', async (req, res) => {
   try {
