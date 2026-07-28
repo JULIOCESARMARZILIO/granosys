@@ -2,6 +2,43 @@ const router = require('express').Router();
 const { pool } = require('../db');
 const { extraerDatosCPE, ExtraccionError } = require('../services/geminiExtraction');
 const { registrarAuditoria } = require('../services/auditoria');
+const { sumarStock, restarStock } = require('../services/stockService');
+
+// Al llegar un movimiento a destino (kg_liquidables ya definitivo), actualiza
+// el stock: si tiene contrato de compra y una ubicacion de destino propia
+// cargada, suma stock ahi; si tiene contrato de venta y una ubicacion de
+// origen propia cargada, resta stock de ahi (salio de un deposito propio).
+async function actualizarStockPorLlegada(mov) {
+  if (!mov || !mov.kg_liquidables) return;
+
+  if (mov.id_contrato_compra && mov.id_ubicacion_destino) {
+    const { rows: contratoRows } = await pool.query(
+      'SELECT tipo_precio, precio_pactado, id_campana FROM contratos WHERE id = $1',
+      [mov.id_contrato_compra]
+    );
+    const contrato = contratoRows[0];
+    if (contrato) {
+      const precioUnitario = contrato.tipo_precio === 'FIJO' && contrato.precio_pactado !== null
+        ? parseFloat(contrato.precio_pactado) : null;
+      await sumarStock({
+        id_ubicacion: mov.id_ubicacion_destino,
+        id_especie: mov.id_especie,
+        id_campana: mov.id_campana || contrato.id_campana,
+        kg: parseFloat(mov.kg_liquidables),
+        precioUnitario
+      });
+    }
+  }
+
+  if (mov.id_contrato_venta && mov.id_ubicacion_origen) {
+    await restarStock({
+      id_ubicacion: mov.id_ubicacion_origen,
+      id_especie: mov.id_especie,
+      id_campana: mov.id_campana,
+      kg: parseFloat(mov.kg_liquidables)
+    });
+  }
+}
 
 // POST /parse-cpe - interpreta con IA el texto de una Carta de Porte Electrónica
 // (el PDF se lee en el cliente con pdf.js; acá solo se estructura el texto plano).
@@ -327,6 +364,17 @@ router.post('/', async (req, res) => {
 
     const createdMov = mainMovRows[0];
 
+    // Ubicacion propia de origen/destino (opcional): es lo que le permite al
+    // motor de stock saber si este viaje entra o sale de un deposito propio.
+    if (req.body.id_ubicacion_origen || req.body.id_ubicacion_destino) {
+      await pool.query(
+        'UPDATE movimientos SET id_ubicacion_origen = $1, id_ubicacion_destino = $2 WHERE id = $3',
+        [req.body.id_ubicacion_origen || null, req.body.id_ubicacion_destino || null, createdMov.id]
+      );
+      createdMov.id_ubicacion_origen = req.body.id_ubicacion_origen || null;
+      createdMov.id_ubicacion_destino = req.body.id_ubicacion_destino || null;
+    }
+
     // Si es INFORMAL y tiene CPE, crear twin FORMAL
     if (modalidad === 'INFORMAL' && nro_cpe) {
       const numero_movimiento_2 = `MOV-${String(num1 + 1).padStart(4, '0')}`;
@@ -492,14 +540,15 @@ router.put('/:id/llegada', async (req, res) => {
         humedad_llegada_pct||null, diferencia, tolerancia, faltante,
         factor_calculado, db_factor_manual, factor_aplicado, kg_liquidables,
         req.params.id]);
-    
+
     if (rows[0]) {
       await recalcularContrato(rows[0].id_contrato_compra);
       await recalcularContrato(rows[0].id_contrato_venta);
-      
+      await actualizarStockPorLlegada(rows[0]);
+
       if (rows[0].id_movimiento_vinculado) {
         const vinculoId = rows[0].id_movimiento_vinculado;
-        const { rows: vMov } = await pool.query('SELECT id_contrato_compra, id_contrato_venta FROM movimientos WHERE id = $1', [vinculoId]);
+        const { rows: vMov } = await pool.query('SELECT * FROM movimientos WHERE id = $1', [vinculoId]);
         
         await pool.query(`
           UPDATE movimientos SET
@@ -519,6 +568,7 @@ router.put('/:id/llegada', async (req, res) => {
         if (vMov[0]) {
           await recalcularContrato(vMov[0].id_contrato_compra);
           await recalcularContrato(vMov[0].id_contrato_venta);
+          await actualizarStockPorLlegada({ ...vMov[0], kg_liquidables });
         }
       }
     }
@@ -1047,6 +1097,14 @@ router.put('/:id', async (req, res) => {
         humedad_salida_pct||null, observaciones||null, finalChofer, finalTransportista,
         nro_factura_flete||null, fecha_partida||null, estado_liq, req.params.id
     ]);
+
+    if (req.body.id_ubicacion_origen !== undefined || req.body.id_ubicacion_destino !== undefined) {
+      const { rows: ubicRows } = await pool.query(
+        'UPDATE movimientos SET id_ubicacion_origen = $1, id_ubicacion_destino = $2 WHERE id = $3 RETURNING *',
+        [req.body.id_ubicacion_origen || null, req.body.id_ubicacion_destino || null, req.params.id]
+      );
+      if (ubicRows[0]) rows[0] = ubicRows[0];
+    }
 
     // Recalcular toneladas y estado de contratos involucrados
     await recalcularContrato(oldCompraId);

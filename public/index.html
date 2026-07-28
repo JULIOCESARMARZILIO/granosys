@@ -9621,6 +9621,12 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
   const [nuevoUsuario,setNuevoUsuario]=useState({usuario:"",contrasena:"",nombre:"",rol:"OPERADOR"});
   const [editandoUsuario,setEditandoUsuario]=useState(null);
 
+  const [preciosVigentes,setPreciosVigentes]=useState([]);
+  const [cargandoPrecios,setCargandoPrecios]=useState(false);
+  const [edicionPrecio,setEdicionPrecio]=useState({});
+  const [historialAbierto,setHistorialAbierto]=useState(null);
+  const [historialPrecio,setHistorialPrecio]=useState([]);
+
   useEffect(()=>{
     api.get("/api/especies").then(d=>setEspecies(d)).catch(()=>{});
     api.get("/api/campanas").then(d=>setCampanas(d)).catch(()=>{});
@@ -9630,7 +9636,38 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
     if (tab === "usuarios") {
       api.get("/api/usuarios").then(d => d && setUsuarios(d)).catch(() => {});
     }
+    if (tab === "precios") {
+      cargarPreciosVigentes();
+    }
   }, [tab]);
+
+  const cargarPreciosVigentes = async () => {
+    setCargandoPrecios(true);
+    const data = await api.get("/api/precios/vigentes");
+    setPreciosVigentes(data || []);
+    setCargandoPrecios(false);
+  };
+
+  const actualizarPrecio = async (idEspecie) => {
+    const nuevoValor = edicionPrecio[idEspecie];
+    if (!nuevoValor || isNaN(parseFloat(nuevoValor))) {
+      alert("Ingresá un precio válido");
+      return;
+    }
+    try {
+      await api.post("/api/precios", { id_especie: idEspecie, precio: parseFloat(nuevoValor), moneda: "ARS" });
+      setEdicionPrecio({...edicionPrecio, [idEspecie]: ""});
+      await cargarPreciosVigentes();
+      alert("✓ Precio actualizado");
+    } catch (e) { alert("Error: " + e.message); }
+  };
+
+  const verHistorialPrecio = async (idEspecie) => {
+    if (historialAbierto === idEspecie) { setHistorialAbierto(null); return; }
+    const data = await api.get(`/api/precios/historial/${idEspecie}`);
+    setHistorialPrecio(data || []);
+    setHistorialAbierto(idEspecie);
+  };
 
   const guardarEspecie = async() => {
     if(!nuevaEspecie.nombre||!nuevaEspecie.codigo){alert("Nombre y código son obligatorios");return;}
@@ -9710,6 +9747,7 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
   const tabs = [
     {id:"especies",label:"Especies / Productos"},
     {id:"campanas",label:"Campañas"},
+    {id:"precios",label:"Precios de Referencia"},
     {id:"arca",label:"Conexión ARCA"}
   ];
   if (usuario && usuario.rol === 'ADMIN') {
@@ -9732,17 +9770,18 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
         <div>
           <div className="card" style={{marginBottom:16}}>
             <div className="card-header"><span style={{fontWeight:600}}>Especies / Productos registrados</span></div>
-            <table><thead><tr><th>ID</th><th>Nombre</th><th>Código</th><th>Estado</th></tr></thead>
+            <table><thead><tr><th>ID</th><th>Nombre</th><th>Código</th><th>Tipo</th><th>Estado</th></tr></thead>
             <tbody>
               {especies.map(e=>(
                 <tr key={e.id}>
                   <td><span className="mono" style={{color:"#565d7a"}}>{e.id}</span></td>
                   <td style={{fontWeight:500}}>{e.nombre}</td>
                   <td><span className="mono" style={{color:"#f5a623"}}>{e.codigo}</span></td>
+                  <td><Badge label={e.tipo_producto==="SUBPRODUCTO"?"Subproducto":"Grano"} color={e.tipo_producto==="SUBPRODUCTO"?"blue":"gray"}/></td>
                   <td><Badge label={e.activa?"Activa":"Inactiva"} color={e.activa?"green":"gray"}/></td>
                 </tr>
               ))}
-              {especies.length===0&&<tr><td colSpan={4} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay especies cargadas</td></tr>}
+              {especies.length===0&&<tr><td colSpan={5} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay especies cargadas</td></tr>}
             </tbody></table>
           </div>
           <div className="card" style={{padding:"18px 20px"}}>
@@ -9798,6 +9837,67 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
               <Btn disabled={guardando} onClick={guardarCampana}>{guardando?"Guardando...":"Agregar"}</Btn>
             </div>
           </div>
+        </div>
+      )}
+
+      {tab==="precios"&&(
+        <div>
+          <div className="card" style={{marginBottom:16,padding:"14px 18px"}}>
+            <p style={{fontSize:12,color:"#8890a8",lineHeight:1.5,margin:0}}>
+              Precio de referencia general de cada producto (grano o subproducto), usado para valuar posiciones "a fijar" y stock sin precio de venta cerrado.
+              Al actualizar un precio, el anterior <strong>no se pierde</strong>: queda en el historial con fecha, usuario y valor, y los reportes de fechas pasadas siguen usando el precio que estaba vigente en ese momento.
+            </p>
+          </div>
+          {cargandoPrecios ? <div>Cargando...</div> : (
+            <div className="card">
+              <table><thead><tr><th>Producto</th><th>Tipo</th><th>Precio Vigente</th><th>Desde</th><th>Cargado por</th><th>Actualizar</th><th></th></tr></thead>
+              <tbody>
+                {preciosVigentes.map(p=>(
+                  <React.Fragment key={p.id_especie}>
+                    <tr>
+                      <td style={{fontWeight:500}}>{p.especie_nombre}</td>
+                      <td><Badge label={p.tipo_producto==="SUBPRODUCTO"?"Subproducto":"Grano"} color={p.tipo_producto==="SUBPRODUCTO"?"blue":"gray"}/></td>
+                      <td className="mono">{p.precio!=null?`$ ${Number(p.precio).toLocaleString("es-AR")}`:<span style={{color:"#565d7a"}}>Sin cargar</span>}</td>
+                      <td className="mono" style={{fontSize:12,color:"#8890a8"}}>{p.vigente_desde?new Date(p.vigente_desde).toLocaleDateString("es-AR"):"-"}</td>
+                      <td style={{fontSize:12,color:"#8890a8"}}>{p.usuario||"-"}</td>
+                      <td>
+                        <div style={{display:"flex",gap:6}}>
+                          <input placeholder="Nuevo precio" value={edicionPrecio[p.id_especie]||""} onChange={e=>setEdicionPrecio({...edicionPrecio,[p.id_especie]:e.target.value})} style={{width:110,padding:"5px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}/>
+                          <Btn size="sm" onClick={()=>actualizarPrecio(p.id_especie)}>Cargar</Btn>
+                        </div>
+                      </td>
+                      <td>
+                        <button onClick={()=>verHistorialPrecio(p.id_especie)} style={{background:"none",border:"none",color:"#3498db",cursor:"pointer",fontSize:12}}>
+                          {historialAbierto===p.id_especie?"Ocultar":"Historial"}
+                        </button>
+                      </td>
+                    </tr>
+                    {historialAbierto===p.id_especie && (
+                      <tr>
+                        <td colSpan={7} style={{padding:"8px 16px",background:"#0f1117"}}>
+                          {historialPrecio.length===0 ? (
+                            <span style={{fontSize:12,color:"#565d7a"}}>Sin historial todavía.</span>
+                          ) : (
+                            <table style={{fontSize:12}}><thead><tr><th>Precio</th><th>Vigente desde</th><th>Cargado por</th><th>Fecha de carga</th></tr></thead>
+                            <tbody>
+                              {historialPrecio.map(h=>(
+                                <tr key={h.id}>
+                                  <td className="mono">$ {Number(h.precio).toLocaleString("es-AR")}</td>
+                                  <td className="mono">{new Date(h.vigente_desde).toLocaleDateString("es-AR")}</td>
+                                  <td>{h.usuario}</td>
+                                  <td className="mono" style={{color:"#8890a8"}}>{new Date(h.created_at).toLocaleString("es-AR")}</td>
+                                </tr>
+                              ))}
+                            </tbody></table>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody></table>
+            </div>
+          )}
         </div>
       )}
 

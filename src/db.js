@@ -24,6 +24,8 @@ async function initDB() {
         id SERIAL PRIMARY KEY,
         nombre VARCHAR(50) NOT NULL,
         codigo VARCHAR(10) NOT NULL UNIQUE,
+        tipo_producto VARCHAR(20) NOT NULL DEFAULT 'GRANO',
+        id_especie_origen INTEGER REFERENCES especies(id),
         activa BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT NOW()
       );
@@ -351,8 +353,27 @@ async function initDB() {
         toneladas_con_precio DECIMAL(12,3) DEFAULT 0,
         toneladas_a_fijar DECIMAL(12,3) DEFAULT 0,
         toneladas_comprometidas DECIMAL(12,3) DEFAULT 0,
+        costo_promedio_ponderado DECIMAL(14,4) DEFAULT 0,
+        valor_total DECIMAL(16,4) DEFAULT 0,
         updated_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(id_ubicacion, id_especie, id_campana)
+      );
+
+      -- Historial de precios de referencia (para valuar posicion "a fijar" y
+      -- subproductos). Es de solo agregado: nunca se pisa un precio viejo,
+      -- se inserta uno nuevo con su fecha de vigencia. id_ubicacion y
+      -- modalidad son opcionales: NULL significa "aplica en general" salvo
+      -- que exista un precio mas especifico para esa ubicacion/modalidad.
+      CREATE TABLE IF NOT EXISTS precios_referencia (
+        id SERIAL PRIMARY KEY,
+        id_especie INTEGER NOT NULL REFERENCES especies(id),
+        id_ubicacion INTEGER REFERENCES ubicaciones(id),
+        modalidad VARCHAR(20),
+        precio DECIMAL(14,4) NOT NULL,
+        moneda VARCHAR(20) NOT NULL DEFAULT 'ARS',
+        vigente_desde DATE NOT NULL DEFAULT CURRENT_DATE,
+        usuario VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
       );
 
       CREATE TABLE IF NOT EXISTS mermas_humedad (
@@ -391,6 +412,13 @@ async function initDB() {
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS calidad_tipo_ajuste VARCHAR(20) DEFAULT 'FACTOR';
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS calidad_valor_ajuste DECIMAL(12,4);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_movimiento_vinculado INTEGER REFERENCES movimientos(id);
+      ALTER TABLE especies ADD COLUMN IF NOT EXISTS tipo_producto VARCHAR(20) NOT NULL DEFAULT 'GRANO';
+      ALTER TABLE especies ADD COLUMN IF NOT EXISTS id_especie_origen INTEGER REFERENCES especies(id);
+      ALTER TABLE stock ADD COLUMN IF NOT EXISTS costo_promedio_ponderado DECIMAL(14,4) DEFAULT 0;
+      ALTER TABLE stock ADD COLUMN IF NOT EXISTS valor_total DECIMAL(16,4) DEFAULT 0;
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_ubicacion_origen INTEGER REFERENCES ubicaciones(id);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_ubicacion_destino INTEGER REFERENCES ubicaciones(id);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS origen_produccion VARCHAR(20);
 
       -- Inicializar estado_flete basado en campos de flete existentes
       UPDATE movimientos SET estado_flete = 'LIQUIDADO' WHERE nro_factura_flete IS NOT NULL AND (estado_flete IS NULL OR estado_flete = 'PENDIENTE');
@@ -600,6 +628,35 @@ async function initDB() {
         (4, 'Materia Extraña', 1.5, 1.5, 1.0, 0.0, 2);
       `);
       console.log('Semilla de parametros_calidad_especie completada.');
+    }
+
+    // Sembrar catalogo de subproductos si no existen (se identifican por
+    // tipo_producto='SUBPRODUCTO'; id_especie_origen los vincula al grano
+    // del que provienen, para trazabilidad y reportes).
+    const { rows: subproductosExist } = await client.query("SELECT id FROM especies WHERE tipo_producto = 'SUBPRODUCTO' LIMIT 1");
+    if (subproductosExist.length === 0) {
+      console.log('Sembrando catalogo de subproductos...');
+      const { rows: origenes } = await client.query("SELECT id, codigo FROM especies WHERE codigo IN ('SOJ','GIR','TRI','MAI')");
+      const idOrigen = {};
+      origenes.forEach(o => { idOrigen[o.codigo] = o.id; });
+
+      const subproductos = [
+        { nombre: 'Aceite de Soja',       codigo: 'ACE-SOJ', origen: 'SOJ' },
+        { nombre: 'Aceite de Girasol',    codigo: 'ACE-GIR', origen: 'GIR' },
+        { nombre: 'Expeller de Soja',     codigo: 'EXP-SOJ', origen: 'SOJ' },
+        { nombre: 'Expeller de Girasol',  codigo: 'EXP-GIR', origen: 'GIR' },
+        { nombre: 'Afrechillo de Trigo',  codigo: 'AFR-TRI', origen: 'TRI' },
+        { nombre: 'Afrechillo de Maíz',   codigo: 'AFR-MAI', origen: 'MAI' },
+        { nombre: 'Maíz Partido',         codigo: 'MAI-PAR', origen: 'MAI' },
+      ];
+      for (const sp of subproductos) {
+        await client.query(
+          `INSERT INTO especies (nombre, codigo, tipo_producto, id_especie_origen, activa)
+           VALUES ($1, $2, 'SUBPRODUCTO', $3, TRUE) ON CONFLICT (codigo) DO NOTHING`,
+          [sp.nombre, sp.codigo, idOrigen[sp.origen] || null]
+        );
+      }
+      console.log('Semilla de subproductos completada.');
     }
 
     // Sembrar transportistas y choferes si no existen
