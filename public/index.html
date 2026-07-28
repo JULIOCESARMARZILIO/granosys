@@ -8754,7 +8754,12 @@ const PosicionAbierta = ({modulo}) => {
                       </td>
                       <td>
                         {g.toneladas_a_fijar>0 ? (
-                          <span className="mono">{fmtTn(g.toneladas_a_fijar)} — {g.valor_a_fijar!=null?fmtMoney(g.valor_a_fijar):<span style={{color:"#e74c3c"}}>sin precio de ref.</span>}</span>
+                          <span className="mono">
+                            {fmtTn(g.toneladas_a_fijar)} — {fmtMoney(g.valor_a_fijar)}
+                            {g.toneladas_a_fijar_sin_valuar>0 && (
+                              <div style={{color:"#e74c3c",fontSize:11}}>{fmtTn(g.toneladas_a_fijar_sin_valuar)} sin precio de referencia cargado</div>
+                            )}
+                          </span>
                         ) : <span style={{color:"#565d7a"}}>—</span>}
                       </td>
                       <td style={{fontSize:12,color:"#8890a8"}}>
