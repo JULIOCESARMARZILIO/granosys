@@ -8684,158 +8684,101 @@ const ReporteCalidades = ({modulo}) => {
 
 // ── POSICIÓN ABIERTA ──
 const PosicionAbierta = ({modulo}) => {
-  const [showAsignar, setShowAsignar] = useState(false);
-  const [seleccionado, setSeleccionado] = useState(null);
+  const [data,setData]=useState(null);
+  const [cargando,setCargando]=useState(true);
 
-  // Movimientos sin contrato asignado
-  const movsSinContrato = mockMovimientos.filter(m =>
-    m.modalidad === modulo && !m.contrato_compra
-  );
+  const cargar = async () => {
+    setCargando(true);
+    const res = await api.get("/api/posicion/consolidada");
+    setData(res);
+    setCargando(false);
+  };
 
-  // Agrupar por productor y especie
-  const posiciones = mockContrapartes
-    .filter(c => c.tipo === "PRODUCTOR" || c.tipo === "AMBOS")
-    .map(prod => {
-      const movs = movsSinContrato.filter(m => m.productor === prod.razon_social);
-      if (movs.length === 0) return null;
-      const tn = movs.reduce((a, m) => a + (m.kg_liquidables || m.peso_neto_salida || 0) / 1000, 0);
-      return { productor: prod, movs, tn };
-    })
-    .filter(Boolean);
+  useEffect(()=>{ cargar(); },[]);
+
+  const fmtMoney = (v) => v==null ? "—" : `$ ${Number(v).toLocaleString("es-AR",{maximumFractionDigits:0})}`;
+  const fmtTn = (v) => `${Number(v).toLocaleString("es-AR",{minimumFractionDigits:3,maximumFractionDigits:3})} tn`;
 
   return (
     <div className="fade-in">
-      <div style={{marginBottom:20}}>
-        <h2 style={{fontSize:18,fontWeight:700}}>Posición Abierta Sin Contrato</h2>
-        <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>
-          Mercadería recibida sin contrato asignado — stock a fijar sin condiciones prepactadas
-        </p>
+      <div style={{marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
+        <div>
+          <h2 style={{fontSize:18,fontWeight:700}}>Posición Consolidada</h2>
+          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>
+            Todo lo que todavía no está liquidado, valuado a precio de venta si ya lo tiene, o a precio de referencia (neto de flete) si está a fijar. No importa en qué planta esté físicamente.
+          </p>
+        </div>
+        <Btn variant="secondary" size="sm" onClick={cargar}>↻ Actualizar</Btn>
       </div>
 
-      {posiciones.length === 0 ? (
-        <div style={{padding:40,textAlign:"center",color:"#27ae60",fontWeight:600,fontSize:15}}>
-          ✓ No hay mercadería sin contrato asignado
-        </div>
+      {cargando ? <div>Cargando...</div> : !data ? (
+        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No se pudo cargar la posición.</div>
       ) : (
-        posiciones.map(pos => (
-          <div key={pos.productor.id} className="card" style={{marginBottom:14}}>
-            <div className="card-header">
-              <div>
-                <span style={{fontWeight:700,fontSize:15}}>{pos.productor.razon_social}</span>
-                <span style={{color:"#8890a8",fontSize:12,marginLeft:12}}>{pos.productor.cuit||"Informal"}</span>
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:12}}>
-                <span className="mono" style={{color:"#f5a623",fontWeight:700,fontSize:16}}>
-                  {pos.tn.toFixed(3)} tn sin asignar
-                </span>
-                <Badge label="A FIJAR" color="purple"/>
-              </div>
+        <React.Fragment>
+          <div className="card" style={{padding:"20px 24px",marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:12,color:"#8890a8",marginBottom:4}}>Valor total sin liquidar (todos los productos)</div>
+              <div style={{fontSize:28,fontWeight:700,color:"#f5a623"}}>{fmtMoney(data.total_general)}</div>
             </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>N° Mov</th><th>Especie</th><th>Campaña</th>
-                  <th>Comprador</th><th>Kg Liquidables</th>
-                  <th>Humedad</th><th>Factor</th><th>Estado Calidad</th><th>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pos.movs.map(m => (
-                  <tr key={m.id}>
-                    <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{m.numero}</span></td>
-                    <td>{m.especie}</td>
-                    <td><span className="mono" style={{fontSize:11}}>{m.campana}</span></td>
-                    <td style={{color:"#8890a8",fontSize:12}}>{m.destino?.split(",")[0]||"—"}</td>
-                    <td>
-                      <span className="mono" style={{fontWeight:600}}>
-                        {m.kg_liquidables?.toLocaleString() || <span style={{color:"#565d7a"}}>Sin calidad</span>}
-                      </span>
-                    </td>
-                    <td><span className="mono">{m.humedad_llegada||"—"}</span></td>
-                    <td>
-                      {m.factor
-                        ? <span className="mono" style={{color:"#f5a623"}}>{m.factor}</span>
-                        : <Badge label="Falta" color="red"/>
-                      }
-                    </td>
-                    <td>
-                      {m.factor
-                        ? <Badge label="OK" color="green"/>
-                        : <Badge label="Sin calidad" color="red"/>
-                      }
-                    </td>
-                    <td>
-                      <div style={{display:"flex",gap:6}}>
-                        <Btn variant="secondary" size="sm"
-                          onClick={()=>{setSeleccionado(m);setShowAsignar(true);}}>
-                          Asignar Contrato
-                        </Btn>
-                        <Btn variant="ghost" size="sm"
-                          onClick={()=>alert("Crear venta directa desde posición abierta para "+m.numero)}>
-                          Vender
-                        </Btn>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div style={{fontSize:11,color:"#565d7a"}}>Al {new Date(data.fecha).toLocaleDateString("es-AR")}</div>
           </div>
-        ))
-      )}
 
-      {/* MODAL ASIGNAR CONTRATO */}
-      {showAsignar && seleccionado && (
-        <Modal title={`Asignar Contrato — ${seleccionado.numero}`} onClose={()=>setShowAsignar(false)}>
-          <div className="alert-info" style={{marginBottom:16}}>
-            Seleccioná un contrato existente o creá uno nuevo para asignar esta mercadería.
-          </div>
-          <div style={{padding:"12px 14px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",marginBottom:16}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-              {[
-                ["Productor", seleccionado.productor],
-                ["Especie", seleccionado.especie],
-                ["Kg Liquidables", seleccionado.kg_liquidables?.toLocaleString()||"Sin calidad"],
-              ].map(([l,v])=>(
-                <div key={l}>
-                  <div style={{fontSize:11,color:"#8890a8"}}>{l}</div>
-                  <div style={{fontWeight:600,marginTop:2}}>{v}</div>
-                </div>
-              ))}
+          {data.grupos.length===0 ? (
+            <div style={{padding:40,textAlign:"center",color:"#27ae60",fontWeight:600}}>
+              ✓ No hay posición sin liquidar
             </div>
-          </div>
-          <div className="form-grid-2">
-            <FF label="Asignar a Contrato de Compra Existente">
-              <select>
-                <option value="">Seleccionar contrato...</option>
-                {mockContratos.filter(c=>c.tipo==="COMPRA").map(c=>(
-                  <option key={c.id}>{c.numero} — {c.contraparte} — {c.especie}</option>
-                ))}
-              </select>
-            </FF>
-            <FF label="Asignar a Contrato de Venta Existente">
-              <select>
-                <option value="">Seleccionar contrato...</option>
-                {mockContratos.filter(c=>c.tipo==="VENTA").map(c=>(
-                  <option key={c.id}>{c.numero} — {c.contraparte} — {c.especie}</option>
-                ))}
-              </select>
-            </FF>
-          </div>
-          <div style={{padding:"12px 14px",background:"rgba(39,174,96,.06)",border:"1px solid rgba(39,174,96,.2)",borderRadius:6,marginTop:8,marginBottom:16,fontSize:12,color:"#27ae60"}}>
-            ¿No hay contrato? → Podés crear uno nuevo desde el módulo de Contratos y después volver acá a asignarlo.
-          </div>
-          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-            <Btn variant="secondary" onClick={()=>setShowAsignar(false)}>Cancelar</Btn>
-            <Btn onClick={()=>{alert("✓ Contrato asignado al movimiento "+seleccionado.numero);setShowAsignar(false);}}>
-              Confirmar Asignación
-            </Btn>
-          </div>
-        </Modal>
+          ) : (
+            <div className="card">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Producto</th><th>Dónde está</th>
+                    <th>Con precio cerrado</th><th>A precio de referencia</th>
+                    <th>Precio de referencia usado</th><th>Valor total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.grupos.map((g,i)=>(
+                    <tr key={i}>
+                      <td style={{fontWeight:600}}>{g.especie_nombre}</td>
+                      <td>
+                        {g.ubicacion_nombre}
+                        {g.es_propia
+                          ? <Badge label="Propia" color="green"/>
+                          : <Badge label="Tercero" color="orange"/>}
+                      </td>
+                      <td>
+                        {g.toneladas_con_precio>0 ? (
+                          <span className="mono">{fmtTn(g.toneladas_con_precio)} — {fmtMoney(g.valor_con_precio)}</span>
+                        ) : <span style={{color:"#565d7a"}}>—</span>}
+                      </td>
+                      <td>
+                        {g.toneladas_a_fijar>0 ? (
+                          <span className="mono">{fmtTn(g.toneladas_a_fijar)} — {g.valor_a_fijar!=null?fmtMoney(g.valor_a_fijar):<span style={{color:"#e74c3c"}}>sin precio de ref.</span>}</span>
+                        ) : <span style={{color:"#565d7a"}}>—</span>}
+                      </td>
+                      <td style={{fontSize:12,color:"#8890a8"}}>
+                        {g.precio_referencia_usado!=null ? (
+                          <React.Fragment>
+                            {fmtMoney(g.precio_referencia_usado)}
+                            {g.precio_manual && <Badge label="Manual" color="blue"/>}
+                            {g.ajustado_por_flete && <Badge label="Neto de flete" color="gray"/>}
+                          </React.Fragment>
+                        ) : "Sin cargar"}
+                      </td>
+                      <td className="mono" style={{fontWeight:700,color:"#f5a623"}}>{fmtMoney(g.valor_total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </React.Fragment>
       )}
     </div>
   );
 };
+
 
 // ── IMPORTADOR EXCEL ──
 const ImportadorExcel = ({modulo, usuario}) => {

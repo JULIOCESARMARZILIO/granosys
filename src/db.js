@@ -419,6 +419,8 @@ async function initDB() {
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_ubicacion_origen INTEGER REFERENCES ubicaciones(id);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_ubicacion_destino INTEGER REFERENCES ubicaciones(id);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS origen_produccion VARCHAR(20);
+      ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS km_a_referencia DECIMAL(8,2);
+      ALTER TABLE tablas_flete ADD COLUMN IF NOT EXISTS es_default BOOLEAN DEFAULT FALSE;
 
       -- Inicializar estado_flete basado en campos de flete existentes
       UPDATE movimientos SET estado_flete = 'LIQUIDADO' WHERE nro_factura_flete IS NOT NULL AND (estado_flete IS NULL OR estado_flete = 'PENDIENTE');
@@ -630,33 +632,51 @@ async function initDB() {
       console.log('Semilla de parametros_calidad_especie completada.');
     }
 
-    // Sembrar catalogo de subproductos si no existen (se identifican por
-    // tipo_producto='SUBPRODUCTO'; id_especie_origen los vincula al grano
-    // del que provienen, para trazabilidad y reportes).
-    const { rows: subproductosExist } = await client.query("SELECT id FROM especies WHERE tipo_producto = 'SUBPRODUCTO' LIMIT 1");
-    if (subproductosExist.length === 0) {
-      console.log('Sembrando catalogo de subproductos...');
-      const { rows: origenes } = await client.query("SELECT id, codigo FROM especies WHERE codigo IN ('SOJ','GIR','TRI','MAI')");
-      const idOrigen = {};
-      origenes.forEach(o => { idOrigen[o.codigo] = o.id; });
+    // Reclasificar automaticamente cualquier especie ya cargada (a mano, antes
+    // de que existiera este catalogo) cuyo nombre sea claramente un subproducto
+    // industrial, para no duplicarla. Corre siempre, es idempotente.
+    await client.query(`
+      UPDATE especies SET tipo_producto = 'SUBPRODUCTO'
+      WHERE tipo_producto = 'GRANO' AND (
+        nombre ILIKE '%aceite%' OR nombre ILIKE '%expeller%' OR nombre ILIKE '%afrechillo%' OR
+        nombre ILIKE '%cascarilla%' OR nombre ILIKE '%c%scara%' OR nombre ILIKE '%pellet%' OR
+        nombre ILIKE '%harina%' OR nombre ILIKE '%partido%'
+      )
+    `);
 
-      const subproductos = [
-        { nombre: 'Aceite de Soja',       codigo: 'ACE-SOJ', origen: 'SOJ' },
-        { nombre: 'Aceite de Girasol',    codigo: 'ACE-GIR', origen: 'GIR' },
-        { nombre: 'Expeller de Soja',     codigo: 'EXP-SOJ', origen: 'SOJ' },
-        { nombre: 'Expeller de Girasol',  codigo: 'EXP-GIR', origen: 'GIR' },
-        { nombre: 'Afrechillo de Trigo',  codigo: 'AFR-TRI', origen: 'TRI' },
-        { nombre: 'Afrechillo de Maíz',   codigo: 'AFR-MAI', origen: 'MAI' },
-        { nombre: 'Maíz Partido',         codigo: 'MAI-PAR', origen: 'MAI' },
-      ];
-      for (const sp of subproductos) {
+    // Sembrar catalogo de subproductos si no existen todavia (se identifican
+    // por codigo o nombre para no duplicar algo cargado a mano previamente;
+    // si ya existe, solo se lo retagea como SUBPRODUCTO en vez de crear otro).
+    const { rows: origenes } = await client.query("SELECT id, codigo FROM especies WHERE codigo IN ('SOJ','GIR','TRI','MAI')");
+    const idOrigen = {};
+    origenes.forEach(o => { idOrigen[o.codigo] = o.id; });
+
+    const subproductos = [
+      { nombre: 'Aceite de Soja',       codigo: 'ACE-SOJ', origen: 'SOJ' },
+      { nombre: 'Aceite de Girasol',    codigo: 'ACE-GIR', origen: 'GIR' },
+      { nombre: 'Expeller de Soja',     codigo: 'EXP-SOJ', origen: 'SOJ' },
+      { nombre: 'Expeller de Girasol',  codigo: 'EXP-GIR', origen: 'GIR' },
+      { nombre: 'Afrechillo de Trigo',  codigo: 'AFR-TRI', origen: 'TRI' },
+      { nombre: 'Afrechillo de Maíz',   codigo: 'AFR-MAI', origen: 'MAI' },
+      { nombre: 'Maíz Partido',         codigo: 'MAI-PAR', origen: 'MAI' },
+    ];
+    for (const sp of subproductos) {
+      const { rows: existente } = await client.query(
+        'SELECT id FROM especies WHERE codigo = $1 OR nombre ILIKE $2 LIMIT 1',
+        [sp.codigo, sp.nombre]
+      );
+      if (existente.length > 0) {
+        await client.query(
+          `UPDATE especies SET tipo_producto = 'SUBPRODUCTO', id_especie_origen = COALESCE(id_especie_origen, $1) WHERE id = $2`,
+          [idOrigen[sp.origen] || null, existente[0].id]
+        );
+      } else {
         await client.query(
           `INSERT INTO especies (nombre, codigo, tipo_producto, id_especie_origen, activa)
            VALUES ($1, $2, 'SUBPRODUCTO', $3, TRUE) ON CONFLICT (codigo) DO NOTHING`,
           [sp.nombre, sp.codigo, idOrigen[sp.origen] || null]
         );
       }
-      console.log('Semilla de subproductos completada.');
     }
 
     // Sembrar transportistas y choferes si no existen
