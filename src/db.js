@@ -744,14 +744,16 @@ async function initDB() {
       { localidad: 'Puerto San Martin', zona: 'Rosario Norte', sub_zona: 'San Martin' },
       { localidad: 'San Martin', zona: 'Rosario Norte', sub_zona: 'San Martin' },
       { localidad: 'San Martín', zona: 'Rosario Norte', sub_zona: 'San Martin' },
-      // Rosario Sur
-      { localidad: 'Alvear', zona: 'Rosario Sur', sub_zona: 'Punta Alvear' },
-      { localidad: 'Punta Alvear', zona: 'Rosario Sur', sub_zona: 'Punta Alvear' },
-      { localidad: 'Gral.Lagos', zona: 'Rosario Sur', sub_zona: 'General Lagos' },
-      { localidad: 'General Lagos', zona: 'Rosario Sur', sub_zona: 'General Lagos' },
-      { localidad: 'Arroyo Seco', zona: 'Rosario Sur', sub_zona: 'Arroyo Seco' },
-      // Lima
+      // Rosario Sur (sin sub-zonas, va todo junto en una sola bolsa)
+      { localidad: 'Alvear', zona: 'Rosario Sur', sub_zona: null },
+      { localidad: 'Punta Alvear', zona: 'Rosario Sur', sub_zona: null },
+      { localidad: 'Gral.Lagos', zona: 'Rosario Sur', sub_zona: null },
+      { localidad: 'General Lagos', zona: 'Rosario Sur', sub_zona: null },
+      { localidad: 'Arroyo Seco', zona: 'Rosario Sur', sub_zona: null },
+      // Lima (sin sub-zonas, Lima y Zarate/Las Palmas van juntos en una sola bolsa)
       { localidad: 'Lima', zona: 'Lima', sub_zona: null },
+      { localidad: 'Zarate', zona: 'Lima', sub_zona: null },
+      { localidad: 'Zárate', zona: 'Lima', sub_zona: null },
     ];
     for (const zl of zonasLocalidad) {
       await client.query(
@@ -761,12 +763,14 @@ async function initDB() {
       );
     }
 
-    // Aplicar la referencia a ubicaciones que ya tenian localidad cargada
-    // pero todavia no tenian zona asignada.
+    // Aplicar la referencia a ubicaciones que ya tenian localidad cargada:
+    // si todavia no tenian zona, se les asigna; si ya tenian zona/sub_zona
+    // de una version anterior de la referencia, se resincroniza para que
+    // no quede una sub_zona vieja dando vueltas.
     await client.query(`
       UPDATE ubicaciones u SET zona = zl.zona, sub_zona = zl.sub_zona
       FROM zonas_localidad zl
-      WHERE u.localidad = zl.localidad AND u.zona IS NULL
+      WHERE u.localidad = zl.localidad AND (u.zona IS NULL OR u.zona = zl.zona)
     `);
 
     // Sembrar transportistas y choferes si no existen
