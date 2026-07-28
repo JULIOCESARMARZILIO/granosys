@@ -33,6 +33,8 @@ app.use('/api/ubicaciones',  require('./routes/ubicaciones'));
 app.use('/api/auditoria',    require('./routes/auditoria'));
 app.use('/api/precios',      require('./routes/precios'));
 app.use('/api/posicion',     require('./routes/posicion'));
+app.use('/api/kpis',         require('./routes/kpis'));
+app.use('/api/regularizacion', require('./routes/regularizacion'));
 
 // Endpoint de diagnóstico temporal para ver archivos y commits en Railway
 app.get('/api/debug-files', (req, res) => {

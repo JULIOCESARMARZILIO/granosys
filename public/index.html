@@ -10350,6 +10350,67 @@ const Calculos = () => {
   );
 };
 
+// ── COMPONENTE REGULARIZACION POR PRODUCTOR ──
+// Compara, por productor, cuanto entrego informal vs. cuanto formalizo
+// despues como produccion propia (CTG 101) -- para ver si cierra la
+// cuenta, sin exigir que los kilos coincidan camion a camion.
+const RegularizacionProductor = () => {
+  const [data, setData] = useState(null);
+  const [cargando, setCargando] = useState(true);
+
+  const cargar = async () => {
+    setCargando(true);
+    const res = await api.get("/api/regularizacion/por-productor");
+    setData(res);
+    setCargando(false);
+  };
+
+  useEffect(()=>{ cargar(); },[]);
+
+  const fmtTn = (v) => `${Number(v).toLocaleString("es-AR",{minimumFractionDigits:3,maximumFractionDigits:3})} tn`;
+
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <h2 style={{fontSize:18,fontWeight:700}}>Regularización por Productor</h2>
+          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>
+            Cuánto entregó cada productor de manera informal, contra cuánto entró después formalmente como producción propia suya (detectado por CTG 101). No exige que coincida camión a camión, es para ver de un vistazo si cierra.
+          </p>
+        </div>
+        <Btn variant="secondary" size="sm" onClick={cargar}>↻ Actualizar</Btn>
+      </div>
+      {cargando ? <div>Cargando...</div> : !data || data.length===0 ? (
+        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay datos para mostrar todavía.</div>
+      ) : (
+        <div className="card">
+          <table>
+            <thead>
+              <tr>
+                <th>Productor</th><th>Producto</th>
+                <th>Informal total</th><th>Informal sin contrato</th>
+                <th>Formal (producción propia)</th><th>Diferencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((g,i)=>(
+                <tr key={i}>
+                  <td style={{fontWeight:600}}>{g.productor}<div style={{fontSize:11,color:"#8890a8"}}>{g.cuit}</div></td>
+                  <td>{g.especie_nombre}</td>
+                  <td className="mono">{fmtTn(g.tn_informal_total)}</td>
+                  <td className="mono">{fmtTn(g.tn_informal_sin_contrato)}</td>
+                  <td className="mono">{fmtTn(g.tn_formal_propia)}</td>
+                  <td className="mono" style={{fontWeight:700,color:Math.abs(g.diferencia)<0.01?"#27ae60":"#e74c3c"}}>{fmtTn(g.diferencia)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── COMPONENTE PRODUCCION / MAQUILA ──
 const OrdenesProduccion = ({modulo, usuario}) => {
   const [ordenes, setOrdenes] = useState([]);
@@ -10555,6 +10616,7 @@ const MENU_FORMAL = [
   {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚",group:"Reportes"},
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬",group:"Reportes"},
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌",group:"Reportes"},
+  {id:"regularizacion",label:"Regularización Productor",icon:"🔁",group:"Reportes"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
   {id:"auditoria",label:"Auditoría",icon:"🕵"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
@@ -10574,6 +10636,7 @@ const MENU_INFORMAL = [
   {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚",group:"Reportes"},
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬",group:"Reportes"},
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌",group:"Reportes"},
+  {id:"regularizacion",label:"Regularización Productor",icon:"🔁",group:"Reportes"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
   {id:"auditoria",label:"Auditoría",icon:"🕵"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
@@ -11158,6 +11221,7 @@ function App() {
       case "rep_fletes": return <ReporteFletes {...p}/>;
       case "rep_calidades": return <ReporteCalidades {...p}/>;
       case "posicion_abierta": return <PosicionAbierta {...p}/>;
+      case "regularizacion": return <RegularizacionProductor/>;
       case "importador_excel": return <ImportadorExcel {...p} setSec={setSec}/>;
       case "agente_ia": return <AgenteIA {...p}/>;
       case "auditoria": return <Auditoria/>;
