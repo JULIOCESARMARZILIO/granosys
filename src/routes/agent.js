@@ -23,13 +23,21 @@ async function recalcularContrato(id_contrato) {
 
     let sumQuery = '';
     if (tipo_contrato === 'COMPRA') {
-      sumQuery = `SELECT COALESCE(SUM(${fieldToSum}), 0) as total_kg FROM movimientos WHERE id_contrato_compra = $1`;
+      sumQuery = `SELECT COALESCE(SUM(COALESCE(kg_asignados_contrato_compra, ${fieldToSum})), 0) as total_kg FROM movimientos WHERE id_contrato_compra = $1`;
     } else {
-      sumQuery = `SELECT COALESCE(SUM(${fieldToSum}), 0) as total_kg FROM movimientos WHERE id_contrato_venta = $1`;
+      sumQuery = `SELECT COALESCE(SUM(COALESCE(kg_asignados_contrato_venta, ${fieldToSum})), 0) as total_kg FROM movimientos WHERE id_contrato_venta = $1`;
     }
 
     const { rows: sumRows } = await client.query(sumQuery, [id_contrato]);
-    const totalTn = parseFloat(sumRows[0].total_kg) / 1000;
+    let totalTn = parseFloat(sumRows[0].total_kg) / 1000;
+
+    if (tipo_contrato === 'COMPRA') {
+      const { rows: aplicRows } = await client.query(
+        'SELECT COALESCE(SUM(toneladas), 0) as total FROM contrato_aplicaciones_stock WHERE id_contrato = $1',
+        [id_contrato]
+      );
+      totalTn += parseFloat(aplicRows[0].total);
+    }
 
     let nuevoEstado = 'BORRADOR';
     if (totalTn > 0) {

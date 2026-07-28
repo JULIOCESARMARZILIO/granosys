@@ -36,6 +36,25 @@ router.post('/', async (req, res) => {
   }
 });
 
+// PUT /api/ubicaciones/:id - hoy se usa para cargar zona (sub-zona de
+// referencia, para la bolsa de stock) y la distancia a la referencia (flete)
+router.put('/:id', async (req, res) => {
+  try {
+    const { zona, km_a_referencia } = req.body;
+    const { rows } = await pool.query(
+      `UPDATE ubicaciones SET
+         zona = COALESCE($1, zona),
+         km_a_referencia = CASE WHEN $2::text IS NOT NULL THEN $2::decimal ELSE km_a_referencia END
+       WHERE id = $3 RETURNING *`,
+      [zona || null, km_a_referencia !== undefined && km_a_referencia !== '' ? km_a_referencia : null, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Ubicación no encontrada' });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE /api/ubicaciones/:id - baja lógica (deja de aparecer en listados/selectores)
 router.delete('/:id', async (req, res) => {
   try {

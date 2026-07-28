@@ -75,15 +75,27 @@ async function recalcularContrato(id_contrato) {
       fieldToSum = 'kg_liquidables';
     }
 
+    // Si el movimiento tiene un tope de asignacion parcial cargado (kg_asignados_*),
+    // se usa ese valor en vez del peso completo del camion -- es lo que permite
+    // que un camion se reparta entre "lo que entra en el contrato" y el resto
+    // (que queda sin contrato, por ejemplo para un retiro de productor).
     let sumQuery = '';
     if (tipo_contrato === 'COMPRA') {
-      sumQuery = `SELECT COALESCE(SUM(${fieldToSum}), 0) as total_kg FROM movimientos WHERE id_contrato_compra = $1`;
+      sumQuery = `SELECT COALESCE(SUM(COALESCE(kg_asignados_contrato_compra, ${fieldToSum})), 0) as total_kg FROM movimientos WHERE id_contrato_compra = $1`;
     } else {
-      sumQuery = `SELECT COALESCE(SUM(${fieldToSum}), 0) as total_kg FROM movimientos WHERE id_contrato_venta = $1`;
+      sumQuery = `SELECT COALESCE(SUM(COALESCE(kg_asignados_contrato_venta, ${fieldToSum})), 0) as total_kg FROM movimientos WHERE id_contrato_venta = $1`;
     }
 
     const { rows: sumRows } = await client.query(sumQuery, [id_contrato]);
-    const total_toneladas = parseFloat(sumRows[0].total_kg) / 1000;
+    let total_toneladas = parseFloat(sumRows[0].total_kg) / 1000;
+
+    if (tipo_contrato === 'COMPRA') {
+      const { rows: aplicRows } = await client.query(
+        'SELECT COALESCE(SUM(toneladas), 0) as total FROM contrato_aplicaciones_stock WHERE id_contrato = $1',
+        [id_contrato]
+      );
+      total_toneladas += parseFloat(aplicRows[0].total);
+    }
 
     let estado = 'CONFIRMADO';
     if (total_toneladas >= parseFloat(cantidad_toneladas_pactadas)) {
@@ -1144,28 +1156,39 @@ router.put('/:id', async (req, res) => {
 // PUT asignar contrato
 router.put('/:id/asignar', async (req, res) => {
   try {
-    const { id_contrato_compra, id_contrato_venta } = req.body;
+    const { id_contrato_compra, id_contrato_venta, kg_asignado_compra, kg_asignado_venta } = req.body;
 
     // Obtener los contratos anteriores
-    const { rows: currentMov } = await pool.query('SELECT id_contrato_compra, id_contrato_venta FROM movimientos WHERE id = $1', [req.params.id]);
+    const { rows: currentMov } = await pool.query('SELECT id_contrato_compra, id_contrato_venta, kg_liquidables FROM movimientos WHERE id = $1', [req.params.id]);
     if (!currentMov[0]) return res.status(404).json({ error: 'No encontrado' });
 
     const oldCompraId = currentMov[0].id_contrato_compra;
     const oldVentaId = currentMov[0].id_contrato_venta;
-    
+
     // Permitir actualizar a null si se pasa explícitamente en el body
     const id_compra = id_contrato_compra !== undefined ? id_contrato_compra : null;
     const id_venta = id_contrato_venta !== undefined ? id_contrato_venta : null;
     const estado_liq = (id_compra === null && id_venta === null) ? 'SIN_ASIGNAR' : 'ASIGNADO';
+
+    // Asignacion parcial: si viene un kg_asignado_* menor al peso del camion,
+    // solo esa parte cuenta para el contrato; el resto queda sin contrato
+    // (por ejemplo, para un retiro de productor). No mandar el campo = camion completo.
+    const kgLiquidables = parseFloat(currentMov[0].kg_liquidables) || 0;
+    const kgAsignadoCompra = kg_asignado_compra !== undefined && kg_asignado_compra !== null && kg_asignado_compra !== ''
+      ? Math.min(parseFloat(kg_asignado_compra), kgLiquidables) : null;
+    const kgAsignadoVenta = kg_asignado_venta !== undefined && kg_asignado_venta !== null && kg_asignado_venta !== ''
+      ? Math.min(parseFloat(kg_asignado_venta), kgLiquidables) : null;
 
     const { rows } = await pool.query(`
       UPDATE movimientos SET
         id_contrato_compra=$1,
         id_contrato_venta=$2,
         estado_liquidacion=$3,
+        kg_asignados_contrato_compra=$4,
+        kg_asignados_contrato_venta=$5,
         updated_at=NOW()
-      WHERE id=$4 RETURNING *
-    `, [id_compra, id_venta, estado_liq, req.params.id]);
+      WHERE id=$6 RETURNING *
+    `, [id_compra, id_venta, estado_liq, kgAsignadoCompra, kgAsignadoVenta, req.params.id]);
 
     // Recalcular contratos viejos y nuevos
     await recalcularContrato(oldCompraId);
@@ -1176,6 +1199,11 @@ router.put('/:id/asignar', async (req, res) => {
     if (id_venta && id_venta !== oldVentaId) {
       await recalcularContrato(id_venta);
     }
+
+    await registrarAuditoria(req, {
+      accion: 'ASIGNAR_CONTRATO', modulo: 'movimientos', registro_id: rows[0].id,
+      datos_antes: currentMov[0], datos_despues: rows[0]
+    });
 
     res.json(rows[0]);
   } catch (err) {

@@ -9642,9 +9642,13 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
   const [historialAbierto,setHistorialAbierto]=useState(null);
   const [historialPrecio,setHistorialPrecio]=useState([]);
 
+  const [ubicaciones,setUbicaciones]=useState([]);
+  const cargarUbicaciones = () => api.get("/api/ubicaciones").then(d=>setUbicaciones(d||[])).catch(()=>{});
+
   useEffect(()=>{
     api.get("/api/especies").then(d=>setEspecies(d)).catch(()=>{});
     api.get("/api/campanas").then(d=>setCampanas(d)).catch(()=>{});
+    cargarUbicaciones();
   },[]);
 
   useEffect(() => {
@@ -9763,6 +9767,7 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
     {id:"especies",label:"Especies / Productos"},
     {id:"campanas",label:"Campañas"},
     {id:"precios",label:"Precios de Referencia"},
+    {id:"ubicaciones",label:"Ubicaciones / Zonas"},
     {id:"arca",label:"Conexión ARCA"}
   ];
   if (usuario && usuario.rol === 'ADMIN') {
@@ -9928,6 +9933,48 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
               </tbody></table>
             </div>
           )}
+        </div>
+      )}
+
+      {tab==="ubicaciones"&&(
+        <div className="card">
+          <div className="card-header"><span style={{fontWeight:600}}>Ubicaciones y zonas de referencia</span></div>
+          <div style={{padding:"10px 16px",fontSize:12,color:"#8890a8"}}>
+            La "Zona" agrupa varias ubicaciones en una misma bolsa de stock (ej. "Rosario Norte") para poder aplicar stock a contratos sin depender de una planta puntual. La distancia (km) se usa para calcular el precio neto de flete en Posición Consolidada.
+          </div>
+          <table><thead><tr><th>Nombre</th><th>Tipo</th><th>Localidad</th><th>Zona</th><th>Km a referencia</th></tr></thead>
+          <tbody>
+            {ubicaciones.map(u=>(
+              <tr key={u.id}>
+                <td style={{fontWeight:500}}>{u.nombre}</td>
+                <td style={{fontSize:12,color:"#8890a8"}}>{u.tipo}</td>
+                <td style={{fontSize:12,color:"#8890a8"}}>{u.localidad||"—"}</td>
+                <td>
+                  <input defaultValue={u.zona||""} placeholder="Ej: Rosario Norte" style={{width:130,padding:"4px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}
+                    onBlur={async(ev)=>{
+                      const val = ev.target.value.trim();
+                      if (val === (u.zona||"")) return;
+                      try {
+                        await api.put(`/api/ubicaciones/${u.id}`, { zona: val });
+                        cargarUbicaciones();
+                      } catch(err){ alert("Error: "+err.message); }
+                    }}/>
+                </td>
+                <td>
+                  <input type="number" defaultValue={u.km_a_referencia||""} placeholder="Ej: 180" style={{width:80,padding:"4px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}
+                    onBlur={async(ev)=>{
+                      const val = ev.target.value;
+                      if (val === String(u.km_a_referencia||"")) return;
+                      try {
+                        await api.put(`/api/ubicaciones/${u.id}`, { km_a_referencia: val });
+                        cargarUbicaciones();
+                      } catch(err){ alert("Error: "+err.message); }
+                    }}/>
+                </td>
+              </tr>
+            ))}
+            {ubicaciones.length===0&&<tr><td colSpan={5} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay ubicaciones cargadas</td></tr>}
+          </tbody></table>
         </div>
       )}
 
@@ -10411,6 +10458,121 @@ const RegularizacionProductor = () => {
   );
 };
 
+// ── COMPONENTE BOLSA POR ZONA ──
+// Descargas sin contrato entran a la bolsa de su zona (via el motor de
+// stock); desde aca se "saca" de esa bolsa para completar contratos de
+// compra, sin tener que vincular camion por camion.
+const BolsaPorZona = ({modulo}) => {
+  const [bolsas, setBolsas] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [contratos, setContratos] = useState([]);
+  const [aplicando, setAplicando] = useState(null); // clave de la bolsa siendo aplicada
+  const [contratoSel, setContratoSel] = useState("");
+  const [toneladasSel, setToneladasSel] = useState("");
+  const [guardando, setGuardando] = useState(false);
+
+  const cargar = async () => {
+    setCargando(true);
+    const [b, c] = await Promise.all([
+      api.get("/api/stock/por-zona"),
+      api.get("/api/contratos")
+    ]);
+    setBolsas(b||[]);
+    setContratos((c||[]).filter(x=>x.tipo_contrato==="COMPRA" && x.modalidad===modulo && x.estado!=="CUMPLIDO" && x.activo!==false));
+    setCargando(false);
+  };
+
+  useEffect(()=>{ cargar(); },[modulo]);
+
+  const fmtTn = (v) => `${Number(v).toLocaleString("es-AR",{minimumFractionDigits:3,maximumFractionDigits:3})} tn`;
+
+  const abrirAplicar = (bolsa) => {
+    const clave = `${bolsa.zona}|${bolsa.id_especie}|${bolsa.id_campana}`;
+    setAplicando(clave);
+    setContratoSel("");
+    setToneladasSel("");
+  };
+
+  const aplicar = async (bolsa) => {
+    if (!contratoSel || !toneladasSel) { alert("Elegí el contrato y las toneladas"); return; }
+    setGuardando(true);
+    try {
+      const r = await api.post(`/api/contratos/${contratoSel}/aplicar-stock-zona`, {
+        zona: bolsa.zona, toneladas: parseFloat(toneladasSel)
+      });
+      if (r && r.aplicacion) {
+        alert(`✓ Aplicadas ${r.aplicacion.toneladas}tn al contrato`);
+        setAplicando(null);
+        cargar();
+      } else {
+        alert("Error: " + (r?.error || "no se pudo aplicar"));
+      }
+    } catch(e) { alert("Error: " + (e.response?.data?.error || e.message)); }
+    finally { setGuardando(false); }
+  };
+
+  const contratosDeEspecie = (idEspecie) => contratos.filter(c=>c.id_especie===idEspecie);
+
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <h2 style={{fontSize:18,fontWeight:700}}>Bolsa por Zona</h2>
+          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>
+            Lo que entra sin contrato se junta acá, agrupado por zona de referencia. Desde acá se aplica a los contratos de compra hasta completarlos.
+          </p>
+        </div>
+        <Btn variant="secondary" size="sm" onClick={cargar}>↻ Actualizar</Btn>
+      </div>
+
+      {cargando ? <div>Cargando...</div> : bolsas.length===0 ? (
+        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay stock en ninguna zona todavía.</div>
+      ) : (
+        <div className="card">
+          <table>
+            <thead><tr><th>Zona</th><th>Producto</th><th>Toneladas</th><th>Costo promedio</th><th></th></tr></thead>
+            <tbody>
+              {bolsas.map((b,i)=>{
+                const clave = `${b.zona}|${b.id_especie}|${b.id_campana}`;
+                return (
+                  <React.Fragment key={i}>
+                    <tr>
+                      <td style={{fontWeight:600}}>{b.zona}</td>
+                      <td>{b.especie_nombre} <span style={{fontSize:11,color:"#8890a8"}}>({b.campana_desc})</span></td>
+                      <td className="mono">{fmtTn(b.toneladas_totales)}</td>
+                      <td className="mono">$ {Number(b.costo_promedio_ponderado).toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
+                      <td><Btn size="sm" variant="secondary" onClick={()=>abrirAplicar(b)}>Aplicar a contrato</Btn></td>
+                    </tr>
+                    {aplicando===clave && (
+                      <tr>
+                        <td colSpan={5} style={{padding:"10px 16px",background:"#0f1117"}}>
+                          <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"}}>
+                            <FF label="Contrato de compra">
+                              <select value={contratoSel} onChange={e=>setContratoSel(e.target.value)}>
+                                <option value="">Seleccionar...</option>
+                                {contratosDeEspecie(b.id_especie).map(c=>(
+                                  <option key={c.id} value={c.id}>{c.numero_contrato} — faltan {(parseFloat(c.cantidad_toneladas_pactadas)-parseFloat(c.cantidad_toneladas_asignadas||0)).toFixed(3)}tn</option>
+                                ))}
+                              </select>
+                            </FF>
+                            <FF label="Toneladas a aplicar"><input type="number" value={toneladasSel} onChange={e=>setToneladasSel(e.target.value)} placeholder={`máx ${b.toneladas_totales}`}/></FF>
+                            <Btn size="sm" disabled={guardando} onClick={()=>aplicar(b)}>{guardando?"Aplicando...":"Confirmar"}</Btn>
+                            <Btn size="sm" variant="ghost" onClick={()=>setAplicando(null)}>Cancelar</Btn>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── COMPONENTE PRODUCCION / MAQUILA ──
 const OrdenesProduccion = ({modulo, usuario}) => {
   const [ordenes, setOrdenes] = useState([]);
@@ -10608,6 +10770,7 @@ const MENU_FORMAL = [
   {id:"contratos",label:"Contratos",icon:"📋",group:"Operaciones"},
   {id:"movimientos",label:"Movimientos",icon:"🚛",group:"Operaciones"},
   {id:"produccion",label:"Producción (Maquila)",icon:"🏭",group:"Operaciones"},
+  {id:"bolsa_zona",label:"Bolsa por Zona",icon:"🗂",group:"Operaciones"},
   {id:"calculos",label:"Cálculos",icon:"🧮",group:"Operaciones"},
   {id:"contrapartes",label:"Contrapartes",icon:"👤",group:"Cargas"},
   {id:"liquidaciones",label:"Liquidaciones",icon:"📊",group:"Finanzas"},
@@ -10627,6 +10790,7 @@ const MENU_INFORMAL = [
   {id:"contratos",label:"Contratos",icon:"📋",group:"Operaciones"},
   {id:"movimientos",label:"Movimientos",icon:"🚛",group:"Operaciones"},
   {id:"produccion",label:"Producción (Maquila)",icon:"🏭",group:"Operaciones"},
+  {id:"bolsa_zona",label:"Bolsa por Zona",icon:"🗂",group:"Operaciones"},
   {id:"calculos",label:"Cálculos",icon:"🧮",group:"Operaciones"},
   {id:"contrapartes",label:"Contrapartes",icon:"👤",group:"Cargas"},
   {id:"importador_excel",label:"Importar Excel",icon:"📥",group:"Cargas"},
@@ -11214,6 +11378,7 @@ function App() {
       case "contratos": return <Contratos {...p}/>;
       case "movimientos": return <Movimientos {...p}/>;
       case "produccion": return <OrdenesProduccion {...p}/>;
+      case "bolsa_zona": return <BolsaPorZona {...p}/>;
       case "calculos": return <Calculos/>;
       case "liquidaciones": return <Liquidaciones {...p}/>;
       case "cc": return <CuentaCorriente {...p}/>;

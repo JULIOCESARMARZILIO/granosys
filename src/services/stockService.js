@@ -91,4 +91,48 @@ async function restarStock({ id_ubicacion, id_especie, id_campana, kg }) {
   }
 }
 
-module.exports = { sumarStock, restarStock };
+// Resta stock de la "bolsa" de una zona/sub-zona de referencia (ej. Rosario
+// Norte), sin importar de que ubicacion puntual dentro de esa zona sale --
+// se saca primero de la ubicacion con mas stock disponible, y si no alcanza,
+// se sigue con la siguiente. Devuelve el detalle de que ubicaciones se usaron
+// (para trazabilidad) y cuanto quedo sin poder cubrir (deberia ser 0 si se
+// valido bien la disponibilidad antes de llamar).
+async function restarStockPorZona({ zona, id_especie, id_campana, kg }) {
+  const detalle = [];
+  let kgRestante = kg;
+  if (!zona || !id_especie || !id_campana || !kg || kg <= 0) return detalle;
+
+  const { rows } = await pool.query(`
+    SELECT s.id_ubicacion, u.nombre as ubicacion_nombre, s.toneladas_totales
+    FROM stock s
+    JOIN ubicaciones u ON s.id_ubicacion = u.id
+    WHERE u.zona = $1 AND s.id_especie = $2 AND s.id_campana = $3 AND s.toneladas_totales > 0
+    ORDER BY s.toneladas_totales DESC
+  `, [zona, id_especie, id_campana]);
+
+  for (const r of rows) {
+    if (kgRestante <= 0) break;
+    const disponibleKg = parseFloat(r.toneladas_totales) * 1000;
+    const aSacarKg = Math.min(disponibleKg, kgRestante);
+    if (aSacarKg <= 0) continue;
+    await restarStock({ id_ubicacion: r.id_ubicacion, id_especie, id_campana, kg: aSacarKg });
+    detalle.push({ id_ubicacion: r.id_ubicacion, ubicacion_nombre: r.ubicacion_nombre, kg: aSacarKg });
+    kgRestante -= aSacarKg;
+  }
+
+  return { detalle, kgSinCubrir: Math.max(0, kgRestante) };
+}
+
+// Suma disponible en la bolsa de una zona (todas las ubicaciones que la
+// integran), para validar antes de aplicar a un contrato.
+async function stockDisponibleEnZona({ zona, id_especie, id_campana }) {
+  const { rows } = await pool.query(`
+    SELECT COALESCE(SUM(s.toneladas_totales), 0) as toneladas
+    FROM stock s
+    JOIN ubicaciones u ON s.id_ubicacion = u.id
+    WHERE u.zona = $1 AND s.id_especie = $2 AND s.id_campana = $3
+  `, [zona, id_especie, id_campana]);
+  return parseFloat(rows[0].toneladas) || 0;
+}
+
+module.exports = { sumarStock, restarStock, restarStockPorZona, stockDisponibleEnZona };

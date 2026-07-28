@@ -19,4 +19,29 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/stock/por-zona
+// Agrupa el stock de todas las ubicaciones de una misma zona/sub-zona de
+// referencia (ej. "Rosario Norte") en una sola bolsa: es lo que se puede
+// aplicar a un contrato sin importar de que planta puntual vino cada camion.
+router.get('/por-zona', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT u.zona, s.id_especie, e.nombre as especie_nombre, s.id_campana, ca.descripcion as campana_desc,
+             SUM(s.toneladas_totales) as toneladas_totales,
+             SUM(s.valor_total) as valor_total,
+             CASE WHEN SUM(s.toneladas_totales) > 0 THEN SUM(s.valor_total) / SUM(s.toneladas_totales) ELSE 0 END as costo_promedio_ponderado
+      FROM stock s
+      JOIN ubicaciones u ON s.id_ubicacion = u.id
+      LEFT JOIN especies e ON s.id_especie = e.id
+      LEFT JOIN campanas ca ON s.id_campana = ca.id
+      WHERE u.zona IS NOT NULL AND s.toneladas_totales > 0
+      GROUP BY u.zona, s.id_especie, e.nombre, s.id_campana, ca.descripcion
+      ORDER BY u.zona, e.nombre
+    `);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

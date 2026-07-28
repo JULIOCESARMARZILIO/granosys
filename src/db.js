@@ -376,6 +376,24 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       );
 
+      -- Registra cuando se aplican toneladas de la "bolsa" de una zona
+      -- (sub-zona de referencia, ej. Rosario Norte) al cumplimiento de un
+      -- contrato de compra, en vez de vincular camion por camion. La
+      -- descarga entra a la bolsa de su zona (via el motor de stock ya
+      -- existente); esto es la operacion de "sacar" de esa bolsa para
+      -- completar un contrato puntual.
+      CREATE TABLE IF NOT EXISTS contrato_aplicaciones_stock (
+        id SERIAL PRIMARY KEY,
+        id_contrato INTEGER NOT NULL REFERENCES contratos(id) ON DELETE CASCADE,
+        zona VARCHAR(50) NOT NULL,
+        id_especie INTEGER NOT NULL REFERENCES especies(id),
+        id_campana INTEGER NOT NULL REFERENCES campanas(id),
+        toneladas DECIMAL(12,3) NOT NULL,
+        usuario VARCHAR(100) NOT NULL,
+        fecha DATE DEFAULT CURRENT_DATE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
       CREATE TABLE IF NOT EXISTS mermas_humedad (
         id SERIAL PRIMARY KEY,
         id_especie INTEGER REFERENCES especies(id),
@@ -420,7 +438,10 @@ async function initDB() {
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_ubicacion_origen INTEGER REFERENCES ubicaciones(id);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_ubicacion_destino INTEGER REFERENCES ubicaciones(id);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS origen_produccion VARCHAR(20);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS kg_asignados_contrato_compra DECIMAL(12,3);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS kg_asignados_contrato_venta DECIMAL(12,3);
       ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS km_a_referencia DECIMAL(8,2);
+      ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS zona VARCHAR(50);
       ALTER TABLE tablas_flete ADD COLUMN IF NOT EXISTS es_default BOOLEAN DEFAULT FALSE;
       ALTER TABLE contratos ADD COLUMN IF NOT EXISTS costo_servicio_produccion DECIMAL(14,4) DEFAULT 0;
       ALTER TABLE contratos ADD COLUMN IF NOT EXISTS costo_grano_enviado_snapshot DECIMAL(14,4);
