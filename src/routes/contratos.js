@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { pool } = require('../db');
 const { registrarAuditoria } = require('../services/auditoria');
 const { sumarStock, restarStock } = require('../services/stockService');
+const { precioVigente } = require('../services/preciosService');
 
 // Si viene precio de referencia + descuento %, calcula el precio final descontado.
 // Si no hay descuento pero sí referencia y precio manual, calcula el descuento % equivalente para mostrarlo.
@@ -424,11 +425,33 @@ router.post('/:id/cerrar', async (req, res) => {
 
     const costoGrano = (parseFloat(contrato.cantidad_toneladas_pactadas) || 0) * (parseFloat(contrato.costo_grano_enviado_snapshot) || 0);
     const costoTotalPool = costoGrano + (parseFloat(contrato.costo_servicio_produccion) || 0);
+
+    // Reparto por valor de mercado (metodo del valor neto de realizacion), no
+    // por peso: el aceite vale mucho mas por tonelada que el expeller o el
+    // afrechillo, repartir por kilos asignaria costo de mas a lo barato y de
+    // menos a lo caro. Usa el precio de referencia de cada subproducto; si a
+    // alguno le falta precio cargado, ese cae a reparto por peso como respaldo.
+    const fechaCierre = new Date().toISOString().slice(0, 10);
+    let valorMercadoTotal = 0;
+    const valoresPorSalida = [];
+    for (const s of salidas) {
+      const ref = await precioVigente(s.id_especie, fechaCierre);
+      const valorMercado = ref ? (parseFloat(s.cantidad_kg) / 1000) * parseFloat(ref.precio) : null;
+      valoresPorSalida.push(valorMercado);
+      if (valorMercado !== null) valorMercadoTotal += valorMercado;
+    }
+    const hayPreciosParaTodas = valoresPorSalida.every(v => v !== null);
     const totalKgSalidas = salidas.reduce((sum, s) => sum + parseFloat(s.cantidad_kg), 0);
 
     const detalle = [];
-    for (const s of salidas) {
-      const proporcion = totalKgSalidas > 0 ? parseFloat(s.cantidad_kg) / totalKgSalidas : 0;
+    for (let i = 0; i < salidas.length; i++) {
+      const s = salidas[i];
+      let proporcion;
+      if (hayPreciosParaTodas && valorMercadoTotal > 0) {
+        proporcion = valoresPorSalida[i] / valorMercadoTotal;
+      } else {
+        proporcion = totalKgSalidas > 0 ? parseFloat(s.cantidad_kg) / totalKgSalidas : 0;
+      }
       const costoAsignado = costoTotalPool * proporcion;
       const precioUnitario = parseFloat(s.cantidad_kg) > 0 ? costoAsignado / (parseFloat(s.cantidad_kg) / 1000) : 0;
 
@@ -443,6 +466,7 @@ router.post('/:id/cerrar', async (req, res) => {
       }
       detalle.push({ id_salida: s.id, id_especie: s.id_especie, cantidad_kg: s.cantidad_kg, costo_asignado: Math.round(costoAsignado * 100) / 100, precio_unitario: Math.round(precioUnitario * 100) / 100 });
     }
+    const repartoPor = hayPreciosParaTodas ? 'valor_de_mercado' : 'peso_kg_por_falta_de_precios';
 
     const { rows: updRows } = await pool.query(
       "UPDATE contratos SET estado = 'CUMPLIDO', updated_at = NOW() WHERE id = $1 RETURNING *",
@@ -451,10 +475,10 @@ router.post('/:id/cerrar', async (req, res) => {
 
     await registrarAuditoria(req, {
       accion: 'CERRAR_PRODUCCION', modulo: 'contratos', registro_id: contrato.id,
-      datos_despues: { costo_total_pool: costoTotalPool, detalle }
+      datos_despues: { costo_total_pool: costoTotalPool, reparto_por: repartoPor, detalle }
     });
 
-    res.json({ contrato: updRows[0], costo_total_pool: Math.round(costoTotalPool * 100) / 100, detalle });
+    res.json({ contrato: updRows[0], costo_total_pool: Math.round(costoTotalPool * 100) / 100, reparto_por: repartoPor, detalle });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

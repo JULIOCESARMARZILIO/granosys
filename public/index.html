@@ -10208,11 +10208,201 @@ const Auditoria = () => {
   );
 };
 
+// ── COMPONENTE PRODUCCION / MAQUILA ──
+const OrdenesProduccion = ({modulo, usuario}) => {
+  const [ordenes, setOrdenes] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [contrapartes, setContrapartes] = useState([]);
+  const [especies, setEspecies] = useState([]);
+  const [ubicacionesPropias, setUbicacionesPropias] = useState([]);
+  const [campanas, setCampanas] = useState([]);
+  const [form, setForm] = useState({ id_contraparte:"", id_especie:"", id_campana:"", cantidad_toneladas_pactadas:"", id_ubicacion_origen:"", costo_servicio_produccion:"", observaciones:"" });
+  const [guardando, setGuardando] = useState(false);
+
+  const [detalleAbierto, setDetalleAbierto] = useState(null);
+  const [salidas, setSalidas] = useState({});
+  const [nuevaSalida, setNuevaSalida] = useState({ id_especie:"", cantidad_kg:"", id_ubicacion_destino:"" });
+
+  const cargar = async () => {
+    setCargando(true);
+    const data = await api.get("/api/contratos");
+    setOrdenes((data||[]).filter(c => c.tipo_contrato === "PRODUCCION" && c.modalidad === modulo));
+    setCargando(false);
+  };
+
+  useEffect(()=>{
+    cargar();
+    api.get("/api/contrapartes").then(d=>setContrapartes(d||[]));
+    api.get("/api/especies").then(d=>setEspecies(d||[]));
+    api.get("/api/campanas").then(d=>setCampanas(d||[]));
+    api.get("/api/ubicaciones").then(d=>setUbicacionesPropias((d||[]).filter(u=>u.tipo==="PLANTA_PROPIA")));
+  },[modulo]);
+
+  const especiesGrano = especies.filter(e=>e.tipo_producto!=="SUBPRODUCTO");
+  const especiesSubproducto = especies.filter(e=>e.tipo_producto==="SUBPRODUCTO");
+
+  const crearOrden = async () => {
+    if(!form.id_contraparte||!form.id_especie||!form.id_campana||!form.cantidad_toneladas_pactadas){
+      alert("Completá procesador, especie, campaña y toneladas"); return;
+    }
+    setGuardando(true);
+    try {
+      await api.post("/api/contratos", {
+        tipo_contrato:"PRODUCCION", modalidad: modulo,
+        fecha_contrato: new Date().toISOString().split("T")[0],
+        id_contraparte: parseInt(form.id_contraparte),
+        id_especie: parseInt(form.id_especie),
+        id_campana: parseInt(form.id_campana),
+        cantidad_toneladas_pactadas: parseFloat(form.cantidad_toneladas_pactadas),
+        tipo_precio: "FIJO", precio_pactado: 0, moneda: "ARS", tipo_entrega:"A_RETIRAR",
+        id_ubicacion_origen: form.id_ubicacion_origen || null,
+        costo_servicio_produccion: form.costo_servicio_produccion ? parseFloat(form.costo_servicio_produccion) : 0,
+        observaciones: form.observaciones || null
+      });
+      alert("✓ Orden de producción creada");
+      setShowForm(false);
+      setForm({ id_contraparte:"", id_especie:"", id_campana:"", cantidad_toneladas_pactadas:"", id_ubicacion_origen:"", costo_servicio_produccion:"", observaciones:"" });
+      cargar();
+    } catch(e){ alert("Error: "+e.message); }
+    finally{ setGuardando(false); }
+  };
+
+  const cargarSalidas = async (idOrden) => {
+    const data = await api.get(`/api/contratos/${idOrden}/salidas`);
+    setSalidas(prev=>({...prev, [idOrden]: data||[]}));
+  };
+
+  const agregarSalida = async (idOrden) => {
+    if(!nuevaSalida.id_especie||!nuevaSalida.cantidad_kg){ alert("Completá producto y kilos"); return; }
+    try {
+      await api.post(`/api/contratos/${idOrden}/salidas`, {
+        id_especie: parseInt(nuevaSalida.id_especie),
+        cantidad_kg: parseFloat(nuevaSalida.cantidad_kg),
+        id_ubicacion_destino: nuevaSalida.id_ubicacion_destino || null
+      });
+      setNuevaSalida({ id_especie:"", cantidad_kg:"", id_ubicacion_destino:"" });
+      cargarSalidas(idOrden);
+    } catch(e){ alert("Error: "+e.message); }
+  };
+
+  const cerrarOrden = async (idOrden) => {
+    if(!confirm("¿Cerrar la orden? Se va a repartir el costo entre las salidas cargadas y sumarse al Stock. No se puede deshacer.")) return;
+    try {
+      const r = await api.post(`/api/contratos/${idOrden}/cerrar`, {});
+      const metodo = r.reparto_por === "valor_de_mercado" ? "por valor de mercado de cada producto" : "por peso (faltó cargar algún precio de referencia, revisá Configuración → Precios)";
+      alert(`✓ Orden cerrada. Costo total repartido ${metodo}: $ ${Number(r.costo_total_pool).toLocaleString("es-AR")}`);
+      cargar();
+      cargarSalidas(idOrden);
+    } catch(e){ alert("Error: "+e.message); }
+  };
+
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <h2 style={{fontSize:18,fontWeight:700}}>Producción (Maquila)</h2>
+          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Grano que mandás a moler/extraer a un tercero, y lo que te devuelve (aceite, expeller, afrechillo...).</p>
+        </div>
+        <Btn onClick={()=>setShowForm(true)}>+ Nueva Orden</Btn>
+      </div>
+
+      {showForm && (
+        <Modal title="Nueva Orden de Producción" onClose={()=>setShowForm(false)} footer={
+          <Btn disabled={guardando} onClick={crearOrden}>{guardando?"Guardando...":"Crear Orden"}</Btn>
+        }>
+          <FF label="Procesador *">
+            <select value={form.id_contraparte} onChange={e=>setForm({...form,id_contraparte:e.target.value})}>
+              <option value="">Seleccionar...</option>
+              {contrapartes.map(c=><option key={c.id} value={c.id}>{c.razon_social}</option>)}
+            </select>
+          </FF>
+          <FF label="Grano que mandás *">
+            <select value={form.id_especie} onChange={e=>setForm({...form,id_especie:e.target.value})}>
+              <option value="">Seleccionar...</option>
+              {especiesGrano.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+            </select>
+          </FF>
+          <FF label="Campaña *">
+            <select value={form.id_campana} onChange={e=>setForm({...form,id_campana:e.target.value})}>
+              <option value="">Seleccionar...</option>
+              {campanas.map(c=><option key={c.id} value={c.id}>{c.descripcion}</option>)}
+            </select>
+          </FF>
+          <FF label="Toneladas que mandás *"><input type="number" value={form.cantidad_toneladas_pactadas} onChange={e=>setForm({...form,cantidad_toneladas_pactadas:e.target.value})}/></FF>
+          <FF label="¿Sale de un depósito propio?">
+            <select value={form.id_ubicacion_origen} onChange={e=>setForm({...form,id_ubicacion_origen:e.target.value})}>
+              <option value="">No descontar de Stock</option>
+              {ubicacionesPropias.map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
+            </select>
+          </FF>
+          <FF label="Costo del servicio de transformación (si te cobran)"><input type="number" value={form.costo_servicio_produccion} onChange={e=>setForm({...form,costo_servicio_produccion:e.target.value})}/></FF>
+          <FF label="Observaciones"><input value={form.observaciones} onChange={e=>setForm({...form,observaciones:e.target.value})}/></FF>
+        </Modal>
+      )}
+
+      {cargando ? <div>Cargando...</div> : ordenes.length===0 ? (
+        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay órdenes de producción todavía.</div>
+      ) : (
+        ordenes.map(o=>(
+          <div key={o.id} className="card" style={{marginBottom:14}}>
+            <div className="card-header">
+              <div>
+                <span style={{fontWeight:700}}>{o.numero_contrato}</span>
+                <span style={{color:"#8890a8",fontSize:12,marginLeft:12}}>{o.cantidad_toneladas_pactadas} tn enviadas</span>
+              </div>
+              <Badge label={o.estado} color={o.estado==="CUMPLIDO"?"green":"orange"}/>
+            </div>
+            <div style={{padding:"12px 16px"}}>
+              <Btn variant="secondary" size="sm" onClick={()=>{ if(detalleAbierto===o.id){setDetalleAbierto(null);} else {setDetalleAbierto(o.id); cargarSalidas(o.id);} }}>
+                {detalleAbierto===o.id?"Ocultar salidas":"Ver / cargar salidas"}
+              </Btn>
+              {detalleAbierto===o.id && (
+                <div style={{marginTop:12}}>
+                  <table>
+                    <thead><tr><th>Producto</th><th>Kilos</th><th>Destino</th></tr></thead>
+                    <tbody>
+                      {(salidas[o.id]||[]).map(s=>(
+                        <tr key={s.id}><td>{s.especie_nombre}</td><td className="mono">{Number(s.cantidad_kg).toLocaleString("es-AR")}</td><td>{s.ubicacion_nombre||"—"}</td></tr>
+                      ))}
+                      {(salidas[o.id]||[]).length===0 && <tr><td colSpan={3} style={{textAlign:"center",color:"#565d7a",padding:12}}>Sin salidas cargadas</td></tr>}
+                    </tbody>
+                  </table>
+                  {o.estado!=="CUMPLIDO" && (
+                    <div style={{display:"flex",gap:8,marginTop:12,alignItems:"end",flexWrap:"wrap"}}>
+                      <FF label="Producto">
+                        <select value={nuevaSalida.id_especie} onChange={e=>setNuevaSalida({...nuevaSalida,id_especie:e.target.value})}>
+                          <option value="">Seleccionar...</option>
+                          {especiesSubproducto.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+                        </select>
+                      </FF>
+                      <FF label="Kilos"><input type="number" value={nuevaSalida.cantidad_kg} onChange={e=>setNuevaSalida({...nuevaSalida,cantidad_kg:e.target.value})}/></FF>
+                      <FF label="¿A qué depósito propio?">
+                        <select value={nuevaSalida.id_ubicacion_destino} onChange={e=>setNuevaSalida({...nuevaSalida,id_ubicacion_destino:e.target.value})}>
+                          <option value="">Seleccionar...</option>
+                          {ubicacionesPropias.map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
+                        </select>
+                      </FF>
+                      <Btn size="sm" onClick={()=>agregarSalida(o.id)}>+ Agregar</Btn>
+                      <Btn size="sm" variant="secondary" onClick={()=>cerrarOrden(o.id)}>Cerrar orden y repartir costo</Btn>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+};
+
 // ── APP PRINCIPAL ──
 const MENU_FORMAL = [
   {id:"dashboard",label:"Dashboard",icon:"⊞"},
   {id:"contratos",label:"Contratos",icon:"📋",group:"Operaciones"},
   {id:"movimientos",label:"Movimientos",icon:"🚛",group:"Operaciones"},
+  {id:"produccion",label:"Producción (Maquila)",icon:"🏭",group:"Operaciones"},
   {id:"contrapartes",label:"Contrapartes",icon:"👤",group:"Cargas"},
   {id:"liquidaciones",label:"Liquidaciones",icon:"📊",group:"Finanzas"},
   {id:"cc",label:"Cuenta Corriente",icon:"💰",group:"Finanzas"},
@@ -10229,6 +10419,7 @@ const MENU_INFORMAL = [
   {id:"dashboard",label:"Dashboard",icon:"⊞"},
   {id:"contratos",label:"Contratos",icon:"📋",group:"Operaciones"},
   {id:"movimientos",label:"Movimientos",icon:"🚛",group:"Operaciones"},
+  {id:"produccion",label:"Producción (Maquila)",icon:"🏭",group:"Operaciones"},
   {id:"contrapartes",label:"Contrapartes",icon:"👤",group:"Cargas"},
   {id:"importador_excel",label:"Importar Excel",icon:"📥",group:"Cargas"},
   {id:"liquidaciones",label:"Liquidaciones",icon:"📊",group:"Finanzas"},
@@ -10813,6 +11004,7 @@ function App() {
       case "contrapartes": return <Contrapartes {...p}/>;
       case "contratos": return <Contratos {...p}/>;
       case "movimientos": return <Movimientos {...p}/>;
+      case "produccion": return <OrdenesProduccion {...p}/>;
       case "liquidaciones": return <Liquidaciones {...p}/>;
       case "cc": return <CuentaCorriente {...p}/>;
       case "stock": return <Stock {...p}/>;
