@@ -2373,6 +2373,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     provincia_destino: "",
     nro_planta_destino: "",
     direccion_destino: "",
+    id_ubicacion_origen: "",
+    id_ubicacion_destino: "",
     transportista_nombre: "",
     chofer_nombre: "",
     patente_chasis: "",
@@ -2387,6 +2389,15 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     humedad_salida_pct: "",
     nro_factura_flete: "",
   });
+
+  // Ubicaciones propias (plantas/depositos de la empresa), para el motor de stock:
+  // si un movimiento entra o sale de una de estas, se suma/resta del Stock.
+  const [ubicacionesPropias, setUbicacionesPropias] = useState([]);
+  useEffect(() => {
+    api.get("/api/ubicaciones").then(data => {
+      setUbicacionesPropias((data || []).filter(u => u.tipo === "PLANTA_PROPIA"));
+    }).catch(() => {});
+  }, []);
 
   // Destinos (plantas de entrega) parametrizados por comprador
   const [idContraparteDestinatario, setIdContraparteDestinatario] = useState("");
@@ -2667,6 +2678,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         provincia_destino: m.provincia_destino || "",
         nro_planta_destino: m.nro_planta_destino || "",
         direccion_destino: m.direccion_destino || "",
+        id_ubicacion_origen: m.id_ubicacion_origen || "",
+        id_ubicacion_destino: m.id_ubicacion_destino || "",
         transportista_nombre: m.transportista_nombre || m.transportista || "",
         chofer_nombre: m.chofer_nombre || m.chofer || "",
         patente_chasis: m.patente_chasis || "",
@@ -4711,6 +4724,12 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                 {modulo==="FORMAL"&&<FF label="Descripción Campo"><input value={movForm.descripcion_campo} onChange={e=>setMovForm({...movForm, descripcion_campo: e.target.value})} placeholder="Nombre del establecimiento"/></FF>}
                 {modulo==="FORMAL"&&<FF label="Latitud"><input value={movForm.latitud} onChange={e=>setMovForm({...movForm, latitud: e.target.value})} placeholder="27° 16 58"/></FF>}
                 {modulo==="FORMAL"&&<FF label="Longitud"><input value={movForm.longitud} onChange={e=>setMovForm({...movForm, longitud: e.target.value})} placeholder="64° 40 10"/></FF>}
+                <FF label="¿Sale de un depósito propio?">
+                  <select value={movForm.id_ubicacion_origen} onChange={e=>setMovForm({...movForm, id_ubicacion_origen: e.target.value})}>
+                    <option value="">No / Sale de campo de productor</option>
+                    {ubicacionesPropias.map(u=><option key={u.id} value={u.id}>{u.nombre}{u.localidad?` — ${u.localidad}`:""}</option>)}
+                  </select>
+                </FF>
               </div>
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>{modulo==="FORMAL"?"D — Destino de la Mercadería":"Destino"}</div>
               <div className="form-grid-2" style={{marginBottom:18}}>
@@ -4780,6 +4799,12 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                 </FF>
                 <FF label="N° Planta"><input value={movForm.nro_planta_destino} onChange={e=>setMovForm({...movForm, nro_planta_destino: e.target.value})} placeholder="518477"/></FF>
                 <FF label="Dirección Destino"><input value={movForm.direccion_destino||""} onChange={e=>setMovForm({...movForm, direccion_destino: e.target.value})} placeholder="Dirección destino"/></FF>
+                <FF label="¿Entra a un depósito propio?">
+                  <select value={movForm.id_ubicacion_destino} onChange={e=>setMovForm({...movForm, id_ubicacion_destino: e.target.value})}>
+                    <option value="">No / Va directo al comprador</option>
+                    {ubicacionesPropias.map(u=><option key={u.id} value={u.id}>{u.nombre}{u.localidad?` — ${u.localidad}`:""}</option>)}
+                  </select>
+                </FF>
               </div>
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>{modulo==="FORMAL"?"E — Datos del Transporte":"Transporte"}</div>
               <div className="form-grid-2" style={{marginBottom:18}}>
