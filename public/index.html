@@ -9942,7 +9942,7 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
           <div style={{padding:"10px 16px",fontSize:12,color:"#8890a8"}}>
             La "Zona" agrupa varias ubicaciones en una misma bolsa de stock (ej. "Rosario Norte") para poder aplicar stock a contratos sin depender de una planta puntual. La distancia (km) se usa para calcular el precio neto de flete en Posición Consolidada.
           </div>
-          <table><thead><tr><th>Nombre</th><th>Tipo</th><th>Localidad</th><th>Zona</th><th>Km a referencia</th></tr></thead>
+          <table><thead><tr><th>Nombre</th><th>Tipo</th><th>Localidad</th><th>Zona</th><th>Sub-zona</th><th>Km a referencia</th></tr></thead>
           <tbody>
             {ubicaciones.map(u=>(
               <tr key={u.id}>
@@ -9950,12 +9950,23 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
                 <td style={{fontSize:12,color:"#8890a8"}}>{u.tipo}</td>
                 <td style={{fontSize:12,color:"#8890a8"}}>{u.localidad||"—"}</td>
                 <td>
-                  <input defaultValue={u.zona||""} placeholder="Ej: Rosario Norte" style={{width:130,padding:"4px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}
+                  <input defaultValue={u.zona||""} placeholder="Ej: Rosario Norte" style={{width:120,padding:"4px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}
                     onBlur={async(ev)=>{
                       const val = ev.target.value.trim();
                       if (val === (u.zona||"")) return;
                       try {
                         await api.put(`/api/ubicaciones/${u.id}`, { zona: val });
+                        cargarUbicaciones();
+                      } catch(err){ alert("Error: "+err.message); }
+                    }}/>
+                </td>
+                <td>
+                  <input defaultValue={u.sub_zona||""} placeholder="Ej: Timbúes" style={{width:110,padding:"4px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}
+                    onBlur={async(ev)=>{
+                      const val = ev.target.value.trim();
+                      if (val === (u.sub_zona||"")) return;
+                      try {
+                        await api.put(`/api/ubicaciones/${u.id}`, { sub_zona: val });
                         cargarUbicaciones();
                       } catch(err){ alert("Error: "+err.message); }
                     }}/>
@@ -9973,7 +9984,7 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
                 </td>
               </tr>
             ))}
-            {ubicaciones.length===0&&<tr><td colSpan={5} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay ubicaciones cargadas</td></tr>}
+            {ubicaciones.length===0&&<tr><td colSpan={6} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay ubicaciones cargadas</td></tr>}
           </tbody></table>
         </div>
       )}

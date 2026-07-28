@@ -442,6 +442,19 @@ async function initDB() {
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS kg_asignados_contrato_venta DECIMAL(12,3);
       ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS km_a_referencia DECIMAL(8,2);
       ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS zona VARCHAR(50);
+      ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS sub_zona VARCHAR(50);
+
+      -- Referencia localidad -> zona/sub-zona (ej. "Timbues" -> "Rosario Norte" / "Timbues").
+      -- Se usa para clasificar automaticamente cualquier ubicacion, existente
+      -- o nueva, sin tener que tipear la zona a mano cada vez. Se va
+      -- ampliando con el tiempo, no hace falta tenerla completa de entrada.
+      CREATE TABLE IF NOT EXISTS zonas_localidad (
+        id SERIAL PRIMARY KEY,
+        localidad VARCHAR(100) NOT NULL UNIQUE,
+        zona VARCHAR(50) NOT NULL,
+        sub_zona VARCHAR(50),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
       ALTER TABLE tablas_flete ADD COLUMN IF NOT EXISTS es_default BOOLEAN DEFAULT FALSE;
       ALTER TABLE contratos ADD COLUMN IF NOT EXISTS costo_servicio_produccion DECIMAL(14,4) DEFAULT 0;
       ALTER TABLE contratos ADD COLUMN IF NOT EXISTS costo_grano_enviado_snapshot DECIMAL(14,4);
@@ -719,6 +732,42 @@ async function initDB() {
         );
       }
     }
+
+    // Sembrar/actualizar referencia de zonas por localidad (se puede volver a
+    // correr con mas filas en el futuro sin duplicar, por eso ON CONFLICT).
+    const zonasLocalidad = [
+      // Rosario Norte
+      { localidad: 'Timbues', zona: 'Rosario Norte', sub_zona: 'Timbues' },
+      { localidad: 'Timbúes', zona: 'Rosario Norte', sub_zona: 'Timbues' },
+      { localidad: 'San Lorenzo', zona: 'Rosario Norte', sub_zona: 'San Lorenzo' },
+      { localidad: 'Pto San Martin', zona: 'Rosario Norte', sub_zona: 'San Martin' },
+      { localidad: 'Puerto San Martin', zona: 'Rosario Norte', sub_zona: 'San Martin' },
+      { localidad: 'San Martin', zona: 'Rosario Norte', sub_zona: 'San Martin' },
+      { localidad: 'San Martín', zona: 'Rosario Norte', sub_zona: 'San Martin' },
+      // Rosario Sur
+      { localidad: 'Alvear', zona: 'Rosario Sur', sub_zona: 'Punta Alvear' },
+      { localidad: 'Punta Alvear', zona: 'Rosario Sur', sub_zona: 'Punta Alvear' },
+      { localidad: 'Gral.Lagos', zona: 'Rosario Sur', sub_zona: 'General Lagos' },
+      { localidad: 'General Lagos', zona: 'Rosario Sur', sub_zona: 'General Lagos' },
+      { localidad: 'Arroyo Seco', zona: 'Rosario Sur', sub_zona: 'Arroyo Seco' },
+      // Lima
+      { localidad: 'Lima', zona: 'Lima', sub_zona: null },
+    ];
+    for (const zl of zonasLocalidad) {
+      await client.query(
+        `INSERT INTO zonas_localidad (localidad, zona, sub_zona) VALUES ($1,$2,$3)
+         ON CONFLICT (localidad) DO UPDATE SET zona = $2, sub_zona = $3`,
+        [zl.localidad, zl.zona, zl.sub_zona]
+      );
+    }
+
+    // Aplicar la referencia a ubicaciones que ya tenian localidad cargada
+    // pero todavia no tenian zona asignada.
+    await client.query(`
+      UPDATE ubicaciones u SET zona = zl.zona, sub_zona = zl.sub_zona
+      FROM zonas_localidad zl
+      WHERE u.localidad = zl.localidad AND u.zona IS NULL
+    `);
 
     // Sembrar transportistas y choferes si no existen
     const { rows: tExist } = await client.query('SELECT id FROM transportistas LIMIT 1');
