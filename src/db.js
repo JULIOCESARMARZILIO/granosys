@@ -414,6 +414,7 @@ async function initDB() {
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_movimiento_vinculado INTEGER REFERENCES movimientos(id);
       ALTER TABLE especies ADD COLUMN IF NOT EXISTS tipo_producto VARCHAR(20) NOT NULL DEFAULT 'GRANO';
       ALTER TABLE especies ADD COLUMN IF NOT EXISTS id_especie_origen INTEGER REFERENCES especies(id);
+      ALTER TABLE especies ADD COLUMN IF NOT EXISTS rendimiento_teorico_pct DECIMAL(6,3);
       ALTER TABLE stock ADD COLUMN IF NOT EXISTS costo_promedio_ponderado DECIMAL(14,4) DEFAULT 0;
       ALTER TABLE stock ADD COLUMN IF NOT EXISTS valor_total DECIMAL(16,4) DEFAULT 0;
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_ubicacion_origen INTEGER REFERENCES ubicaciones(id);
@@ -671,13 +672,13 @@ async function initDB() {
     origenes.forEach(o => { idOrigen[o.codigo] = o.id; });
 
     const subproductos = [
-      { nombre: 'Aceite de Soja',       codigo: 'ACE-SOJ', origen: 'SOJ' },
-      { nombre: 'Aceite de Girasol',    codigo: 'ACE-GIR', origen: 'GIR' },
-      { nombre: 'Expeller de Soja',     codigo: 'EXP-SOJ', origen: 'SOJ' },
-      { nombre: 'Expeller de Girasol',  codigo: 'EXP-GIR', origen: 'GIR' },
-      { nombre: 'Afrechillo de Trigo',  codigo: 'AFR-TRI', origen: 'TRI' },
-      { nombre: 'Afrechillo de Maíz',   codigo: 'AFR-MAI', origen: 'MAI' },
-      { nombre: 'Maíz Partido',         codigo: 'MAI-PAR', origen: 'MAI' },
+      { nombre: 'Aceite de Soja',       codigo: 'ACE-SOJ', origen: 'SOJ', rendimiento: 13.0 },
+      { nombre: 'Aceite de Girasol',    codigo: 'ACE-GIR', origen: 'GIR', rendimiento: null },
+      { nombre: 'Expeller de Soja',     codigo: 'EXP-SOJ', origen: 'SOJ', rendimiento: 82.0 },
+      { nombre: 'Expeller de Girasol',  codigo: 'EXP-GIR', origen: 'GIR', rendimiento: null },
+      { nombre: 'Afrechillo de Trigo',  codigo: 'AFR-TRI', origen: 'TRI', rendimiento: null },
+      { nombre: 'Afrechillo de Maíz',   codigo: 'AFR-MAI', origen: 'MAI', rendimiento: null },
+      { nombre: 'Maíz Partido',         codigo: 'MAI-PAR', origen: 'MAI', rendimiento: null },
     ];
     for (const sp of subproductos) {
       const { rows: existente } = await client.query(
@@ -686,14 +687,14 @@ async function initDB() {
       );
       if (existente.length > 0) {
         await client.query(
-          `UPDATE especies SET tipo_producto = 'SUBPRODUCTO', id_especie_origen = COALESCE(id_especie_origen, $1) WHERE id = $2`,
-          [idOrigen[sp.origen] || null, existente[0].id]
+          `UPDATE especies SET tipo_producto = 'SUBPRODUCTO', id_especie_origen = COALESCE(id_especie_origen, $1), rendimiento_teorico_pct = COALESCE(rendimiento_teorico_pct, $2) WHERE id = $3`,
+          [idOrigen[sp.origen] || null, sp.rendimiento, existente[0].id]
         );
       } else {
         await client.query(
-          `INSERT INTO especies (nombre, codigo, tipo_producto, id_especie_origen, activa)
-           VALUES ($1, $2, 'SUBPRODUCTO', $3, TRUE) ON CONFLICT (codigo) DO NOTHING`,
-          [sp.nombre, sp.codigo, idOrigen[sp.origen] || null]
+          `INSERT INTO especies (nombre, codigo, tipo_producto, id_especie_origen, rendimiento_teorico_pct, activa)
+           VALUES ($1, $2, 'SUBPRODUCTO', $3, $4, TRUE) ON CONFLICT (codigo) DO NOTHING`,
+          [sp.nombre, sp.codigo, idOrigen[sp.origen] || null, sp.rendimiento]
         );
       }
     }

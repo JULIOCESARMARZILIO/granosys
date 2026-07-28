@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const { pool } = require('../db');
-const { precioNetoUbicacion } = require('../services/preciosService');
+const { precioNetoUbicacion, precioVigente } = require('../services/preciosService');
 
 // GET /api/posicion/consolidada
 // Todo lo que todavia no esta liquidado (sin importar en que planta este,
@@ -146,6 +146,60 @@ router.get('/consolidada', async (req, res) => {
     const totalGeneral = resultado.reduce((sum, r) => sum + r.valor_total, 0);
 
     res.json({ fecha, grupos: resultado, total_general: Math.round(totalGeneral * 100) / 100 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/posicion/capacidad-pago?id_especie=1&costo_molienda=50000&moneda=ARS
+// Capacidad teorica de pago: cuanto se puede pagar como maximo por el grano
+// para que, despues de convertirlo en subproductos (segun el rendimiento
+// teorico de cada uno) y descontar el costo de molienda, siga siendo
+// rentable. Comprar por encima de este precio pierde plata; por debajo, gana.
+router.get('/capacidad-pago', async (req, res) => {
+  try {
+    const idEspecie = parseInt(req.query.id_especie);
+    const costoMolienda = parseFloat(req.query.costo_molienda) || 0;
+    const fecha = req.query.fecha || new Date().toISOString().slice(0, 10);
+    if (!idEspecie) return res.status(400).json({ error: 'id_especie es obligatorio' });
+
+    const { rows: subproductos } = await pool.query(
+      `SELECT id, nombre, rendimiento_teorico_pct FROM especies
+       WHERE id_especie_origen = $1 AND tipo_producto = 'SUBPRODUCTO' AND rendimiento_teorico_pct IS NOT NULL`,
+      [idEspecie]
+    );
+
+    if (subproductos.length === 0) {
+      return res.status(400).json({ error: 'Este producto no tiene subproductos con rendimiento teorico cargado (Configuracion > Especies).' });
+    }
+
+    let ingresoTeoricoPorTon = 0;
+    const detalle = [];
+    let faltaAlgunPrecio = false;
+    for (const sp of subproductos) {
+      const ref = await precioVigente(sp.id, fecha);
+      const rendimiento = parseFloat(sp.rendimiento_teorico_pct) / 100;
+      if (!ref) {
+        faltaAlgunPrecio = true;
+        detalle.push({ especie_nombre: sp.nombre, rendimiento_pct: sp.rendimiento_teorico_pct, precio_referencia: null, aporte_por_ton: null });
+        continue;
+      }
+      const aportePorTon = rendimiento * parseFloat(ref.precio);
+      ingresoTeoricoPorTon += aportePorTon;
+      detalle.push({ especie_nombre: sp.nombre, rendimiento_pct: sp.rendimiento_teorico_pct, precio_referencia: parseFloat(ref.precio), aporte_por_ton: Math.round(aportePorTon * 100) / 100 });
+    }
+
+    const capacidadPago = ingresoTeoricoPorTon - costoMolienda;
+
+    res.json({
+      id_especie: idEspecie,
+      fecha,
+      costo_molienda: costoMolienda,
+      ingreso_teorico_por_ton: Math.round(ingresoTeoricoPorTon * 100) / 100,
+      capacidad_pago_por_ton: Math.round(capacidadPago * 100) / 100,
+      falta_algun_precio: faltaAlgunPrecio,
+      detalle
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

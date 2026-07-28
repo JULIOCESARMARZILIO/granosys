@@ -9743,7 +9743,7 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
         <div>
           <div className="card" style={{marginBottom:16}}>
             <div className="card-header"><span style={{fontWeight:600}}>Especies / Productos registrados</span></div>
-            <table><thead><tr><th>ID</th><th>Nombre</th><th>Código</th><th>Tipo</th><th>Estado</th></tr></thead>
+            <table><thead><tr><th>ID</th><th>Nombre</th><th>Código</th><th>Tipo</th><th>Rendimiento teórico</th><th>Estado</th></tr></thead>
             <tbody>
               {especies.map(e=>(
                 <tr key={e.id}>
@@ -9751,10 +9751,25 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
                   <td style={{fontWeight:500}}>{e.nombre}</td>
                   <td><span className="mono" style={{color:"#f5a623"}}>{e.codigo}</span></td>
                   <td><Badge label={e.tipo_producto==="SUBPRODUCTO"?"Subproducto":"Grano"} color={e.tipo_producto==="SUBPRODUCTO"?"blue":"gray"}/></td>
+                  <td>
+                    {e.tipo_producto==="SUBPRODUCTO" ? (
+                      <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                        <input type="number" step="0.1" defaultValue={e.rendimiento_teorico_pct||""} style={{width:70,padding:"3px 6px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}
+                          onBlur={async(ev)=>{
+                            const val = ev.target.value;
+                            try {
+                              await api.put(`/api/especies/${e.id}`, { rendimiento_teorico_pct: val===""?null:parseFloat(val) });
+                              setEspecies(especies.map(x=>x.id===e.id?{...x,rendimiento_teorico_pct:val===""?null:parseFloat(val)}:x));
+                            } catch(err){ alert("Error al guardar: "+err.message); }
+                          }}/>
+                        <span style={{fontSize:11,color:"#8890a8"}}>% por tn de {especies.find(o=>o.id===e.id_especie_origen)?.nombre||"grano"}</span>
+                      </div>
+                    ) : <span style={{color:"#565d7a"}}>—</span>}
+                  </td>
                   <td><Badge label={e.activa?"Activa":"Inactiva"} color={e.activa?"green":"gray"}/></td>
                 </tr>
               ))}
-              {especies.length===0&&<tr><td colSpan={5} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay especies cargadas</td></tr>}
+              {especies.length===0&&<tr><td colSpan={6} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay especies cargadas</td></tr>}
             </tbody></table>
           </div>
           <div className="card" style={{padding:"18px 20px"}}>
@@ -10208,6 +10223,91 @@ const Auditoria = () => {
   );
 };
 
+// ── CALCULADORA DE CAPACIDAD DE PAGO (reutilizable) ──
+const CalculadoraCapacidadPago = () => {
+  const [especies, setEspecies] = useState([]);
+  const [calcEspecie, setCalcEspecie] = useState("");
+  const [calcCostoMolienda, setCalcCostoMolienda] = useState("");
+  const [calcResultado, setCalcResultado] = useState(null);
+  const [calculando, setCalculando] = useState(false);
+
+  useEffect(()=>{ api.get("/api/especies").then(d=>setEspecies(d||[])); },[]);
+  const especiesGrano = especies.filter(e=>e.tipo_producto!=="SUBPRODUCTO");
+
+  const calcularCapacidadPago = async () => {
+    if (!calcEspecie) { alert("Elegí el grano"); return; }
+    setCalculando(true);
+    try {
+      const r = await api.get(`/api/posicion/capacidad-pago?id_especie=${calcEspecie}&costo_molienda=${calcCostoMolienda||0}`);
+      setCalcResultado(r);
+    } catch(e) { alert("Error: " + (e.response?.data?.error || e.message)); }
+    finally { setCalculando(false); }
+  };
+
+  return (
+    <div className="card" style={{padding:"16px 20px",marginBottom:20}}>
+      <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>Calculadora de Capacidad de Pago</div>
+      <p style={{color:"#8890a8",fontSize:12,marginBottom:12}}>
+        Cuánto podés pagar como máximo por el grano para que, convertido en subproductos y descontado el costo de molienda, siga siendo negocio. Por encima de este precio para ese destino, perdés plata; por debajo, ganás.
+      </p>
+      <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"}}>
+        <FF label="Grano">
+          <select value={calcEspecie} onChange={e=>{setCalcEspecie(e.target.value);setCalcResultado(null);}}>
+            <option value="">Seleccionar...</option>
+            {especiesGrano.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+          </select>
+        </FF>
+        <FF label="Costo de molienda ($/tn)"><input type="number" value={calcCostoMolienda} onChange={e=>setCalcCostoMolienda(e.target.value)} placeholder="Ej: 65000"/></FF>
+        <Btn size="sm" disabled={calculando} onClick={calcularCapacidadPago}>{calculando?"Calculando...":"Calcular"}</Btn>
+      </div>
+      {calcResultado && (
+        <div style={{marginTop:14,paddingTop:14,borderTop:"1px solid #2a2d3e"}}>
+          <table style={{fontSize:13}}>
+            <thead><tr><th>Subproducto</th><th>Rendimiento</th><th>Precio de referencia</th><th>Aporte por tn de grano</th></tr></thead>
+            <tbody>
+              {calcResultado.detalle.map((d,i)=>(
+                <tr key={i}>
+                  <td>{d.especie_nombre}</td>
+                  <td className="mono">{d.rendimiento_pct}%</td>
+                  <td className="mono">{d.precio_referencia!=null?`$ ${Number(d.precio_referencia).toLocaleString("es-AR")}`:<span style={{color:"#e74c3c"}}>Sin cargar</span>}</td>
+                  <td className="mono">{d.aporte_por_ton!=null?`$ ${Number(d.aporte_por_ton).toLocaleString("es-AR")}`:"—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {calcResultado.falta_algun_precio && (
+            <div style={{color:"#e74c3c",fontSize:12,marginTop:8}}>⚠ Falta cargar el precio de referencia de algún subproducto (Configuración → Precios de Referencia) — el cálculo está incompleto.</div>
+          )}
+          <div style={{marginTop:12,display:"flex",gap:24}}>
+            <div>
+              <div style={{fontSize:11,color:"#8890a8"}}>Ingreso teórico por tn</div>
+              <div style={{fontSize:18,fontWeight:700}}>$ {Number(calcResultado.ingreso_teorico_por_ton).toLocaleString("es-AR")}</div>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:"#8890a8"}}>Capacidad de pago por tn</div>
+              <div style={{fontSize:22,fontWeight:700,color:"#f5a623"}}>$ {Number(calcResultado.capacidad_pago_por_ton).toLocaleString("es-AR")}</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── COMPONENTE CALCULOS (Operaciones) — panel de calculadoras de rentabilidad,
+// pensado para ir sumando mas calculadoras ademas de Capacidad de Pago ──
+const Calculos = () => {
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:20}}>
+        <h2 style={{fontSize:18,fontWeight:700}}>Cálculos</h2>
+        <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Calculadoras de rentabilidad para decidir si conviene o no una operación.</p>
+      </div>
+      <CalculadoraCapacidadPago/>
+    </div>
+  );
+};
+
 // ── COMPONENTE PRODUCCION / MAQUILA ──
 const OrdenesProduccion = ({modulo, usuario}) => {
   const [ordenes, setOrdenes] = useState([]);
@@ -10307,6 +10407,8 @@ const OrdenesProduccion = ({modulo, usuario}) => {
         <Btn onClick={()=>setShowForm(true)}>+ Nueva Orden</Btn>
       </div>
 
+      <CalculadoraCapacidadPago/>
+
       {showForm && (
         <Modal title="Nueva Orden de Producción" onClose={()=>setShowForm(false)} footer={
           <Btn disabled={guardando} onClick={crearOrden}>{guardando?"Guardando...":"Crear Orden"}</Btn>
@@ -10403,6 +10505,7 @@ const MENU_FORMAL = [
   {id:"contratos",label:"Contratos",icon:"📋",group:"Operaciones"},
   {id:"movimientos",label:"Movimientos",icon:"🚛",group:"Operaciones"},
   {id:"produccion",label:"Producción (Maquila)",icon:"🏭",group:"Operaciones"},
+  {id:"calculos",label:"Cálculos",icon:"🧮",group:"Operaciones"},
   {id:"contrapartes",label:"Contrapartes",icon:"👤",group:"Cargas"},
   {id:"liquidaciones",label:"Liquidaciones",icon:"📊",group:"Finanzas"},
   {id:"cc",label:"Cuenta Corriente",icon:"💰",group:"Finanzas"},
@@ -10420,6 +10523,7 @@ const MENU_INFORMAL = [
   {id:"contratos",label:"Contratos",icon:"📋",group:"Operaciones"},
   {id:"movimientos",label:"Movimientos",icon:"🚛",group:"Operaciones"},
   {id:"produccion",label:"Producción (Maquila)",icon:"🏭",group:"Operaciones"},
+  {id:"calculos",label:"Cálculos",icon:"🧮",group:"Operaciones"},
   {id:"contrapartes",label:"Contrapartes",icon:"👤",group:"Cargas"},
   {id:"importador_excel",label:"Importar Excel",icon:"📥",group:"Cargas"},
   {id:"liquidaciones",label:"Liquidaciones",icon:"📊",group:"Finanzas"},
@@ -11005,6 +11109,7 @@ function App() {
       case "contratos": return <Contratos {...p}/>;
       case "movimientos": return <Movimientos {...p}/>;
       case "produccion": return <OrdenesProduccion {...p}/>;
+      case "calculos": return <Calculos/>;
       case "liquidaciones": return <Liquidaciones {...p}/>;
       case "cc": return <CuentaCorriente {...p}/>;
       case "stock": return <Stock {...p}/>;
