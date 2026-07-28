@@ -178,10 +178,10 @@ const mockContrapartes = [
 ];
 
 const mockContratos = [
-  {id:1,numero:"OC-2025-0001",tipo:"COMPRA",modalidad:"FORMAL",fecha:"2025-03-15",especie:"Soja",campana:"2024/2025",contraparte:"García Juan Carlos",toneladas:300,tipo_precio:"PRECIO_HECHO",precio:285000,moneda:"PESOS",tipo_entrega:"A_RETIRAR",estado:"EN_CURSO",asignadas:180,tipo_liq:"INCISO_A"},
-  {id:2,numero:"OV-2025-0001",tipo:"VENTA",modalidad:"FORMAL",fecha:"2025-03-15",especie:"Soja",campana:"2024/2025",contraparte:"Bunge Argentina S.A.",toneladas:300,tipo_precio:"PRECIO_HECHO",precio:292000,moneda:"PESOS",tipo_entrega:"PUESTO_DESTINO",estado:"EN_CURSO",asignadas:180,tipo_liq:"INCISO_A"},
+  {id:1,numero:"OC-2025-0001",tipo:"COMPRA",modalidad:"FORMAL",fecha:"2025-03-15",especie:"Soja",campana:"2024/2025",contraparte:"García Juan Carlos",toneladas:300,tipo_precio:"FIJO",precio:285000,moneda:"PESOS",tipo_entrega:"A_RETIRAR",estado:"EN_CURSO",asignadas:180,tipo_liq:"INCISO_A"},
+  {id:2,numero:"OV-2025-0001",tipo:"VENTA",modalidad:"FORMAL",fecha:"2025-03-15",especie:"Soja",campana:"2024/2025",contraparte:"Bunge Argentina S.A.",toneladas:300,tipo_precio:"FIJO",precio:292000,moneda:"PESOS",tipo_entrega:"PUESTO_DESTINO",estado:"EN_CURSO",asignadas:180,tipo_liq:"INCISO_A"},
   {id:3,numero:"OC-2025-0002",tipo:"COMPRA",modalidad:"INFORMAL",fecha:"2025-04-02",especie:"Maíz",campana:"2024/2025",contraparte:"Rodríguez Pedro",toneladas:150,tipo_precio:"A_FIJAR",precio:null,moneda:"DOLARES",tipo_entrega:"A_RETIRAR",estado:"CONFIRMADO",asignadas:0,tipo_liq:null},
-  {id:4,numero:"OC-2025-0003",tipo:"COMPRA",modalidad:"FORMAL",fecha:"2025-04-10",especie:"Trigo",campana:"2024/2025",contraparte:"García Juan Carlos",toneladas:200,tipo_precio:"PRECIO_HECHO",precio:180000,moneda:"PESOS",tipo_entrega:"A_RETIRAR",estado:"CONFIRMADO",asignadas:60,tipo_liq:"INCISO_B"},
+  {id:4,numero:"OC-2025-0003",tipo:"COMPRA",modalidad:"FORMAL",fecha:"2025-04-10",especie:"Trigo",campana:"2024/2025",contraparte:"García Juan Carlos",toneladas:200,tipo_precio:"FIJO",precio:180000,moneda:"PESOS",tipo_entrega:"A_RETIRAR",estado:"CONFIRMADO",asignadas:60,tipo_liq:"INCISO_B"},
   {id:5,numero:"OV-2025-0002",tipo:"VENTA",modalidad:"INFORMAL",fecha:"2025-04-05",especie:"Maíz",campana:"2024/2025",contraparte:"Rodríguez Pedro",toneladas:150,tipo_precio:"A_FIJAR",precio:null,moneda:"DOLARES",tipo_entrega:"PUESTO_DESTINO",estado:"CONFIRMADO",asignadas:0,tipo_liq:null},
 ];
 
@@ -647,7 +647,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
   const [campanas,setCampanas]=useState(CAMPANAS.map((d,i)=>({id:i+1,descripcion:d})));
   const [guardando,setGuardando]=useState(false);
   const [form,setForm]=useState({
-    tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",base_calculo_peso: "BRUTO_CAMPO",
+    tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"FIJO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",base_calculo_peso: "BRUTO_CAMPO",
     entrega_id_especie: 1, entrega_toneladas: "", entrega_localidad_entrega: "",
     entrega_costo_secada_punto: "", entrega_costo_zarandeo_tn: "", entrega_costo_paritaria_tn: "", entrega_costo_fumigacion_fijo: "", entrega_humedad_max_seco: "13.5", entrega_otros_descripcion: "",
     entrega_costo_secada_destino_punto: "", entrega_costo_zarandeo_destino_tn: "", entrega_costo_paritaria_destino_tn: "", entrega_costo_fumigacion_destino_fijo: "", entrega_otros_destino_descripcion: "", entrega_costo_otros_destino_valor: "",
@@ -896,7 +896,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
         id_especie: c.id_especie || 1,
         id_campana: c.id_campana || 2,
         id_contraparte: c.id_contraparte || "",
-        tipo_precio: c.tipo_precio || "PRECIO_HECHO",
+        tipo_precio: c.tipo_precio || "FIJO",
         moneda: c.moneda || "PESOS",
         precio: c.precio_pactado || "",
         precio_referencia: c.precio_referencia || "",
@@ -1080,7 +1080,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
         <Btn onClick={()=>{
           setForm({
             tipo: tab === "CANJE" ? "CANJE" : tab,
-            especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",
+            especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"FIJO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",
             entrega_id_especie: 1, entrega_toneladas: "", entrega_localidad_entrega: "",
             entrega_costo_secada_punto: "", entrega_costo_zarandeo_tn: "", entrega_costo_paritaria_tn: "", entrega_costo_fumigacion_fijo: "", entrega_humedad_max_seco: "13.5", entrega_otros_descripcion: "",
             entrega_costo_secada_destino_punto: "", entrega_costo_zarandeo_destino_tn: "", entrega_costo_paritaria_destino_tn: "", entrega_costo_fumigacion_destino_fijo: "", entrega_otros_destino_descripcion: "", entrega_costo_otros_destino_valor: "",
@@ -1441,12 +1441,12 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
               <FF label="Toneladas" required><input type="number" placeholder="0.000" value={form.toneladas} onChange={e=>setForm({...form,toneladas:e.target.value})}/></FF>
               <FF label="Tipo de Precio" required>
                 <SelectorFlechas
-                  opciones={[{value:"PRECIO_HECHO",label:"Precio Hecho"},{value:"A_FIJAR",label:"A Fijar"}]}
+                  opciones={[{value:"FIJO",label:"Precio Hecho"},{value:"A_FIJAR",label:"A Fijar"}]}
                   value={form.tipo_precio}
                   onChange={v=>setForm({...form,tipo_precio:v})}
                 />
               </FF>
-              {form.tipo_precio==="PRECIO_HECHO"?<>
+              {form.tipo_precio==="FIJO"?<>
                 <FF label="Moneda">
                   <SelectorFlechas
                     opciones={[{value:"PESOS",label:"Pesos $"},{value:"DOLARES",label:"Dólares USD"},{value:"DOLARES_BILLETE",label:"Dólares Billete"}]}

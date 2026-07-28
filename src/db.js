@@ -762,6 +762,16 @@ async function initDB() {
       }
     }
 
+    // Corrige contratos guardados con el valor viejo/incorrecto 'PRECIO_HECHO'
+    // (un bug del formulario que mandaba ese valor en vez de 'FIJO', el que
+    // usa el resto del sistema). Idempotente: no hace nada si ya no quedan.
+    const { rowCount: corregidos } = await client.query(
+      "UPDATE contratos SET tipo_precio = 'FIJO' WHERE tipo_precio = 'PRECIO_HECHO'"
+    );
+    if (corregidos > 0) {
+      console.log(`Corregidos ${corregidos} contratos con tipo_precio='PRECIO_HECHO' -> 'FIJO'.`);
+    }
+
     // Auditoria: registro de quien hizo cada cambio. La tabla es de solo
     // lectura para la aplicacion (solo INSERT); el trigger bloquea a nivel
     // de base de datos cualquier UPDATE o DELETE, incluso si hay un bug o
