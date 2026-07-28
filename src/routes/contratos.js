@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { pool } = require('../db');
 const { registrarAuditoria } = require('../services/auditoria');
+const { sumarStock, restarStock } = require('../services/stockService');
 
 // Si viene precio de referencia + descuento %, calcula el precio final descontado.
 // Si no hay descuento pero sí referencia y precio manual, calcula el descuento % equivalente para mostrarlo.
@@ -255,7 +256,7 @@ router.post('/', async (req, res) => {
     } = req.body;
 
     // Generar número de contrato
-    const prefix = tipo_contrato === 'COMPRA' ? 'OC' : tipo_contrato === 'VENTA' ? 'OV' : 'CA';
+    const prefix = tipo_contrato === 'COMPRA' ? 'OC' : tipo_contrato === 'VENTA' ? 'OV' : tipo_contrato === 'PRODUCCION' ? 'PR' : 'CA';
     const year = new Date().getFullYear();
     const { rows: last } = await pool.query(
       "SELECT numero_contrato FROM contratos WHERE numero_contrato LIKE $1 ORDER BY id DESC LIMIT 1",
@@ -311,11 +312,149 @@ router.post('/', async (req, res) => {
         costo_fumigacion_destino_fijo||0, otros_destino_descripcion||null, costo_otros_destino_valor||0,
         observaciones, base_calculo_peso||'BRUTO_CAMPO', precioResuelto.referencia, precioResuelto.descuento]);
 
+    // Si es una orden de Produccion (maquila): guarda el costo del servicio,
+    // y si sale de un deposito propio, descuenta ese grano del stock ya
+    // mismo y guarda una "foto" de su costo promedio (se va a repartir entre
+    // las salidas cuando se cierre la orden).
+    if (tipo_contrato === 'PRODUCCION') {
+      const idUbicacionOrigen = req.body.id_ubicacion_origen || null;
+      let costoSnapshot = null;
+      if (idUbicacionOrigen) {
+        const { rows: stockRows } = await pool.query(
+          'SELECT costo_promedio_ponderado FROM stock WHERE id_ubicacion=$1 AND id_especie=$2 AND id_campana=$3',
+          [idUbicacionOrigen, id_especie, id_campana]
+        );
+        costoSnapshot = stockRows[0] ? parseFloat(stockRows[0].costo_promedio_ponderado) : 0;
+        await restarStock({
+          id_ubicacion: idUbicacionOrigen, id_especie, id_campana,
+          kg: parseFloat(cantidad_toneladas_pactadas) * 1000
+        });
+      }
+      const { rows: updRows } = await pool.query(
+        `UPDATE contratos SET costo_servicio_produccion=$1, id_ubicacion_origen=$2, costo_grano_enviado_snapshot=$3 WHERE id=$4 RETURNING *`,
+        [req.body.costo_servicio_produccion || 0, idUbicacionOrigen, costoSnapshot, rows[0].id]
+      );
+      rows[0] = updRows[0];
+    }
+
     await registrarAuditoria(req, {
       accion: 'CREAR', modulo: 'contratos', registro_id: rows[0].id, datos_despues: rows[0]
     });
 
     res.status(201).json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /:id/salidas - registra lo que efectivamente devolvio el procesador
+// (aceite, expeller, afrechillo...) en una orden de Produccion/maquila.
+// Todavia no toca el stock: eso se hace recien al cerrar la orden, porque
+// hasta entonces no se sabe la proporcion final entre las salidas.
+router.post('/:id/salidas', async (req, res) => {
+  try {
+    const { id_especie, cantidad_kg, id_ubicacion_destino, observaciones, fecha_recepcion } = req.body;
+    if (!id_especie || !cantidad_kg) {
+      return res.status(400).json({ error: 'id_especie y cantidad_kg son obligatorios' });
+    }
+    const { rows: contratoRows } = await pool.query(
+      "SELECT id, tipo_contrato, estado FROM contratos WHERE id = $1", [req.params.id]
+    );
+    if (!contratoRows[0]) return res.status(404).json({ error: 'Contrato no encontrado' });
+    if (contratoRows[0].tipo_contrato !== 'PRODUCCION') {
+      return res.status(400).json({ error: 'Este contrato no es una orden de Produccion/maquila' });
+    }
+    if (contratoRows[0].estado === 'CUMPLIDO') {
+      return res.status(400).json({ error: 'La orden ya esta cerrada, no se pueden agregar mas salidas' });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO contrato_produccion_salidas (id_contrato, id_especie, cantidad_kg, id_ubicacion_destino, observaciones, fecha_recepcion)
+       VALUES ($1,$2,$3,$4,$5,COALESCE($6, CURRENT_DATE)) RETURNING *`,
+      [req.params.id, id_especie, cantidad_kg, id_ubicacion_destino || null, observaciones || null, fecha_recepcion || null]
+    );
+
+    await registrarAuditoria(req, {
+      accion: 'CREAR', modulo: 'contrato_produccion_salidas', registro_id: rows[0].id, datos_despues: rows[0]
+    });
+
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /:id/salidas - lista las salidas cargadas para una orden de Produccion
+router.get('/:id/salidas', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT s.*, e.nombre as especie_nombre, u.nombre as ubicacion_nombre
+      FROM contrato_produccion_salidas s
+      LEFT JOIN especies e ON s.id_especie = e.id
+      LEFT JOIN ubicaciones u ON s.id_ubicacion_destino = u.id
+      WHERE s.id_contrato = $1 ORDER BY s.id ASC
+    `, [req.params.id]);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /:id/cerrar - cierra la orden de Produccion: reparte el costo total
+// (grano enviado + servicio de transformacion) entre todas las salidas
+// segun su peso, y recien ahi las suma al Stock de cada subproducto.
+router.post('/:id/cerrar', async (req, res) => {
+  try {
+    const { rows: contratoRows } = await pool.query('SELECT * FROM contratos WHERE id = $1', [req.params.id]);
+    const contrato = contratoRows[0];
+    if (!contrato) return res.status(404).json({ error: 'Contrato no encontrado' });
+    if (contrato.tipo_contrato !== 'PRODUCCION') {
+      return res.status(400).json({ error: 'Este contrato no es una orden de Produccion/maquila' });
+    }
+    if (contrato.estado === 'CUMPLIDO') {
+      return res.status(400).json({ error: 'La orden ya estaba cerrada' });
+    }
+
+    const { rows: salidas } = await pool.query(
+      'SELECT * FROM contrato_produccion_salidas WHERE id_contrato = $1', [req.params.id]
+    );
+    if (salidas.length === 0) {
+      return res.status(400).json({ error: 'No hay salidas cargadas todavia, no se puede cerrar' });
+    }
+
+    const costoGrano = (parseFloat(contrato.cantidad_toneladas_pactadas) || 0) * (parseFloat(contrato.costo_grano_enviado_snapshot) || 0);
+    const costoTotalPool = costoGrano + (parseFloat(contrato.costo_servicio_produccion) || 0);
+    const totalKgSalidas = salidas.reduce((sum, s) => sum + parseFloat(s.cantidad_kg), 0);
+
+    const detalle = [];
+    for (const s of salidas) {
+      const proporcion = totalKgSalidas > 0 ? parseFloat(s.cantidad_kg) / totalKgSalidas : 0;
+      const costoAsignado = costoTotalPool * proporcion;
+      const precioUnitario = parseFloat(s.cantidad_kg) > 0 ? costoAsignado / (parseFloat(s.cantidad_kg) / 1000) : 0;
+
+      if (s.id_ubicacion_destino) {
+        await sumarStock({
+          id_ubicacion: s.id_ubicacion_destino,
+          id_especie: s.id_especie,
+          id_campana: contrato.id_campana,
+          kg: parseFloat(s.cantidad_kg),
+          precioUnitario
+        });
+      }
+      detalle.push({ id_salida: s.id, id_especie: s.id_especie, cantidad_kg: s.cantidad_kg, costo_asignado: Math.round(costoAsignado * 100) / 100, precio_unitario: Math.round(precioUnitario * 100) / 100 });
+    }
+
+    const { rows: updRows } = await pool.query(
+      "UPDATE contratos SET estado = 'CUMPLIDO', updated_at = NOW() WHERE id = $1 RETURNING *",
+      [req.params.id]
+    );
+
+    await registrarAuditoria(req, {
+      accion: 'CERRAR_PRODUCCION', modulo: 'contratos', registro_id: contrato.id,
+      datos_despues: { costo_total_pool: costoTotalPool, detalle }
+    });
+
+    res.json({ contrato: updRows[0], costo_total_pool: Math.round(costoTotalPool * 100) / 100, detalle });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

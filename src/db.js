@@ -421,6 +421,25 @@ async function initDB() {
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS origen_produccion VARCHAR(20);
       ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS km_a_referencia DECIMAL(8,2);
       ALTER TABLE tablas_flete ADD COLUMN IF NOT EXISTS es_default BOOLEAN DEFAULT FALSE;
+      ALTER TABLE contratos ADD COLUMN IF NOT EXISTS costo_servicio_produccion DECIMAL(14,4) DEFAULT 0;
+      ALTER TABLE contratos ADD COLUMN IF NOT EXISTS costo_grano_enviado_snapshot DECIMAL(14,4);
+      ALTER TABLE contratos ADD COLUMN IF NOT EXISTS id_ubicacion_origen INTEGER REFERENCES ubicaciones(id);
+
+      -- Ordenes de produccion/maquila: se registra 1 contrato PRODUCCION con el
+      -- grano que sale a procesar, y N "salidas" variables (aceite, expeller,
+      -- afrechillo...) a medida que el procesador las va devolviendo. El costo
+      -- se reparte entre las salidas recien cuando se cierra la orden, porque
+      -- hasta entonces no se sabe la proporcion final.
+      CREATE TABLE IF NOT EXISTS contrato_produccion_salidas (
+        id SERIAL PRIMARY KEY,
+        id_contrato INTEGER NOT NULL REFERENCES contratos(id) ON DELETE CASCADE,
+        id_especie INTEGER NOT NULL REFERENCES especies(id),
+        cantidad_kg DECIMAL(12,3) NOT NULL,
+        id_ubicacion_destino INTEGER REFERENCES ubicaciones(id),
+        fecha_recepcion DATE DEFAULT CURRENT_DATE,
+        observaciones VARCHAR(255),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
 
       -- Inicializar estado_flete basado en campos de flete existentes
       UPDATE movimientos SET estado_flete = 'LIQUIDADO' WHERE nro_factura_flete IS NOT NULL AND (estado_flete IS NULL OR estado_flete = 'PENDIENTE');

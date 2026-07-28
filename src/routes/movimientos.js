@@ -364,15 +364,22 @@ router.post('/', async (req, res) => {
 
     const createdMov = mainMovRows[0];
 
+    // El prefijo del CTG indica quien lo emitio: 101 = productor (produccion
+    // propia), 102 = acopiador (compra a terceros). Se detecta solo, no
+    // depende de que alguien lo tipee bien.
+    const origenProduccion = nro_ctg && nro_ctg.startsWith('101') ? 'PROPIA'
+      : nro_ctg && nro_ctg.startsWith('102') ? 'ACOPIO' : null;
+
     // Ubicacion propia de origen/destino (opcional): es lo que le permite al
     // motor de stock saber si este viaje entra o sale de un deposito propio.
-    if (req.body.id_ubicacion_origen || req.body.id_ubicacion_destino) {
+    if (req.body.id_ubicacion_origen || req.body.id_ubicacion_destino || origenProduccion) {
       await pool.query(
-        'UPDATE movimientos SET id_ubicacion_origen = $1, id_ubicacion_destino = $2 WHERE id = $3',
-        [req.body.id_ubicacion_origen || null, req.body.id_ubicacion_destino || null, createdMov.id]
+        'UPDATE movimientos SET id_ubicacion_origen = $1, id_ubicacion_destino = $2, origen_produccion = COALESCE($3, origen_produccion) WHERE id = $4',
+        [req.body.id_ubicacion_origen || null, req.body.id_ubicacion_destino || null, origenProduccion, createdMov.id]
       );
       createdMov.id_ubicacion_origen = req.body.id_ubicacion_origen || null;
       createdMov.id_ubicacion_destino = req.body.id_ubicacion_destino || null;
+      createdMov.origen_produccion = origenProduccion || createdMov.origen_produccion;
     }
 
     // Si es INFORMAL y tiene CPE, crear twin FORMAL
@@ -424,6 +431,10 @@ router.post('/', async (req, res) => {
           createdMov.id]);
 
       const twinMov = twinRows[0];
+      if (origenProduccion) {
+        await pool.query('UPDATE movimientos SET origen_produccion = $1 WHERE id = $2', [origenProduccion, twinMov.id]);
+        twinMov.origen_produccion = origenProduccion;
+      }
       await pool.query('UPDATE movimientos SET id_movimiento_vinculado = $1 WHERE id = $2', [twinMov.id, createdMov.id]);
       createdMov.id_movimiento_vinculado = twinMov.id;
     }
@@ -1098,10 +1109,13 @@ router.put('/:id', async (req, res) => {
         nro_factura_flete||null, fecha_partida||null, estado_liq, req.params.id
     ]);
 
-    if (req.body.id_ubicacion_origen !== undefined || req.body.id_ubicacion_destino !== undefined) {
+    const origenProduccionEdit = nro_ctg && nro_ctg.startsWith('101') ? 'PROPIA'
+      : nro_ctg && nro_ctg.startsWith('102') ? 'ACOPIO' : null;
+
+    if (req.body.id_ubicacion_origen !== undefined || req.body.id_ubicacion_destino !== undefined || origenProduccionEdit) {
       const { rows: ubicRows } = await pool.query(
-        'UPDATE movimientos SET id_ubicacion_origen = $1, id_ubicacion_destino = $2 WHERE id = $3 RETURNING *',
-        [req.body.id_ubicacion_origen || null, req.body.id_ubicacion_destino || null, req.params.id]
+        'UPDATE movimientos SET id_ubicacion_origen = $1, id_ubicacion_destino = $2, origen_produccion = COALESCE($3, origen_produccion) WHERE id = $4 RETURNING *',
+        [req.body.id_ubicacion_origen || null, req.body.id_ubicacion_destino || null, origenProduccionEdit, req.params.id]
       );
       if (ubicRows[0]) rows[0] = ubicRows[0];
     }
