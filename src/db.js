@@ -455,6 +455,17 @@ async function initDB() {
         sub_zona VARCHAR(50),
         created_at TIMESTAMP DEFAULT NOW()
       );
+
+      -- Igual que zonas_localidad pero por nombre de planta/empresa (ej.
+      -- "ProAlim", "Transcom"), para cuando no se sabe/importa la localidad
+      -- puntual, solo con que planta se trata.
+      CREATE TABLE IF NOT EXISTS zonas_nombre (
+        id SERIAL PRIMARY KEY,
+        nombre VARCHAR(100) NOT NULL UNIQUE,
+        zona VARCHAR(50) NOT NULL,
+        sub_zona VARCHAR(50),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
       ALTER TABLE tablas_flete ADD COLUMN IF NOT EXISTS es_default BOOLEAN DEFAULT FALSE;
       ALTER TABLE contratos ADD COLUMN IF NOT EXISTS costo_servicio_produccion DECIMAL(14,4) DEFAULT 0;
       ALTER TABLE contratos ADD COLUMN IF NOT EXISTS costo_grano_enviado_snapshot DECIMAL(14,4);
@@ -762,6 +773,28 @@ async function initDB() {
         [zl.localidad, zl.zona, zl.sub_zona]
       );
     }
+
+    // Referencia por nombre de planta/empresa (cuando se conoce quien es
+    // pero no en que localidad puntual esta).
+    const zonasNombre = [
+      { nombre: 'ProAlim', zona: 'Saladillo', sub_zona: null },
+      { nombre: 'Transcom', zona: 'Saladillo', sub_zona: null },
+      { nombre: 'Planta La Campana', zona: 'Saladillo', sub_zona: null },
+      { nombre: 'La Campana', zona: 'Saladillo', sub_zona: null },
+      { nombre: 'Cuatro Molinos', zona: 'Saladillo', sub_zona: null },
+    ];
+    for (const zn of zonasNombre) {
+      await client.query(
+        `INSERT INTO zonas_nombre (nombre, zona, sub_zona) VALUES ($1,$2,$3)
+         ON CONFLICT (nombre) DO UPDATE SET zona = $2, sub_zona = $3`,
+        [zn.nombre, zn.zona, zn.sub_zona]
+      );
+    }
+    await client.query(`
+      UPDATE ubicaciones u SET zona = zn.zona, sub_zona = zn.sub_zona
+      FROM zonas_nombre zn
+      WHERE u.nombre ILIKE zn.nombre AND (u.zona IS NULL OR u.zona = zn.zona)
+    `);
 
     // Aplicar la referencia a ubicaciones que ya tenian localidad cargada:
     // si todavia no tenian zona, se les asigna; si ya tenian zona/sub_zona
