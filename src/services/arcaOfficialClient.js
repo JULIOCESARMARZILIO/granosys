@@ -292,6 +292,35 @@ async function diagnosticarWslpg() {
   };
 }
 
+async function diagnosticarAutorizaciones() {
+  const config = getConfig();
+  validateCredentials(config);
+  const servicios = ['wsfe', 'wscdc', 'wscpe', 'wslpg', 'ws_sr_padron_a13'];
+  const resultados = await Promise.all(servicios.map(async (servicio) => {
+    try {
+      const ticket = await getTicket(servicio);
+      return {
+        servicio,
+        autorizado: true,
+        ticketValidoHasta: new Date(ticket.expiresAt).toISOString()
+      };
+    } catch (error) {
+      return {
+        servicio,
+        autorizado: false,
+        error: error.message
+      };
+    }
+  }));
+
+  return {
+    modo: config.production ? 'PRODUCTION' : 'HOMOLOGATION',
+    cuit: config.cuit,
+    soloConsulta: true,
+    resultados
+  };
+}
+
 function diagnosticarCredenciales() {
   const config = getConfig();
   const certificate = validateCredentials(config);
@@ -314,6 +343,7 @@ module.exports = {
   getTicket,
   wslpgDummy,
   diagnosticarWslpg,
+  diagnosticarAutorizaciones,
   diagnosticarCredenciales,
   _internal: { xmlEscape, decodeXml, tag, getConfig, validateCredentials }
 };
