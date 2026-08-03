@@ -50,6 +50,29 @@ router.get('/diagnostico/autorizaciones', async (req, res) => {
   }
 });
 
+router.post('/sync/facturas-emitidas', async (req, res) => {
+  try {
+    const job = await arcaOfficialClient.iniciarSyncFacturasEmitidas({
+      desde: req.body?.desde || '2026-01-01',
+      limite: req.body?.limite || 1000,
+      userId: req.user?.id || null
+    });
+    res.status(202).json({ ok: true, job, soloConsulta: true });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/sync/:id', async (req, res) => {
+  try {
+    const job = await arcaOfficialClient.obtenerSyncJob(req.params.id);
+    if (!job) return res.status(404).json({ error: 'SincronizaciÃ³n no encontrada.' });
+    res.json({ ok: true, job });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/diagnostico/credenciales', (req, res) => {
   try {
     const resultado = arcaOfficialClient.diagnosticarCredenciales();
