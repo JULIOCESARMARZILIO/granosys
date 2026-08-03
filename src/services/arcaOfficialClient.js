@@ -515,6 +515,61 @@ async function wslpgConsultarNroOrden(type, ptoEmision, nroOrden) {
   };
 }
 
+async function wslpgConsultarCoe(coe) {
+  const safeCoe = String(coe || '').replace(/\D/g, '');
+  if (!/^\d{12}$/.test(safeCoe)) throw new Error(`COE WSLPG invÃƒÂ¡lido: ${coe}`);
+  const xml = await wslpgCall('liqConsXCoeReq', `<coe>${safeCoe}</coe>`);
+  const error = wslpgBusinessError(xml);
+  if (error) throw new Error(error);
+  const result = tag(xml, 'liqConsReturn');
+  if (!result) throw new Error(`WSLPG no devolviÃƒÂ³ datos para el COE ${safeCoe}.`);
+  return {
+    tipoDocumento: 'LPG',
+    coe: tag(result, 'coe') || safeCoe,
+    estado: tag(result, 'estado'),
+    fecha: fechaWslpg(result),
+    ptoEmision: Number(tag(result, 'ptoEmision') || 0) || null,
+    nroOrden: Number(tag(result, 'nroOrden') || 0) || null,
+    pdfBase64: tag(result, 'pdf') || null,
+    rawXml: result
+  };
+}
+
+async function importarWslpgPorCoe(coes) {
+  await ensureSyncTables();
+  const unicos = [...new Set((Array.isArray(coes) ? coes : [])
+    .map(value => String(value || '').replace(/\D/g, ''))
+    .filter(value => /^\d{12}$/.test(value)))];
+  if (!unicos.length) throw new Error('Debe indicar al menos un COE WSLPG vÃƒÂ¡lido.');
+  if (unicos.length > 1000) throw new Error('El lote no puede superar 1000 COE.');
+
+  const resultados = [];
+  for (const coe of unicos) {
+    try {
+      const document = await wslpgConsultarCoe(coe);
+      await guardarDocumentoOficial('WSLPG_LPG_COE', coe, document.fecha, document);
+      resultados.push({
+        coe,
+        ok: true,
+        fecha: document.fecha,
+        estado: document.estado,
+        ptoEmision: document.ptoEmision,
+        nroOrden: document.nroOrden,
+        incluyePdf: Boolean(document.pdfBase64)
+      });
+    } catch (error) {
+      resultados.push({ coe, ok: false, error: error.message });
+    }
+  }
+  return {
+    total: resultados.length,
+    importados: resultados.filter(item => item.ok).length,
+    conPdf: resultados.filter(item => item.ok && item.incluyePdf).length,
+    errores: resultados.filter(item => !item.ok),
+    resultados
+  };
+}
+
 async function ejecutarSyncWslpg(jobId, desde, limite, puntosEmision) {
   await ensureSyncTables();
   await pool.query(
@@ -838,6 +893,7 @@ module.exports = {
   diagnosticarAutorizaciones,
   iniciarSyncFacturasEmitidas,
   iniciarSyncWslpg,
+  importarWslpgPorCoe,
   obtenerSyncJob,
   obtenerResumenDocumentos,
   listarDocumentosOficiales,
