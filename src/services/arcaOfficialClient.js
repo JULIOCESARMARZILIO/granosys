@@ -226,6 +226,7 @@ async function getTicket(service = 'wslpg', force = false) {
 
 async function wslpgDummy() {
   const config = getConfig();
+  const ticket = await getTicket('wslpg');
   const endpoints = config.production
     ? [
       {
@@ -245,9 +246,10 @@ async function wslpgDummy() {
   let response;
   for (let index = 0; index < endpoints.length; index += 1) {
     const endpoint = endpoints[index];
-    // El manual de WSLPG define Dummy con Body vacÃ­o. La autorizaciÃ³n WSLPG
-    // se valida previamente y por separado mediante getTicket('wslpg').
-    const envelope = '<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Header/><soapenv:Body/></soapenv:Envelope>';
+    // Consulta de catÃ¡logo explÃ­citamente de solo lectura. Se usa en lugar de
+    // Dummy porque el endpoint productivo exige autenticaciÃ³n para esa llamada
+    // aunque el ejemplo del manual 1.24 muestre un Body vacÃ­o.
+    const envelope = `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:lpg="${endpoint.namespace}"><soapenv:Header/><soapenv:Body><lpg:campaniaReq><auth><token>${xmlEscape(ticket.token)}</token><sign>${xmlEscape(ticket.sign)}</sign><cuit>${config.cuit}</cuit></auth></lpg:campaniaReq></soapenv:Body></soapenv:Envelope>`;
     try {
       response = await soapPost(endpoint.url, '', envelope);
       break;
@@ -257,10 +259,17 @@ async function wslpgDummy() {
       console.warn(`WSLPG no accesible en ${new URL(endpoint.url).hostname}; se intenta el host alternativo oficial.`);
     }
   }
+  const campaniaReturn = tag(response, 'campaniaReturn');
+  if (!campaniaReturn) {
+    throw new Error('WSLPG no devolviÃ³ la respuesta esperada para campaniasConsultar.');
+  }
   return {
-    appServer: tag(response, 'appserver') || tag(response, 'appServer'),
-    dbServer: tag(response, 'dbserver') || tag(response, 'dbServer'),
-    authServer: tag(response, 'authserver') || tag(response, 'authServer')
+    estado: 'OK',
+    consulta: 'campaniasConsultar',
+    primeraCampania: {
+      codigo: tag(campaniaReturn, 'codigo'),
+      descripcion: tag(campaniaReturn, 'descripcion')
+    }
   };
 }
 
