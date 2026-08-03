@@ -4,7 +4,6 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
-const Afip = require('@afipsdk/afip.js');
 const { pool } = require('../db');
 
 const execFileAsync = promisify(execFile);
@@ -140,6 +139,14 @@ function decodeXml(value) {
 function tag(xml, name) {
   const match = String(xml).match(new RegExp(`<(?:\\w+:)?${name}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:\\w+:)?${name}>`, 'i'));
   return match ? decodeXml(match[1].trim()) : null;
+}
+
+function tags(xml, name) {
+  const matches = [];
+  const expression = new RegExp(`<(?:\\w+:)?${name}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:\\w+:)?${name}>`, 'gi');
+  let match;
+  while ((match = expression.exec(String(xml))) !== null) matches.push(decodeXml(match[1].trim()));
+  return matches;
 }
 
 function readPem(name, base64Name) {
@@ -378,6 +385,61 @@ async function guardarDocumentoOficial(fuente, externalKey, documentDate, payloa
   return rowCount > 0;
 }
 
+async function wsfeCall(method, requestXml = '') {
+  const config = getConfig();
+  const ticket = await getTicket('wsfe');
+  const url = config.production
+    ? 'https://servicios1.afip.gov.ar/wsfev1/service.asmx'
+    : 'https://wswhomo.afip.gov.ar/wsfev1/service.asmx';
+  const auth = `<ar:Auth><ar:Token>${xmlEscape(ticket.token)}</ar:Token><ar:Sign>${xmlEscape(ticket.sign)}</ar:Sign><ar:Cuit>${config.cuit}</ar:Cuit></ar:Auth>`;
+  const envelope = `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ar="http://ar.gov.afip.dif.FEV1/"><soapenv:Header/><soapenv:Body><ar:${method}>${auth}${requestXml}</ar:${method}></soapenv:Body></soapenv:Envelope>`;
+  return soapPost(url, `http://ar.gov.afip.dif.FEV1/${method}`, envelope);
+}
+
+async function wsfePuntosVenta() {
+  const xml = await wsfeCall('FEParamGetPtosVenta');
+  return tags(xml, 'PtoVenta').map(item => ({ Nro: Number(tag(item, 'Nro')) }))
+    .filter(item => Number.isInteger(item.Nro) && item.Nro > 0);
+}
+
+async function wsfeTiposComprobante() {
+  const xml = await wsfeCall('FEParamGetTiposCbte');
+  return tags(xml, 'CbteTipo').map(item => ({ Id: Number(tag(item, 'Id')) }))
+    .filter(item => Number.isInteger(item.Id) && item.Id > 0);
+}
+
+async function wsfeUltimoComprobante(ptoVta, cbteTipo) {
+  const xml = await wsfeCall(
+    'FECompUltimoAutorizado',
+    `<ar:PtoVta>${ptoVta}</ar:PtoVta><ar:CbteTipo>${cbteTipo}</ar:CbteTipo>`
+  );
+  return Number(tag(xml, 'CbteNro') || 0);
+}
+
+async function wsfeConsultarComprobante(numero, ptoVta, cbteTipo) {
+  const xml = await wsfeCall(
+    'FECompConsultar',
+    `<ar:FeCompConsReq><ar:CbteTipo>${cbteTipo}</ar:CbteTipo><ar:CbteNro>${numero}</ar:CbteNro><ar:PtoVta>${ptoVta}</ar:PtoVta></ar:FeCompConsReq>`
+  );
+  const result = tag(xml, 'ResultGet');
+  if (!result) throw new Error(tag(xml, 'Msg') || 'WSFE no devolviÃ³ ResultGet.');
+  return {
+    CbteFch: tag(result, 'CbteFch'),
+    CbteTipo: Number(tag(result, 'CbteTipo') || cbteTipo),
+    PtoVta: Number(tag(result, 'PtoVta') || ptoVta),
+    CbteDesde: Number(tag(result, 'CbteDesde') || numero),
+    DocTipo: Number(tag(result, 'DocTipo') || 0),
+    DocNro: tag(result, 'DocNro'),
+    ImpTotal: tag(result, 'ImpTotal'),
+    MonId: tag(result, 'MonId'),
+    MonCotiz: tag(result, 'MonCotiz'),
+    CodAutorizacion: tag(result, 'CodAutorizacion'),
+    EmisionTipo: tag(result, 'EmisionTipo'),
+    FchVto: tag(result, 'FchVto'),
+    rawXml: result
+  };
+}
+
 async function ejecutarSyncFacturasEmitidas(jobId, desde, limite) {
   await ensureSyncTables();
   await pool.query(
@@ -390,14 +452,8 @@ async function ejecutarSyncFacturasEmitidas(jobId, desde, limite) {
   try {
     const config = getConfig();
     validateCredentials(config);
-    const afip = new Afip({
-      CUIT: Number(config.cuit),
-      cert: config.cert,
-      key: config.key,
-      production: config.production
-    });
-    const puntos = await afip.ElectronicBilling.getSalesPoints();
-    const tipos = await afip.ElectronicBilling.getVoucherTypes();
+    const puntos = await wsfePuntosVenta();
+    const tipos = await wsfeTiposComprobante();
 
     outer:
     for (const punto of puntos || []) {
@@ -408,7 +464,7 @@ async function ejecutarSyncFacturasEmitidas(jobId, desde, limite) {
         if (!Number.isInteger(cbteTipo) || cbteTipo <= 0) continue;
         let ultimo;
         try {
-          ultimo = Number(await afip.ElectronicBilling.getLastVoucher(ptoVta, cbteTipo));
+          ultimo = Number(await wsfeUltimoComprobante(ptoVta, cbteTipo));
         } catch {
           continue;
         }
@@ -419,7 +475,7 @@ async function ejecutarSyncFacturasEmitidas(jobId, desde, limite) {
           revisados += 1;
           let comprobante;
           try {
-            comprobante = await afip.ElectronicBilling.getVoucherInfo(numero, ptoVta, cbteTipo);
+            comprobante = await wsfeConsultarComprobante(numero, ptoVta, cbteTipo);
           } catch {
             continue;
           }
