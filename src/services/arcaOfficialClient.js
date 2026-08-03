@@ -133,11 +133,13 @@ async function getTicket(service = 'wslpg', force = false) {
 
 async function wslpgDummy() {
   const config = getConfig();
-  const ticket = await getTicket('wslpg');
   const url = config.production
-    ? 'https://serviciosjava.afip.gob.ar/wslpg/LpgService'
+    ? 'https://serviciosjava.arca.gob.ar/wslpg/LpgService'
     : 'https://fwshomo.afip.gov.ar/wslpg/LpgService';
-  const envelope = `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:lpg="http://serviciosjava.afip.gob.ar/wslpg/"><soapenv:Header/><soapenv:Body><lpg:dummy><auth><token>${xmlEscape(ticket.token)}</token><sign>${xmlEscape(ticket.sign)}</sign><cuitRepresentada>${config.cuit}</cuitRepresentada></auth></lpg:dummy></soapenv:Body></soapenv:Envelope>`;
+  // El dummy oficial de WSLPG no lleva autenticaciÃ³n ni CUIT. Incluir un
+  // bloque auth hace que el servicio intente deserializar una operaciÃ³n de
+  // negocio y responda common_business_005 ("La cuit ingresada es nula").
+  const envelope = '<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Header/><soapenv:Body/></soapenv:Envelope>';
   const response = await soapPost(url, '', envelope);
   return {
     appServer: tag(response, 'appserver') || tag(response, 'appServer'),
@@ -149,6 +151,8 @@ async function wslpgDummy() {
 async function diagnosticarWslpg() {
   const config = getConfig();
   const certificate = validateCredentials(config);
+  // Valida por separado que el certificado estÃ© autorizado para WSLPG.
+  await getTicket('wslpg');
   const dummy = await wslpgDummy();
   return {
     modo: config.production ? 'PRODUCTION' : 'HOMOLOGATION',
