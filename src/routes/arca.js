@@ -40,6 +40,16 @@ router.get('/diagnostico/wslpg', async (req, res) => {
 });
 
 // No devuelve certificado, clave, token ni firma: sÃ³lo metadatos verificables.
+router.get('/diagnostico/autorizaciones', async (req, res) => {
+  try {
+    const resultado = await arcaOfficialClient.diagnosticarAutorizaciones();
+    res.json({ ok: true, resultado, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('DiagnÃ³stico de autorizaciones ARCA:', err.message);
+    res.status(502).json({ ok: false, error: err.message, timestamp: new Date().toISOString() });
+  }
+});
+
 router.get('/diagnostico/credenciales', (req, res) => {
   try {
     const resultado = arcaOfficialClient.diagnosticarCredenciales();
