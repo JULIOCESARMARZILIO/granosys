@@ -4,9 +4,85 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const { pool } = require('../db');
 
 const execFileAsync = promisify(execFile);
 const ticketCache = new Map();
+let ticketTableReady = false;
+
+function ticketEncryptionKey(config) {
+  return crypto.createHash('sha256')
+    .update('granosys:arca-ticket:v1:')
+    .update(config.key)
+    .digest();
+}
+
+function encryptTicket(ticket, config) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', ticketEncryptionKey(config), iv);
+  const ciphertext = Buffer.concat([
+    cipher.update(JSON.stringify(ticket), 'utf8'),
+    cipher.final()
+  ]);
+  return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString('base64');
+}
+
+function decryptTicket(value, config) {
+  const payload = Buffer.from(value, 'base64');
+  const iv = payload.subarray(0, 12);
+  const authTag = payload.subarray(12, 28);
+  const ciphertext = payload.subarray(28);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', ticketEncryptionKey(config), iv);
+  decipher.setAuthTag(authTag);
+  return JSON.parse(Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8'));
+}
+
+async function ensureTicketTable() {
+  if (ticketTableReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS arca_access_tickets (
+      cache_key TEXT PRIMARY KEY,
+      encrypted_ticket TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  ticketTableReady = true;
+}
+
+async function loadPersistedTicket(cacheKey, config) {
+  try {
+    await ensureTicketTable();
+    const { rows } = await pool.query(
+      'SELECT encrypted_ticket, expires_at FROM arca_access_tickets WHERE cache_key=$1 AND expires_at > NOW() + INTERVAL \'5 minutes\'',
+      [cacheKey]
+    );
+    if (!rows[0]) return null;
+    const ticket = decryptTicket(rows[0].encrypted_ticket, config);
+    if (!ticket.token || !ticket.sign) return null;
+    ticket.expiresAt = new Date(rows[0].expires_at).getTime();
+    return ticket;
+  } catch (error) {
+    console.error('No se pudo recuperar el TA persistido de ARCA:', error.message);
+    return null;
+  }
+}
+
+async function savePersistedTicket(cacheKey, ticket, config) {
+  try {
+    await ensureTicketTable();
+    await pool.query(`
+      INSERT INTO arca_access_tickets (cache_key, encrypted_ticket, expires_at, updated_at)
+      VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (cache_key) DO UPDATE SET
+        encrypted_ticket=EXCLUDED.encrypted_ticket,
+        expires_at=EXCLUDED.expires_at,
+        updated_at=NOW()
+    `, [cacheKey, encryptTicket(ticket, config), new Date(ticket.expiresAt)]);
+  } catch (error) {
+    console.error('No se pudo persistir el TA de ARCA:', error.message);
+  }
+}
 
 function xmlEscape(value) {
   return String(value)
@@ -109,6 +185,13 @@ async function getTicket(service = 'wslpg', force = false) {
   const cacheKey = `${config.production}:${config.cuit}:${service}`;
   const cached = ticketCache.get(cacheKey);
   if (!force && cached && cached.expiresAt > Date.now() + 5 * 60 * 1000) return cached;
+  if (!force) {
+    const persisted = await loadPersistedTicket(cacheKey, config);
+    if (persisted) {
+      ticketCache.set(cacheKey, persisted);
+      return persisted;
+    }
+  }
 
   const now = Date.now();
   const generationTime = new Date(now - 10 * 60 * 1000).toISOString();
@@ -128,6 +211,7 @@ async function getTicket(service = 'wslpg', force = false) {
   if (!token || !sign) throw new Error('WSAA no devolviÃ³ token y firma.');
   const ticket = { token, sign, expiresAt: Number.isFinite(expires) ? expires : now + 10 * 60 * 60 * 1000 };
   ticketCache.set(cacheKey, ticket);
+  await savePersistedTicket(cacheKey, ticket, config);
   return ticket;
 }
 
