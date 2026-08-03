@@ -233,13 +233,21 @@ router.get('/:id', async (req, res) => {
     `, [contractIds]);
 
     const { rows: fijaciones } = await pool.query(`
-      SELECT id, TO_CHAR(fecha, 'YYYY-MM-DD') as fecha, cantidad_toneladas, precio_fijado, observaciones, created_at 
-      FROM fijaciones_contrato 
-      WHERE id_contrato = $1 
+      SELECT id, TO_CHAR(fecha, 'YYYY-MM-DD') as fecha, cantidad_toneladas, precio_fijado, observaciones, created_at
+      FROM fijaciones_contrato
+      WHERE id_contrato = $1
       ORDER BY fecha DESC, id DESC
     `, [req.params.id]);
 
-    res.json({ ...rows[0], movimientos: movs, fijaciones });
+    // Aplicaciones de stock de Bolsa por Zona (solo aplica a contratos de COMPRA)
+    const { rows: aplicaciones } = await pool.query(`
+      SELECT id, zona, toneladas, usuario, TO_CHAR(fecha, 'YYYY-MM-DD') as fecha, created_at
+      FROM contrato_aplicaciones_stock
+      WHERE id_contrato = $1
+      ORDER BY fecha DESC, id DESC
+    `, [req.params.id]);
+
+    res.json({ ...rows[0], movimientos: movs, fijaciones, aplicaciones });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

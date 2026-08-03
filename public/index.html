@@ -672,7 +672,8 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
       setSelectedContract({
         ...c,
         movimientos: data.movimientos || [],
-        fijaciones: data.fijaciones || []
+        fijaciones: data.fijaciones || [],
+        aplicaciones: data.aplicaciones || []
       });
     } catch(err) {
       alert("Error al cargar detalles: " + err.message);
@@ -2040,6 +2041,38 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                     );
                   })()}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {selectedContract.tipo_contrato === "COMPRA" && (
+            <div style={{marginTop: 16}}>
+              <h4 style={{fontSize: 12, color: "#8890a8", marginBottom: 8}}>Aplicaciones desde Bolsa por Zona</h4>
+              <div style={{maxHeight: 180, overflowY: "auto", border: "1px solid #2a2d3e", borderRadius: 6, background: "rgba(0,0,0,0.1)", padding: 6}}>
+                {selectedContract.aplicaciones && selectedContract.aplicaciones.length > 0 ? (
+                  <table style={{width: "100%", fontSize: 11, borderCollapse: "collapse"}}>
+                    <thead>
+                      <tr style={{borderBottom: "1px solid #2a2d3e", textAlign: "left"}}>
+                        <th style={{padding: 4}}>Fecha</th>
+                        <th style={{padding: 4}}>Zona</th>
+                        <th style={{padding: 4}}>Tn</th>
+                        <th style={{padding: 4}}>Usuario</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedContract.aplicaciones.map(a => (
+                        <tr key={a.id} style={{borderBottom: "1px solid rgba(255,255,255,0.02)"}}>
+                          <td style={{padding: 4}}>{a.fecha}</td>
+                          <td style={{padding: 4}}>{a.zona}</td>
+                          <td style={{padding: 4}}><span className="mono">{parseFloat(a.toneladas).toFixed(3)} tn</span></td>
+                          <td style={{padding: 4, color: "#8890a8"}}>{a.usuario}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div style={{color: "#8890a8", fontSize: 11, textAlign: "center", padding: "20px 0"}}>Todavía no se aplicó stock de ninguna zona a este contrato. Se hace desde "Bolsa por Zona" → "Aplicar a contrato".</div>
+                )}
               </div>
             </div>
           )}

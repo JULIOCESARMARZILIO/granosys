@@ -3,3 +3,7 @@ node_modules/
 *.traineddata
 *.txt
 granosys-main/
+afip.crt
+afip.key
+*.xlsx
+.claude/
