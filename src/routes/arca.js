@@ -2,40 +2,33 @@ const router = require('express').Router();
 const arcaService = require('../services/arcaService');
 const arcaOfficialClient = require('../services/arcaOfficialClient');
 
-// Auxiliar para saber el modo actual de conexión
+// Auxiliar para saber el modo actual de conexiÃ³n
 function getModoConexion() {
-  const afipCuit = process.env.AFIP_CUIT;
-  const afipCert = process.env.AFIP_CERT;
-  const afipKey = process.env.AFIP_KEY;
-
-  if (!afipCuit || !afipCert || !afipKey) {
-    return 'SIMULADOR / MOCK';
-  }
-  return process.env.AFIP_PROD === 'true' ? 'PRODUCCION' : 'HOMOLOGACION';
+  return arcaService.getArcaMode();
 }
 
-// 1. GET Estado de conexión general a los 7 servicios web
+// 1. GET Estado de conexiÃ³n general a los 7 servicios web
 router.get('/status', async (req, res) => {
   const modo = getModoConexion();
   const servicios = [
-    { id: 'wscpe', nombre: 'Monit. Cartas de Porte (WSCPE)', descripcion: 'Logística de grano en tránsito', estado: modo === 'SIMULADOR / MOCK' ? 'TESTING' : 'OK' },
-    { id: 'ws_sr_padron_a13', nombre: 'Padrón Contribuyentes (A13)', descripcion: 'Validación fiscal de CUITs', estado: modo === 'SIMULADOR / MOCK' ? 'TESTING' : 'OK' },
-    { id: 'sisa', nombre: 'Scoring Agrícola (SISA)', descripcion: 'Cálculo de retenciones de IVA/Ganancias', estado: modo === 'SIMULADOR / MOCK' ? 'TESTING' : 'OK' },
-    { id: 'wslpg', nombre: 'Liquidación Primaria (WSLPG)', descripcion: 'Emisión de LPG con firma y CAE', estado: modo === 'SIMULADOR / MOCK' ? 'TESTING' : 'OK' },
-    { id: 'ws_certificacion_granos', nombre: 'Movimientos Físicos (1116)', descripcion: 'Stock físico y COE de Balanza', estado: modo === 'SIMULADOR / MOCK' ? 'TESTING' : 'OK' },
-    { id: 'wsfe', nombre: 'Facturación Electrónica (WSFE)', descripcion: 'Facturas de venta y MiPyMEs', estado: modo === 'SIMULADOR / MOCK' ? 'TESTING' : 'OK' }
+    { id: 'wscpe', nombre: 'Monit. Cartas de Porte (WSCPE)', descripcion: 'LogÃ­stica de grano en trÃ¡nsito', estado: modo },
+    { id: 'ws_sr_padron_a13', nombre: 'PadrÃ³n Contribuyentes (A13)', descripcion: 'ValidaciÃ³n fiscal de CUITs', estado: modo },
+    { id: 'sisa', nombre: 'Scoring AgrÃ­cola (SISA)', descripcion: 'CÃ¡lculo de retenciones de IVA/Ganancias', estado: modo },
+    { id: 'wslpg', nombre: 'LiquidaciÃ³n Primaria (WSLPG)', descripcion: 'EmisiÃ³n de LPG con firma y CAE', estado: modo },
+    { id: 'ws_certificacion_granos', nombre: 'Movimientos FÃ­sicos (1116)', descripcion: 'Stock fÃ­sico y COE de Balanza', estado: modo },
+    { id: 'wsfe', nombre: 'FacturaciÃ³n ElectrÃ³nica (WSFE)', descripcion: 'Facturas de venta y MiPyMEs', estado: modo }
   ];
 
   res.json({
     modo_conexion: modo,
-    cuit_empresa: process.env.AFIP_CUIT || "30710206194 (Mock)",
+    cuit_empresa: process.env.AFIP_CUIT || null,
     servicios,
     timestamp: new Date().toISOString()
   });
 });
 
-
-// DiagnÃ³stico oficial de solo lectura. No emite, ajusta ni anula comprobantes.
+// DiagnÃ³stico oficial de solo lectura: valida certificado, obtiene TA de WSAA
+// y ejecuta dummy de WSLPG. Nunca emite, ajusta ni anula comprobantes.
 router.get('/diagnostico/wslpg', async (req, res) => {
   try {
     const resultado = await arcaOfficialClient.diagnosticarWslpg();
@@ -45,7 +38,19 @@ router.get('/diagnostico/wslpg', async (req, res) => {
     res.status(502).json({ ok: false, error: err.message, timestamp: new Date().toISOString() });
   }
 });
-// 2. GET Listado de Cartas de Porte en tránsito
+
+// No devuelve certificado, clave, token ni firma: sÃ³lo metadatos verificables.
+router.get('/diagnostico/credenciales', (req, res) => {
+  try {
+    const resultado = arcaOfficialClient.diagnosticarCredenciales();
+    res.json({ ok: true, resultado, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('DiagnÃ³stico de credenciales ARCA:', err.message);
+    res.status(422).json({ ok: false, error: err.message, timestamp: new Date().toISOString() });
+  }
+});
+
+// 2. GET Listado de Cartas de Porte en trÃ¡nsito
 router.get('/cpe', async (req, res) => {
   try {
     const data = await arcaService.consultarCPEsActivas();
@@ -59,7 +64,7 @@ router.get('/cpe', async (req, res) => {
   }
 });
 
-// 3. GET Datos extendidos de Padrón A13 por CUIT
+// 3. GET Datos extendidos de PadrÃ³n A13 por CUIT
 router.get('/padron/:cuit', async (req, res) => {
   try {
     const data = await arcaService.consultarPadronA13(req.params.cuit);
@@ -87,7 +92,7 @@ router.get('/sisa/:cuit', async (req, res) => {
   }
 });
 
-// 5. POST Procesar Liquidación Primaria de Granos (WSLPG)
+// 5. POST Procesar LiquidaciÃ³n Primaria de Granos (WSLPG)
 router.post('/lpg', async (req, res) => {
   try {
     const data = await arcaService.emitirLiquidacionLPG(req.body);
@@ -117,7 +122,7 @@ router.post('/certificado-1116', async (req, res) => {
   }
 });
 
-// 7. POST Emitir Factura Electrónica
+// 7. POST Emitir Factura ElectrÃ³nica
 router.post('/factura', async (req, res) => {
   try {
     const data = await arcaService.emitirFacturaElectronica(req.body);
@@ -135,7 +140,7 @@ router.get('/comprobante', async (req, res) => {
   try {
     const { tipo, puntoVenta, numero } = req.query;
     if (!tipo || !puntoVenta || !numero) {
-      return res.status(400).json({ error: 'Parámetros obligatorios faltantes: tipo, puntoVenta, numero' });
+      return res.status(400).json({ error: 'ParÃ¡metros obligatorios faltantes: tipo, puntoVenta, numero' });
     }
     const data = await arcaService.consultarComprobanteEmitido(
       parseInt(tipo),
