@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const arcaService = require('../services/arcaService');
+const arcaOfficialClient = require('../services/arcaOfficialClient');
 
 // Auxiliar para saber el modo actual de conexión
 function getModoConexion() {
@@ -33,6 +34,17 @@ router.get('/status', async (req, res) => {
   });
 });
 
+
+// DiagnÃ³stico oficial de solo lectura. No emite, ajusta ni anula comprobantes.
+router.get('/diagnostico/wslpg', async (req, res) => {
+  try {
+    const resultado = await arcaOfficialClient.diagnosticarWslpg();
+    res.json({ ok: true, resultado, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('DiagnÃ³stico oficial WSLPG:', err.message);
+    res.status(502).json({ ok: false, error: err.message, timestamp: new Date().toISOString() });
+  }
+});
 // 2. GET Listado de Cartas de Porte en tránsito
 router.get('/cpe', async (req, res) => {
   try {
