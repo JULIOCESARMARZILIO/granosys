@@ -9680,14 +9680,38 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
 
   const [ubicacionesSinComprador,setUbicacionesSinComprador]=useState([]);
   const [compradoresLista,setCompradoresLista]=useState([]);
-  const cargarUbicacionesSinComprador = () => api.get("/api/ubicaciones/sin-comprador").then(d=>setUbicacionesSinComprador(d||[])).catch(()=>{});
+  const [busquedaSinComprador,setBusquedaSinComprador]=useState("");
+  const [busquedaSinCompradorEjecutada,setBusquedaSinCompradorEjecutada]=useState(false);
+  const [cargandoSinComprador,setCargandoSinComprador]=useState(false);
+  const [asociandoUbicacion,setAsociandoUbicacion]=useState(null);
+  const buscarUbicacionesSinComprador = async () => {
+    const termino = busquedaSinComprador.trim().toLowerCase();
+    if (termino.length < 2) {
+      setUbicacionesSinComprador([]);
+      setBusquedaSinCompradorEjecutada(false);
+      return;
+    }
+    setCargandoSinComprador(true);
+    try {
+      const data = await api.get("/api/ubicaciones/sin-comprador");
+      const resultados = (data || []).filter(u =>
+        [u.nombre, u.localidad, u.zona, u.cuit, u.cuit_planta]
+          .some(valor => String(valor || "").toLowerCase().includes(termino))
+      ).slice(0, 50);
+      setUbicacionesSinComprador(resultados);
+      setBusquedaSinCompradorEjecutada(true);
+    } catch(e) {
+      alert("Error al buscar plantas: " + e.message);
+    } finally {
+      setCargandoSinComprador(false);
+    }
+  };
   const sinCompradorCount = ubicacionesSinComprador.length;
 
   useEffect(()=>{
     api.get("/api/especies").then(d=>setEspecies(d)).catch(()=>{});
     api.get("/api/campanas").then(d=>setCampanas(d)).catch(()=>{});
     cargarUbicaciones();
-    cargarUbicacionesSinComprador();
     api.get("/api/contrapartes").then(d=>setCompradoresLista((d||[]).filter(c=>c.tipo_contraparte==="COMPRADOR"||c.tipo_contraparte==="AMBOS"))).catch(()=>{});
   },[]);
 
@@ -10033,34 +10057,63 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
 
       {tab==="ubicaciones"&&(
         <div className="card" style={{marginTop:16}}>
-          <div className="card-header"><span style={{fontWeight:600}}>Plantas sin comprador asociado {sinCompradorCount>0 && `(${sinCompradorCount})`}</span></div>
-          <div style={{padding:"10px 16px",fontSize:12,color:"#8890a8"}}>
-            Estas plantas no están vinculadas a ningún comprador todavía — por eso no aparecen como sugerencia al elegir destino en Movimientos.
+          <div className="card-header"><span style={{fontWeight:600}}>Buscar plantas sin comprador {busquedaSinCompradorEjecutada && `(${sinCompradorCount} resultados)`}</span></div>
+          <div style={{padding:"12px 16px",borderBottom:"1px solid #1e2133"}}>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <input
+                value={busquedaSinComprador}
+                onChange={e=>{
+                  setBusquedaSinComprador(e.target.value);
+                  setBusquedaSinCompradorEjecutada(false);
+                  setUbicacionesSinComprador([]);
+                  setAsociandoUbicacion(null);
+                }}
+                onKeyDown={e=>{if(e.key==="Enter") buscarUbicacionesSinComprador();}}
+                placeholder="Nombre de planta, localidad, zona o CUIT (mínimo 2 caracteres)"
+                style={{flex:1}}
+              />
+              <Btn onClick={buscarUbicacionesSinComprador} disabled={cargandoSinComprador||busquedaSinComprador.trim().length<2}>
+                {cargandoSinComprador?"Buscando...":"Buscar"}
+              </Btn>
+            </div>
+            <div style={{marginTop:8,fontSize:12,color:"#8890a8"}}>
+              La lista permanece vacía hasta que realices una búsqueda. Se muestran hasta 50 coincidencias.
+            </div>
           </div>
-          <table><thead><tr><th>Nombre</th><th>Localidad</th><th>Zona</th><th>Asociar a comprador</th></tr></thead>
-          <tbody>
-            {ubicacionesSinComprador.map(u=>(
-              <tr key={u.id}>
-                <td style={{fontWeight:500}}>{u.nombre}</td>
-                <td style={{fontSize:12,color:"#8890a8"}}>{u.localidad||"—"}</td>
-                <td style={{fontSize:12,color:u.zona?"#8890a8":"#e74c3c"}}>{u.zona||"sin clasificar"}</td>
-                <td>
-                  <select style={{fontSize:12}} defaultValue="" onChange={async(ev)=>{
-                    const idComprador = ev.target.value;
-                    if (!idComprador) return;
-                    try {
-                      await api.post(`/api/contrapartes/${idComprador}/ubicaciones`, { id_ubicacion: u.id });
-                      cargarUbicacionesSinComprador();
-                    } catch(err){ alert("Error: "+err.message); }
-                  }}>
-                    <option value="">Seleccionar comprador...</option>
-                    {compradoresLista.map(c=><option key={c.id} value={c.id}>{c.razon_social}</option>)}
-                  </select>
-                </td>
-              </tr>
-            ))}
-            {ubicacionesSinComprador.length===0&&<tr><td colSpan={4} style={{textAlign:"center",color:"#27ae60",padding:20}}>✓ Todas las plantas tienen comprador asociado</td></tr>}
-          </tbody></table>
+          {busquedaSinCompradorEjecutada && (
+            <table><thead><tr><th>Nombre</th><th>Localidad</th><th>Zona</th><th>Asociar a comprador</th></tr></thead>
+            <tbody>
+              {ubicacionesSinComprador.map(u=>(
+                <tr key={u.id}>
+                  <td style={{fontWeight:500}}>{u.nombre}</td>
+                  <td style={{fontSize:12,color:"#8890a8"}}>{u.localidad||"—"}</td>
+                  <td style={{fontSize:12,color:u.zona?"#8890a8":"#e74c3c"}}>{u.zona||"sin clasificar"}</td>
+                  <td>
+                    {asociandoUbicacion === u.id ? (
+                      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                        <select style={{fontSize:12}} defaultValue="" autoFocus onChange={async(ev)=>{
+                          const idComprador = ev.target.value;
+                          if (!idComprador) return;
+                          try {
+                            await api.post(`/api/contrapartes/${idComprador}/ubicaciones`, { id_ubicacion: u.id });
+                            setAsociandoUbicacion(null);
+                            buscarUbicacionesSinComprador();
+                          } catch(err){ alert("Error: "+err.message); }
+                        }}>
+                          <option value="">Seleccionar comprador...</option>
+                          {compradoresLista.map(c=><option key={c.id} value={c.id}>{c.razon_social}</option>)}
+                        </select>
+                        <Btn size="sm" variant="ghost" onClick={()=>setAsociandoUbicacion(null)}>Cancelar</Btn>
+                      </div>
+                    ) : (
+                      <Btn size="sm" variant="secondary" onClick={()=>setAsociandoUbicacion(u.id)}>Asociar comprador</Btn>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {ubicacionesSinComprador.length===0&&<tr><td colSpan={4} style={{textAlign:"center",color:"#8890a8",padding:20}}>No se encontraron plantas sin comprador para esa búsqueda.</td></tr>}
+            </tbody></table>
+          )}
         </div>
       )}
 
