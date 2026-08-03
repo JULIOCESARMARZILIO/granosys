@@ -79,6 +79,17 @@ router.post('/sync/granos', async (req, res) => {
   }
 });
 
+// Consulta documentos ya emitidos por su COE y conserva el PDF oficial cuando
+// ARCA lo incluye. No autoriza, ajusta ni anula liquidaciones.
+router.post('/sync/granos-por-coe', async (req, res) => {
+  try {
+    const resultado = await arcaOfficialClient.importarWslpgPorCoe(req.body?.coes || []);
+    res.json({ ok: true, resultado, soloConsulta: true });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/sync/resumen/documentos', async (req, res) => {
   try {
     const fuentes = await arcaOfficialClient.obtenerResumenDocumentos();
