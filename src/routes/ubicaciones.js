@@ -26,16 +26,19 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'El nombre de la ubicación es obligatorio.' });
     }
 
-    // Si no se especifica zona a mano, se busca automaticamente: primero por
-    // nombre de planta/empresa (mas especifico) y si no, por localidad -- asi
-    // cualquier destino nuevo que coincida con algo conocido queda
-    // clasificado solo, sin cargar nada extra.
-    let zona = null, sub_zona = null;
-    const { rows: zn } = await pool.query('SELECT zona, sub_zona FROM zonas_nombre WHERE nombre ILIKE $1', [nombre]);
-    if (zn[0]) { zona = zn[0].zona; sub_zona = zn[0].sub_zona; }
-    if (!zona && localidad) {
-      const { rows: zl } = await pool.query('SELECT zona, sub_zona FROM zonas_localidad WHERE localidad ILIKE $1', [localidad]);
-      if (zl[0]) { zona = zl[0].zona; sub_zona = zl[0].sub_zona; }
+    // Si se especifica zona a mano en el alta, se respeta tal cual. Si no,
+    // se busca automaticamente: primero por nombre de planta/empresa (mas
+    // especifico) y si no, por localidad -- asi cualquier destino nuevo que
+    // coincida con algo conocido queda clasificado solo, sin cargar nada extra.
+    let zona = req.body.zona ? req.body.zona.trim() : null;
+    let sub_zona = req.body.sub_zona ? req.body.sub_zona.trim() : null;
+    if (!zona) {
+      const { rows: zn } = await pool.query('SELECT zona, sub_zona FROM zonas_nombre WHERE nombre ILIKE $1', [nombre]);
+      if (zn[0]) { zona = zn[0].zona; sub_zona = zn[0].sub_zona; }
+      if (!zona && localidad) {
+        const { rows: zl } = await pool.query('SELECT zona, sub_zona FROM zonas_localidad WHERE localidad ILIKE $1', [localidad]);
+        if (zl[0]) { zona = zl[0].zona; sub_zona = zl[0].sub_zona; }
+      }
     }
 
     const { rows } = await pool.query(

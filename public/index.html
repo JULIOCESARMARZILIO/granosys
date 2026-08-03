@@ -9677,6 +9677,18 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
 
   const [ubicaciones,setUbicaciones]=useState([]);
   const cargarUbicaciones = () => api.get("/api/ubicaciones").then(d=>setUbicaciones(d||[])).catch(()=>{});
+  const [nuevaUbicacion,setNuevaUbicacion]=useState({nombre:"",localidad:"",provincia:"",zona:"",sub_zona:""});
+  const [guardandoUbicacion,setGuardandoUbicacion]=useState(false);
+  const crearUbicacion = async () => {
+    if (!nuevaUbicacion.nombre.trim()) { alert("El nombre es obligatorio"); return; }
+    setGuardandoUbicacion(true);
+    try {
+      await api.post("/api/ubicaciones", nuevaUbicacion);
+      setNuevaUbicacion({nombre:"",localidad:"",provincia:"",zona:"",sub_zona:""});
+      cargarUbicaciones();
+    } catch(err) { alert("Error: "+err.message); }
+    finally { setGuardandoUbicacion(false); }
+  };
 
   const [ubicacionesSinComprador,setUbicacionesSinComprador]=useState([]);
   const [compradoresLista,setCompradoresLista]=useState([]);
@@ -9983,6 +9995,29 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
           <div style={{padding:"10px 16px",fontSize:12,color:"#8890a8"}}>
             La "Zona" agrupa varias ubicaciones en una misma bolsa de stock (ej. "Rosario Norte") para poder aplicar stock a contratos sin depender de una planta puntual. La distancia (km) se usa para calcular el precio neto de flete en Posición Consolidada.
             {sinZonaCount>0 && <div style={{color:"#e74c3c",marginTop:6,fontWeight:600}}>⚠ Hay {sinZonaCount} ubicación(es) nueva(s) sin zona asignada todavía — quedan cargadas igual, pero conviene clasificarlas para que entren en la Bolsa por Zona.</div>}
+          </div>
+          <div style={{display:"flex",gap:8,padding:"0 16px 12px",flexWrap:"wrap",alignItems:"flex-end"}}>
+            <div>
+              <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:4}}>Nombre *</label>
+              <input value={nuevaUbicacion.nombre} onChange={e=>setNuevaUbicacion({...nuevaUbicacion,nombre:e.target.value})} placeholder="Ej: Transcom Alvear" style={{width:160,padding:"6px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}/>
+            </div>
+            <div>
+              <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:4}}>Localidad</label>
+              <input value={nuevaUbicacion.localidad} onChange={e=>setNuevaUbicacion({...nuevaUbicacion,localidad:e.target.value})} style={{width:120,padding:"6px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}/>
+            </div>
+            <div>
+              <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:4}}>Provincia</label>
+              <input value={nuevaUbicacion.provincia} onChange={e=>setNuevaUbicacion({...nuevaUbicacion,provincia:e.target.value})} style={{width:120,padding:"6px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}/>
+            </div>
+            <div>
+              <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:4}}>Zona</label>
+              <input value={nuevaUbicacion.zona} onChange={e=>setNuevaUbicacion({...nuevaUbicacion,zona:e.target.value})} placeholder="Ej: Rosario Norte" style={{width:120,padding:"6px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}/>
+            </div>
+            <div>
+              <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:4}}>Sub-zona</label>
+              <input value={nuevaUbicacion.sub_zona} onChange={e=>setNuevaUbicacion({...nuevaUbicacion,sub_zona:e.target.value})} placeholder="Ej: Timbúes" style={{width:110,padding:"6px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}/>
+            </div>
+            <Btn size="sm" onClick={crearUbicacion} disabled={guardandoUbicacion}>{guardandoUbicacion?"Guardando...":"+ Nueva ubicación"}</Btn>
           </div>
           <table><thead><tr><th>Nombre</th><th>Tipo</th><th>Localidad</th><th>Zona</th><th>Sub-zona</th><th>Km a referencia</th></tr></thead>
           <tbody>
