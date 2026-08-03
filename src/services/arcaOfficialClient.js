@@ -163,15 +163,24 @@ async function signTra(tra, cert, key) {
 }
 
 async function soapPost(url, action, body) {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'content-type': 'text/xml; charset=utf-8',
-      SOAPAction: action
-    },
-    body,
-    signal: AbortSignal.timeout(30000)
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'text/xml; charset=utf-8',
+        SOAPAction: action
+      },
+      body,
+      signal: AbortSignal.timeout(30000)
+    });
+  } catch (error) {
+    const detail = error.cause?.code || error.cause?.message || error.message;
+    const transportError = new Error(`No se pudo conectar con ${new URL(url).hostname}: ${detail}`);
+    transportError.code = 'ARCA_TRANSPORT_ERROR';
+    transportError.cause = error;
+    throw transportError;
+  }
   const xml = await response.text();
   if (!response.ok || /<(?:\w+:)?Fault\b/i.test(xml)) {
     throw new Error(tag(xml, 'faultstring') || tag(xml, 'faultcode') || `ARCA respondiÃ³ HTTP ${response.status}.`);
@@ -218,16 +227,36 @@ async function getTicket(service = 'wslpg', force = false) {
 async function wslpgDummy() {
   const config = getConfig();
   const ticket = await getTicket('wslpg');
-  const url = config.production
-    ? 'https://serviciosjava.arca.gob.ar/wslpg/LpgService'
-    : 'https://fwshomo.afip.gov.ar/wslpg/LpgService';
-  // La implementaciÃ³n productiva exige autenticaciÃ³n aun para dummy.
-  // LpgAuthType define el campo como "cuit" (no "cuitRepresentada").
-  const namespace = config.production
-    ? 'http://serviciosjava.arca.gob.ar/wslpg/'
-    : 'http://serviciosjava.afip.gob.ar/wslpg/';
-  const envelope = `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:lpg="${namespace}"><soapenv:Header/><soapenv:Body><lpg:dummy><auth><token>${xmlEscape(ticket.token)}</token><sign>${xmlEscape(ticket.sign)}</sign><cuit>${config.cuit}</cuit></auth></lpg:dummy></soapenv:Body></soapenv:Envelope>`;
-  const response = await soapPost(url, '', envelope);
+  const endpoints = config.production
+    ? [
+      {
+        url: 'https://serviciosjava.arca.gob.ar/wslpg/LpgService',
+        namespace: 'http://serviciosjava.arca.gob.ar/wslpg/'
+      },
+      {
+        url: 'https://serviciosjava.afip.gob.ar/wslpg/LpgService',
+        namespace: 'http://serviciosjava.afip.gob.ar/wslpg/'
+      }
+    ]
+    : [{
+      url: 'https://fwshomo.afip.gov.ar/wslpg/LpgService',
+      namespace: 'http://serviciosjava.afip.gob.ar/wslpg/'
+    }];
+
+  let response;
+  for (let index = 0; index < endpoints.length; index += 1) {
+    const endpoint = endpoints[index];
+    // LpgAuthType define el campo como "cuit" (no "cuitRepresentada").
+    const envelope = `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:lpg="${endpoint.namespace}"><soapenv:Header/><soapenv:Body><lpg:dummy><auth><token>${xmlEscape(ticket.token)}</token><sign>${xmlEscape(ticket.sign)}</sign><cuit>${config.cuit}</cuit></auth></lpg:dummy></soapenv:Body></soapenv:Envelope>`;
+    try {
+      response = await soapPost(endpoint.url, '', envelope);
+      break;
+    } catch (error) {
+      const hasFallback = index < endpoints.length - 1;
+      if (error.code !== 'ARCA_TRANSPORT_ERROR' || !hasFallback) throw error;
+      console.warn(`WSLPG no accesible en ${new URL(endpoint.url).hostname}; se intenta el host alternativo oficial.`);
+    }
+  }
   return {
     appServer: tag(response, 'appserver') || tag(response, 'appServer'),
     dbServer: tag(response, 'dbserver') || tag(response, 'dbServer'),
