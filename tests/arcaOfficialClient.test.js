@@ -23,4 +23,10 @@ describe('arcaOfficialClient XML helpers', () => {
       '<errores><error><codigo>600</codigo><descripcion>No existen datos</descripcion></error></errores>'
     )).toBe('600: No existen datos');
   });
+
+  test('accepts a WSLPG PDF returned as base64 text', () => {
+    const xml = '<liqConsReturn><coe>330231771067</coe><pdf>JVBERi0xLjQ=</pdf></liqConsReturn>';
+    const result = client._internal.tag(xml, 'liqConsReturn');
+    expect(client._internal.tag(result, 'pdf')).toBe('JVBERi0xLjQ=');
+  });
 });
