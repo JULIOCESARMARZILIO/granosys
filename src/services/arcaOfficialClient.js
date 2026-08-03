@@ -254,9 +254,28 @@ async function diagnosticarWslpg() {
   };
 }
 
+function diagnosticarCredenciales() {
+  const config = getConfig();
+  const certificate = validateCredentials(config);
+  return {
+    modo: config.production ? 'PRODUCTION' : 'HOMOLOGATION',
+    cuitConfigurada: config.cuit,
+    certificado: {
+      subject: certificate.subject,
+      issuer: certificate.issuer,
+      serialNumber: certificate.serialNumber,
+      fingerprint256: certificate.fingerprint256,
+      validoDesde: certificate.validFrom,
+      validoHasta: certificate.validTo,
+      coincideConClavePrivada: true
+    }
+  };
+}
+
 module.exports = {
   getTicket,
   wslpgDummy,
   diagnosticarWslpg,
+  diagnosticarCredenciales,
   _internal: { xmlEscape, decodeXml, tag, getConfig, validateCredentials }
 };
