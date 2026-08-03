@@ -4,11 +4,13 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const Afip = require('@afipsdk/afip.js');
 const { pool } = require('../db');
 
 const execFileAsync = promisify(execFile);
 const ticketCache = new Map();
 let ticketTableReady = false;
+let syncTablesReady = false;
 
 function ticketEncryptionKey(config) {
   return crypto.createHash('sha256')
@@ -48,6 +50,39 @@ async function ensureTicketTable() {
     )
   `);
   ticketTableReady = true;
+}
+
+async function ensureSyncTables() {
+  if (syncTablesReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS arca_sync_jobs (
+      id UUID PRIMARY KEY,
+      fuente VARCHAR(40) NOT NULL,
+      desde DATE NOT NULL,
+      estado VARCHAR(20) NOT NULL,
+      total_importados INTEGER NOT NULL DEFAULT 0,
+      total_revisados INTEGER NOT NULL DEFAULT 0,
+      solicitado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+      error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS arca_official_documents (
+      id BIGSERIAL PRIMARY KEY,
+      fuente VARCHAR(40) NOT NULL,
+      external_key VARCHAR(180) NOT NULL,
+      document_date DATE,
+      payload JSONB NOT NULL,
+      payload_hash VARCHAR(64) NOT NULL,
+      first_imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(fuente, external_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_arca_documents_date
+      ON arca_official_documents(fuente, document_date DESC);
+  `);
+  syncTablesReady = true;
 }
 
 async function loadPersistedTicket(cacheKey, config) {
@@ -321,6 +356,127 @@ async function diagnosticarAutorizaciones() {
   };
 }
 
+function fechaWsfe(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.length !== 8) return null;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+}
+
+async function guardarDocumentoOficial(fuente, externalKey, documentDate, payload) {
+  const serialized = JSON.stringify(payload);
+  const hash = crypto.createHash('sha256').update(serialized).digest('hex');
+  const { rowCount } = await pool.query(`
+    INSERT INTO arca_official_documents
+      (fuente, external_key, document_date, payload, payload_hash)
+    VALUES ($1,$2,$3,$4::jsonb,$5)
+    ON CONFLICT(fuente, external_key) DO UPDATE SET
+      document_date=EXCLUDED.document_date,
+      payload=EXCLUDED.payload,
+      payload_hash=EXCLUDED.payload_hash,
+      last_seen_at=NOW()
+  `, [fuente, externalKey, documentDate, serialized, hash]);
+  return rowCount > 0;
+}
+
+async function ejecutarSyncFacturasEmitidas(jobId, desde, limite) {
+  await ensureSyncTables();
+  await pool.query(
+    "UPDATE arca_sync_jobs SET estado='EJECUTANDO', started_at=NOW() WHERE id=$1",
+    [jobId]
+  );
+
+  let revisados = 0;
+  let importados = 0;
+  try {
+    const config = getConfig();
+    validateCredentials(config);
+    const afip = new Afip({
+      CUIT: Number(config.cuit),
+      cert: config.cert,
+      key: config.key,
+      production: config.production
+    });
+    const puntos = await afip.ElectronicBilling.getSalesPoints();
+    const tipos = await afip.ElectronicBilling.getVoucherTypes();
+
+    outer:
+    for (const punto of puntos || []) {
+      const ptoVta = Number(punto.Nro ?? punto.nro ?? punto.Id ?? punto.id);
+      if (!Number.isInteger(ptoVta) || ptoVta <= 0) continue;
+      for (const tipo of tipos || []) {
+        const cbteTipo = Number(tipo.Id ?? tipo.id);
+        if (!Number.isInteger(cbteTipo) || cbteTipo <= 0) continue;
+        let ultimo;
+        try {
+          ultimo = Number(await afip.ElectronicBilling.getLastVoucher(ptoVta, cbteTipo));
+        } catch {
+          continue;
+        }
+        if (!Number.isInteger(ultimo) || ultimo <= 0) continue;
+
+        for (let numero = ultimo; numero >= 1; numero -= 1) {
+          if (revisados >= limite) break outer;
+          revisados += 1;
+          let comprobante;
+          try {
+            comprobante = await afip.ElectronicBilling.getVoucherInfo(numero, ptoVta, cbteTipo);
+          } catch {
+            continue;
+          }
+          const fecha = fechaWsfe(comprobante?.CbteFch);
+          if (fecha && fecha < desde) break;
+          if (!fecha || fecha < desde) continue;
+          await guardarDocumentoOficial(
+            'WSFE_EMITIDA',
+            `${ptoVta}:${cbteTipo}:${numero}`,
+            fecha,
+            comprobante
+          );
+          importados += 1;
+        }
+      }
+    }
+
+    const estado = revisados >= limite ? 'PARCIAL' : 'COMPLETADO';
+    await pool.query(`
+      UPDATE arca_sync_jobs
+      SET estado=$1, total_importados=$2, total_revisados=$3, finished_at=NOW()
+      WHERE id=$4
+    `, [estado, importados, revisados, jobId]);
+  } catch (error) {
+    await pool.query(`
+      UPDATE arca_sync_jobs
+      SET estado='ERROR', total_importados=$1, total_revisados=$2,
+          error=$3, finished_at=NOW()
+      WHERE id=$4
+    `, [importados, revisados, error.message, jobId]);
+  }
+}
+
+async function iniciarSyncFacturasEmitidas({ desde = '2026-01-01', limite = 1000, userId = null } = {}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(desde)) throw new Error('La fecha desde debe usar formato AAAA-MM-DD.');
+  const safeLimit = Math.max(1, Math.min(5000, Number(limite) || 1000));
+  await ensureSyncTables();
+  const id = crypto.randomUUID();
+  await pool.query(`
+    INSERT INTO arca_sync_jobs(id, fuente, desde, estado, solicitado_por)
+    VALUES($1,'WSFE_EMITIDA',$2,'PENDIENTE',$3)
+  `, [id, desde, userId]);
+  setImmediate(() => {
+    void ejecutarSyncFacturasEmitidas(id, desde, safeLimit);
+  });
+  return { id, fuente: 'WSFE_EMITIDA', desde, limite: safeLimit, estado: 'PENDIENTE' };
+}
+
+async function obtenerSyncJob(id) {
+  await ensureSyncTables();
+  const { rows } = await pool.query(
+    'SELECT * FROM arca_sync_jobs WHERE id=$1',
+    [id]
+  );
+  return rows[0] || null;
+}
+
 function diagnosticarCredenciales() {
   const config = getConfig();
   const certificate = validateCredentials(config);
@@ -344,6 +500,8 @@ module.exports = {
   wslpgDummy,
   diagnosticarWslpg,
   diagnosticarAutorizaciones,
+  iniciarSyncFacturasEmitidas,
+  obtenerSyncJob,
   diagnosticarCredenciales,
   _internal: { xmlEscape, decodeXml, tag, getConfig, validateCredentials }
 };
