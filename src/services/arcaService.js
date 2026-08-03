@@ -126,7 +126,7 @@ async function consultarPadronA13(cuitConsultar) {
   try {
     const afip = new Afip({ CUIT: parseInt(creds.cuit), cert: creds.cert, key: creds.key, production: process.env.AFIP_PROD === 'true' });
     // El cliente específico obtiene token/sign de WSAA y ejecuta el método
-    // oficial getPersona de Padrón Alcance 13.
+    // oficial getPersona de Padrón Alcance 13 con autenticación WSAA.
     return await afip.RegisterScopeThirteen.getTaxpayerDetails(parseInt(cuitLimpio));
   } catch (err) {
     console.error('Error real en Padrón A13:', err);
