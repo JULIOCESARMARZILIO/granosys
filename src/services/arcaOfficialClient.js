@@ -226,7 +226,6 @@ async function getTicket(service = 'wslpg', force = false) {
 
 async function wslpgDummy() {
   const config = getConfig();
-  const ticket = await getTicket('wslpg');
   const endpoints = config.production
     ? [
       {
@@ -246,8 +245,9 @@ async function wslpgDummy() {
   let response;
   for (let index = 0; index < endpoints.length; index += 1) {
     const endpoint = endpoints[index];
-    // LpgAuthType define el campo como "cuit" (no "cuitRepresentada").
-    const envelope = `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:lpg="${endpoint.namespace}"><soapenv:Header/><soapenv:Body><lpg:dummy><auth><token>${xmlEscape(ticket.token)}</token><sign>${xmlEscape(ticket.sign)}</sign><cuit>${config.cuit}</cuit></auth></lpg:dummy></soapenv:Body></soapenv:Envelope>`;
+    // El manual de WSLPG define Dummy con Body vacÃ­o. La autorizaciÃ³n WSLPG
+    // se valida previamente y por separado mediante getTicket('wslpg').
+    const envelope = '<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Header/><soapenv:Body/></soapenv:Envelope>';
     try {
       response = await soapPost(endpoint.url, '', envelope);
       break;
