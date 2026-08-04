@@ -63,6 +63,67 @@ router.post('/sync/facturas-emitidas', async (req, res) => {
   }
 });
 
+// Importa Ãºnicamente documentos ya emitidos en ARCA. Incluye LPG, LSG,
+// ajustes contenidos en ellas y certificaciones electrÃ³nicas de granos.
+router.post('/sync/granos', async (req, res) => {
+  try {
+    const job = await arcaOfficialClient.iniciarSyncWslpg({
+      desde: req.body?.desde || '2026-01-01',
+      limite: req.body?.limite || 2000,
+      puntosEmision: req.body?.puntosEmision || [1],
+      userId: req.user?.id || null
+    });
+    res.status(202).json({ ok: true, job, soloConsulta: true });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
+// Consulta documentos ya emitidos por su COE y conserva el PDF oficial cuando
+// ARCA lo incluye. No autoriza, ajusta ni anula liquidaciones.
+router.post('/sync/granos-por-coe', async (req, res) => {
+  try {
+    const resultado = await arcaOfficialClient.importarWslpgPorCoe(req.body?.coes || []);
+    res.json({ ok: true, resultado, soloConsulta: true });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/sync/resumen/documentos', async (req, res) => {
+  try {
+    const fuentes = await arcaOfficialClient.obtenerResumenDocumentos();
+    res.json({ ok: true, fuentes, soloConsulta: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/documentos', async (req, res) => {
+  try {
+    const resultado = await arcaOfficialClient.listarDocumentosOficiales({
+      fuente: req.query.fuente || 'WSFE_EMITIDA',
+      desde: req.query.desde || null,
+      hasta: req.query.hasta || null,
+      buscar: req.query.buscar || '',
+      pagina: req.query.pagina || 1,
+      limite: req.query.limite || 50
+    });
+    res.json({ ok: true, ...resultado, soloConsulta: true });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/documentos/conciliacion-contrapartes', async (req, res) => {
+  try {
+    const resultado = await arcaOfficialClient.resumirConciliacionContrapartes();
+    res.json({ ok: true, ...resultado, soloConsulta: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/sync/:id', async (req, res) => {
   try {
     const job = await arcaOfficialClient.obtenerSyncJob(req.params.id);

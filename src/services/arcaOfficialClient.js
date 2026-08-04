@@ -4,7 +4,6 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
-const Afip = require('@afipsdk/afip.js');
 const { pool } = require('../db');
 
 const execFileAsync = promisify(execFile);
@@ -140,6 +139,14 @@ function decodeXml(value) {
 function tag(xml, name) {
   const match = String(xml).match(new RegExp(`<(?:\\w+:)?${name}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:\\w+:)?${name}>`, 'i'));
   return match ? decodeXml(match[1].trim()) : null;
+}
+
+function tags(xml, name) {
+  const matches = [];
+  const expression = new RegExp(`<(?:\\w+:)?${name}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:\\w+:)?${name}>`, 'gi');
+  let match;
+  while ((match = expression.exec(String(xml))) !== null) matches.push(decodeXml(match[1].trim()));
+  return matches;
 }
 
 function readPem(name, base64Name) {
@@ -378,6 +385,245 @@ async function guardarDocumentoOficial(fuente, externalKey, documentDate, payloa
   return rowCount > 0;
 }
 
+async function wsfeCall(method, requestXml = '') {
+  const config = getConfig();
+  const ticket = await getTicket('wsfe');
+  const url = config.production
+    ? 'https://servicios1.afip.gov.ar/wsfev1/service.asmx'
+    : 'https://wswhomo.afip.gov.ar/wsfev1/service.asmx';
+  const auth = `<ar:Auth><ar:Token>${xmlEscape(ticket.token)}</ar:Token><ar:Sign>${xmlEscape(ticket.sign)}</ar:Sign><ar:Cuit>${config.cuit}</ar:Cuit></ar:Auth>`;
+  const envelope = `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ar="http://ar.gov.afip.dif.FEV1/"><soapenv:Header/><soapenv:Body><ar:${method}>${auth}${requestXml}</ar:${method}></soapenv:Body></soapenv:Envelope>`;
+  return soapPost(url, `http://ar.gov.afip.dif.FEV1/${method}`, envelope);
+}
+
+async function wsfePuntosVenta() {
+  const xml = await wsfeCall('FEParamGetPtosVenta');
+  return tags(xml, 'PtoVenta').map(item => ({ Nro: Number(tag(item, 'Nro')) }))
+    .filter(item => Number.isInteger(item.Nro) && item.Nro > 0);
+}
+
+async function wsfeTiposComprobante() {
+  const xml = await wsfeCall('FEParamGetTiposCbte');
+  return tags(xml, 'CbteTipo').map(item => ({ Id: Number(tag(item, 'Id')) }))
+    .filter(item => Number.isInteger(item.Id) && item.Id > 0);
+}
+
+async function wsfeUltimoComprobante(ptoVta, cbteTipo) {
+  const xml = await wsfeCall(
+    'FECompUltimoAutorizado',
+    `<ar:PtoVta>${ptoVta}</ar:PtoVta><ar:CbteTipo>${cbteTipo}</ar:CbteTipo>`
+  );
+  return Number(tag(xml, 'CbteNro') || 0);
+}
+
+async function wsfeConsultarComprobante(numero, ptoVta, cbteTipo) {
+  const xml = await wsfeCall(
+    'FECompConsultar',
+    `<ar:FeCompConsReq><ar:CbteTipo>${cbteTipo}</ar:CbteTipo><ar:CbteNro>${numero}</ar:CbteNro><ar:PtoVta>${ptoVta}</ar:PtoVta></ar:FeCompConsReq>`
+  );
+  const result = tag(xml, 'ResultGet');
+  if (!result) throw new Error(tag(xml, 'Msg') || 'WSFE no devolviÃ³ ResultGet.');
+  return {
+    CbteFch: tag(result, 'CbteFch'),
+    CbteTipo: Number(tag(result, 'CbteTipo') || cbteTipo),
+    PtoVta: Number(tag(result, 'PtoVta') || ptoVta),
+    CbteDesde: Number(tag(result, 'CbteDesde') || numero),
+    DocTipo: Number(tag(result, 'DocTipo') || 0),
+    DocNro: tag(result, 'DocNro'),
+    ImpTotal: tag(result, 'ImpTotal'),
+    MonId: tag(result, 'MonId'),
+    MonCotiz: tag(result, 'MonCotiz'),
+    CodAutorizacion: tag(result, 'CodAutorizacion'),
+    EmisionTipo: tag(result, 'EmisionTipo'),
+    FchVto: tag(result, 'FchVto'),
+    rawXml: result
+  };
+}
+
+function wslpgEndpoints(config) {
+  return config.production
+    ? [
+      { url: 'https://serviciosjava.arca.gob.ar/wslpg/LpgService', namespace: 'http://serviciosjava.arca.gob.ar/wslpg/' },
+      { url: 'https://serviciosjava.afip.gob.ar/wslpg/LpgService', namespace: 'http://serviciosjava.afip.gob.ar/wslpg/' }
+    ]
+    : [{ url: 'https://fwshomo.afip.gov.ar/wslpg/LpgService', namespace: 'http://serviciosjava.afip.gob.ar/wslpg/' }];
+}
+
+async function wslpgCall(operation, requestXml = '') {
+  const config = getConfig();
+  const ticket = await getTicket('wslpg');
+  const auth = `<auth><token>${xmlEscape(ticket.token)}</token><sign>${xmlEscape(ticket.sign)}</sign><cuit>${config.cuit}</cuit></auth>`;
+  let lastError;
+  for (const endpoint of wslpgEndpoints(config)) {
+    const envelope = `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wsl="${endpoint.namespace}"><soapenv:Header/><soapenv:Body><wsl:${operation}>${auth}${requestXml}</wsl:${operation}></soapenv:Body></soapenv:Envelope>`;
+    try {
+      return await soapPost(endpoint.url, '', envelope);
+    } catch (error) {
+      lastError = error;
+      if (error.code !== 'ARCA_TRANSPORT_ERROR') throw error;
+    }
+  }
+  throw lastError || new Error('No fue posible conectar con WSLPG.');
+}
+
+const WSLPG_DOCUMENT_TYPES = Object.freeze([
+  { id: 'LPG', fuente: 'WSLPG_LPG', ultimo: 'liqUltNroOrdenReq', consultar: 'liqConsXNroOrdenReq', resultTags: ['liqConsReturn'] },
+  { id: 'LSG', fuente: 'WSLPG_LSG', ultimo: 'lsgConsultarUltimoNroOrdenReq', consultar: 'lsgConsultarXNroOrdenReq', resultTags: ['oReturn'] },
+  { id: 'CERTIFICACION', fuente: 'WSLPG_CERTIFICACION', ultimo: 'cgConsultarUltimoNroOrdenReq', consultar: 'cgConsultarXNroOrdenReq', resultTags: ['oReturn'] }
+]);
+
+function fechaWslpg(xml) {
+  const value = tag(xml, 'fechaLiquidacion') || tag(xml, 'fechaCertificacion') || tag(xml, 'fechaProceso');
+  const match = String(value || '').match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : null;
+}
+
+function wslpgBusinessError(xml) {
+  const errors = tags(xml, 'error');
+  if (!errors.length) return null;
+  return errors.map(item => {
+    const code = tag(item, 'codigo');
+    const description = tag(item, 'descripcion');
+    return [code, description].filter(Boolean).join(': ');
+  }).filter(Boolean).join(' | ') || 'WSLPG devolviÃ³ un error de negocio.';
+}
+
+async function wslpgUltimoNroOrden(type, ptoEmision) {
+  const xml = await wslpgCall(type.ultimo, `<ptoEmision>${ptoEmision}</ptoEmision>`);
+  const error = wslpgBusinessError(xml);
+  if (error) throw new Error(error);
+  return Number(tag(xml, 'nroOrden') || 0);
+}
+
+async function wslpgConsultarNroOrden(type, ptoEmision, nroOrden) {
+  const xml = await wslpgCall(
+    type.consultar,
+    `<ptoEmision>${ptoEmision}</ptoEmision><nroOrden>${nroOrden}</nroOrden>`
+  );
+  const error = wslpgBusinessError(xml);
+  if (error) throw new Error(error);
+  const result = type.resultTags.map(name => tag(xml, name)).find(Boolean);
+  if (!result) throw new Error(`WSLPG no devolviÃ³ datos para ${type.id} ${ptoEmision}/${nroOrden}.`);
+  return {
+    tipoDocumento: type.id,
+    ptoEmision,
+    nroOrden,
+    coe: tag(result, 'coe'),
+    estado: tag(result, 'estado'),
+    fecha: fechaWslpg(result),
+    rawXml: result
+  };
+}
+
+async function wslpgConsultarCoe(coe) {
+  const safeCoe = String(coe || '').replace(/\D/g, '');
+  if (!/^\d{12}$/.test(safeCoe)) throw new Error(`COE WSLPG invÃƒÂ¡lido: ${coe}`);
+  const xml = await wslpgCall('liqConsXCoeReq', `<coe>${safeCoe}</coe>`);
+  const error = wslpgBusinessError(xml);
+  if (error) throw new Error(error);
+  const result = tag(xml, 'liqConsReturn');
+  if (!result) throw new Error(`WSLPG no devolviÃƒÂ³ datos para el COE ${safeCoe}.`);
+  return {
+    tipoDocumento: 'LPG',
+    coe: tag(result, 'coe') || safeCoe,
+    estado: tag(result, 'estado'),
+    fecha: fechaWslpg(result),
+    ptoEmision: Number(tag(result, 'ptoEmision') || 0) || null,
+    nroOrden: Number(tag(result, 'nroOrden') || 0) || null,
+    pdfBase64: tag(result, 'pdf') || null,
+    rawXml: result
+  };
+}
+
+async function importarWslpgPorCoe(coes) {
+  await ensureSyncTables();
+  const unicos = [...new Set((Array.isArray(coes) ? coes : [])
+    .map(value => String(value || '').replace(/\D/g, ''))
+    .filter(value => /^\d{12}$/.test(value)))];
+  if (!unicos.length) throw new Error('Debe indicar al menos un COE WSLPG vÃƒÂ¡lido.');
+  if (unicos.length > 1000) throw new Error('El lote no puede superar 1000 COE.');
+
+  const resultados = [];
+  for (const coe of unicos) {
+    try {
+      const document = await wslpgConsultarCoe(coe);
+      await guardarDocumentoOficial('WSLPG_LPG_COE', coe, document.fecha, document);
+      resultados.push({
+        coe,
+        ok: true,
+        fecha: document.fecha,
+        estado: document.estado,
+        ptoEmision: document.ptoEmision,
+        nroOrden: document.nroOrden,
+        incluyePdf: Boolean(document.pdfBase64)
+      });
+    } catch (error) {
+      resultados.push({ coe, ok: false, error: error.message });
+    }
+  }
+  return {
+    total: resultados.length,
+    importados: resultados.filter(item => item.ok).length,
+    conPdf: resultados.filter(item => item.ok && item.incluyePdf).length,
+    errores: resultados.filter(item => !item.ok),
+    resultados
+  };
+}
+
+async function ejecutarSyncWslpg(jobId, desde, limite, puntosEmision) {
+  await ensureSyncTables();
+  await pool.query(
+    "UPDATE arca_sync_jobs SET estado='EJECUTANDO', started_at=NOW() WHERE id=$1",
+    [jobId]
+  );
+  let revisados = 0;
+  let importados = 0;
+  try {
+    validateCredentials(getConfig());
+    outer:
+    for (const ptoEmision of puntosEmision) {
+      for (const type of WSLPG_DOCUMENT_TYPES) {
+        let ultimo;
+        try {
+          ultimo = await wslpgUltimoNroOrden(type, ptoEmision);
+        } catch (error) {
+          console.warn(`WSLPG ${type.id}, punto ${ptoEmision}: ${error.message}`);
+          continue;
+        }
+        if (!Number.isInteger(ultimo) || ultimo <= 0) continue;
+        for (let nroOrden = ultimo; nroOrden >= 1; nroOrden -= 1) {
+          if (revisados >= limite) break outer;
+          revisados += 1;
+          let document;
+          try {
+            document = await wslpgConsultarNroOrden(type, ptoEmision, nroOrden);
+          } catch (error) {
+            console.warn(`WSLPG ${type.id} ${ptoEmision}/${nroOrden}: ${error.message}`);
+            continue;
+          }
+          if (document.fecha && document.fecha < desde) break;
+          if (!document.fecha || document.fecha < desde) continue;
+          await guardarDocumentoOficial(type.fuente, `${ptoEmision}:${nroOrden}`, document.fecha, document);
+          importados += 1;
+        }
+      }
+    }
+    const estado = revisados >= limite ? 'PARCIAL' : 'COMPLETADO';
+    await pool.query(`
+      UPDATE arca_sync_jobs
+      SET estado=$1, total_importados=$2, total_revisados=$3, finished_at=NOW()
+      WHERE id=$4
+    `, [estado, importados, revisados, jobId]);
+  } catch (error) {
+    await pool.query(`
+      UPDATE arca_sync_jobs
+      SET estado='ERROR', total_importados=$1, total_revisados=$2,
+          error=$3, finished_at=NOW()
+      WHERE id=$4
+    `, [importados, revisados, error.message, jobId]);
+  }
+}
+
 async function ejecutarSyncFacturasEmitidas(jobId, desde, limite) {
   await ensureSyncTables();
   await pool.query(
@@ -390,14 +636,8 @@ async function ejecutarSyncFacturasEmitidas(jobId, desde, limite) {
   try {
     const config = getConfig();
     validateCredentials(config);
-    const afip = new Afip({
-      CUIT: Number(config.cuit),
-      cert: config.cert,
-      key: config.key,
-      production: config.production
-    });
-    const puntos = await afip.ElectronicBilling.getSalesPoints();
-    const tipos = await afip.ElectronicBilling.getVoucherTypes();
+    const puntos = await wsfePuntosVenta();
+    const tipos = await wsfeTiposComprobante();
 
     outer:
     for (const punto of puntos || []) {
@@ -408,7 +648,7 @@ async function ejecutarSyncFacturasEmitidas(jobId, desde, limite) {
         if (!Number.isInteger(cbteTipo) || cbteTipo <= 0) continue;
         let ultimo;
         try {
-          ultimo = Number(await afip.ElectronicBilling.getLastVoucher(ptoVta, cbteTipo));
+          ultimo = Number(await wsfeUltimoComprobante(ptoVta, cbteTipo));
         } catch {
           continue;
         }
@@ -419,7 +659,7 @@ async function ejecutarSyncFacturasEmitidas(jobId, desde, limite) {
           revisados += 1;
           let comprobante;
           try {
-            comprobante = await afip.ElectronicBilling.getVoucherInfo(numero, ptoVta, cbteTipo);
+            comprobante = await wsfeConsultarComprobante(numero, ptoVta, cbteTipo);
           } catch {
             continue;
           }
@@ -468,6 +708,157 @@ async function iniciarSyncFacturasEmitidas({ desde = '2026-01-01', limite = 1000
   return { id, fuente: 'WSFE_EMITIDA', desde, limite: safeLimit, estado: 'PENDIENTE' };
 }
 
+async function iniciarSyncWslpg({ desde = '2026-01-01', limite = 2000, puntosEmision = [1], userId = null } = {}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(desde)) throw new Error('La fecha desde debe usar formato AAAA-MM-DD.');
+  const safeLimit = Math.max(1, Math.min(5000, Number(limite) || 2000));
+  const safePoints = [...new Set((Array.isArray(puntosEmision) ? puntosEmision : [puntosEmision])
+    .map(Number)
+    .filter(value => Number.isInteger(value) && value >= 1 && value <= 9999))];
+  if (!safePoints.length) throw new Error('Debe indicar al menos un punto de emisiÃ³n WSLPG vÃ¡lido.');
+  await ensureSyncTables();
+  const id = crypto.randomUUID();
+  await pool.query(`
+    INSERT INTO arca_sync_jobs(id, fuente, desde, estado, solicitado_por)
+    VALUES($1,'WSLPG_GRANOS',$2,'PENDIENTE',$3)
+  `, [id, desde, userId]);
+  setImmediate(() => {
+    void ejecutarSyncWslpg(id, desde, safeLimit, safePoints);
+  });
+  return {
+    id,
+    fuente: 'WSLPG_GRANOS',
+    desde,
+    limite: safeLimit,
+    puntosEmision: safePoints,
+    documentos: WSLPG_DOCUMENT_TYPES.map(type => type.id),
+    estado: 'PENDIENTE'
+  };
+}
+
+async function obtenerResumenDocumentos() {
+  await ensureSyncTables();
+  const { rows } = await pool.query(`
+    SELECT fuente, COUNT(*)::integer AS total,
+           MIN(document_date) AS fecha_desde,
+           MAX(document_date) AS fecha_hasta,
+           COUNT(DISTINCT payload_hash)::integer AS hashes_distintos
+    FROM arca_official_documents
+    GROUP BY fuente
+    ORDER BY fuente
+  `);
+  return rows.map(row => ({
+    ...row,
+    integridad: row.total === row.hashes_distintos ? 'SIN_DUPLICADOS_DE_CONTENIDO' : 'REVISAR_CONTENIDO_REPETIDO'
+  }));
+}
+
+async function listarDocumentosOficiales({
+  fuente = 'WSFE_EMITIDA',
+  desde = null,
+  hasta = null,
+  buscar = '',
+  pagina = 1,
+  limite = 50
+} = {}) {
+  await ensureSyncTables();
+  const safePage = Math.max(1, Number(pagina) || 1);
+  const safeLimit = Math.max(1, Math.min(200, Number(limite) || 50));
+  const conditions = ['d.fuente = $1'];
+  const params = [fuente];
+  if (desde) {
+    params.push(desde);
+    conditions.push(`d.document_date >= $${params.length}`);
+  }
+  if (hasta) {
+    params.push(hasta);
+    conditions.push(`d.document_date <= $${params.length}`);
+  }
+  if (buscar) {
+    params.push(`%${String(buscar).trim()}%`);
+    conditions.push(`(
+      d.external_key ILIKE $${params.length}
+      OR COALESCE(d.payload->>'DocNro','') ILIKE $${params.length}
+      OR COALESCE(cp.razon_social,'') ILIKE $${params.length}
+    )`);
+  }
+  const where = conditions.join(' AND ');
+  const offset = (safePage - 1) * safeLimit;
+  const baseJoin = `
+    FROM arca_official_documents d
+    LEFT JOIN LATERAL (
+      SELECT c.id, c.razon_social, c.cuit
+      FROM contrapartes c
+      WHERE c.activo = TRUE
+        AND regexp_replace(COALESCE(c.cuit,''), '[^0-9]', '', 'g')
+          = regexp_replace(COALESCE(d.payload->>'DocNro',''), '[^0-9]', '', 'g')
+      ORDER BY c.id
+      LIMIT 1
+    ) cp ON TRUE
+  `;
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::integer AS total ${baseJoin} WHERE ${where}`,
+    params
+  );
+  const queryParams = [...params, safeLimit, offset];
+  const { rows } = await pool.query(`
+    SELECT d.id, d.fuente, d.external_key, d.document_date,
+           d.payload - 'rawXml' AS payload, d.payload_hash,
+           d.first_imported_at, d.last_seen_at,
+           cp.id AS contraparte_id, cp.razon_social AS contraparte_razon_social,
+           cp.cuit AS contraparte_cuit
+    ${baseJoin}
+    WHERE ${where}
+    ORDER BY d.document_date DESC NULLS LAST, d.id DESC
+    LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+  `, queryParams);
+  return {
+    documentos: rows.map(row => ({
+      ...row,
+      contraparte_estado: row.contraparte_id ? 'VINCULADA' : 'PENDIENTE_ALTA'
+    })),
+    paginacion: {
+      pagina: safePage,
+      limite: safeLimit,
+      total: countResult.rows[0]?.total || 0,
+      paginas: Math.ceil((countResult.rows[0]?.total || 0) / safeLimit)
+    }
+  };
+}
+
+async function resumirConciliacionContrapartes() {
+  await ensureSyncTables();
+  const { rows } = await pool.query(`
+    WITH receptores AS (
+      SELECT regexp_replace(COALESCE(payload->>'DocNro',''), '[^0-9]', '', 'g') AS cuit,
+             COUNT(*)::integer AS comprobantes,
+             SUM(COALESCE(NULLIF(payload->>'ImpTotal','')::numeric, 0)) AS importe_total
+      FROM arca_official_documents
+      WHERE fuente='WSFE_EMITIDA'
+      GROUP BY 1
+    )
+    SELECT r.cuit, r.comprobantes, r.importe_total,
+           cp.id AS contraparte_id, cp.razon_social,
+           CASE WHEN cp.id IS NULL THEN 'PENDIENTE_ALTA' ELSE 'VINCULADA' END AS estado
+    FROM receptores r
+    LEFT JOIN LATERAL (
+      SELECT c.id, c.razon_social
+      FROM contrapartes c
+      WHERE c.activo=TRUE
+        AND regexp_replace(COALESCE(c.cuit,''), '[^0-9]', '', 'g') = r.cuit
+      ORDER BY c.id
+      LIMIT 1
+    ) cp ON TRUE
+    WHERE length(r.cuit)=11
+    ORDER BY (cp.id IS NULL) DESC, r.comprobantes DESC, r.cuit
+  `);
+  return {
+    totalCuits: rows.length,
+    vinculadas: rows.filter(row => row.estado === 'VINCULADA').length,
+    pendientes: rows.filter(row => row.estado === 'PENDIENTE_ALTA').length,
+    receptores: rows
+  };
+}
+
 async function obtenerSyncJob(id) {
   await ensureSyncTables();
   const { rows } = await pool.query(
@@ -501,7 +892,12 @@ module.exports = {
   diagnosticarWslpg,
   diagnosticarAutorizaciones,
   iniciarSyncFacturasEmitidas,
+  iniciarSyncWslpg,
+  importarWslpgPorCoe,
   obtenerSyncJob,
+  obtenerResumenDocumentos,
+  listarDocumentosOficiales,
+  resumirConciliacionContrapartes,
   diagnosticarCredenciales,
-  _internal: { xmlEscape, decodeXml, tag, getConfig, validateCredentials }
+  _internal: { xmlEscape, decodeXml, tag, tags, fechaWslpg, wslpgBusinessError, getConfig, validateCredentials }
 };

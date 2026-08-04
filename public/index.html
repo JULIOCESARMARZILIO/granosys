@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -7,7 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="/vendor/xlsx-0.20.3.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -93,18 +93,15 @@ const formatFechaAR = (fechaISO) => {
 const API_URL = window.location.hostname === "localhost"
   ? "http://localhost:3000"
   : window.location.origin;
-
-// Usuario logueado actual, para identificar quien hace cada cambio en la
-// auditoria del backend. Se completa en App al iniciar sesion (ver setUsuario).
-let _usuarioActualParaAuditoria = null;
+const authHeaders = (extra={}) => {
+  const token = sessionStorage.getItem("granosys_access_token");
+  return token ? {...extra, Authorization:`Bearer ${token}`} : extra;
+};
 
 const api = {
-  setUsuario: (u) => {
-    _usuarioActualParaAuditoria = u ? (u.usuario || u.nombre || null) : null;
-  },
   get: async (path) => {
     try {
-      const r = await fetch(`${API_URL}${path}`);
+      const r = await fetch(`${API_URL}${path}`, {headers:authHeaders()});
       if (!r.ok) throw new Error(await r.text());
       return await r.json();
     } catch(e) {
@@ -116,7 +113,7 @@ const api = {
     try {
       const r = await fetch(`${API_URL}${path}`, {
         method: "POST",
-        headers: {"Content-Type":"application/json", "X-Usuario-Actual": _usuarioActualParaAuditoria || ""},
+        headers: authHeaders({"Content-Type":"application/json"}),
         body: JSON.stringify(data)
       });
       if (!r.ok) throw new Error(await r.text());
@@ -130,7 +127,7 @@ const api = {
     try {
       const r = await fetch(`${API_URL}${path}`, {
         method: "PUT",
-        headers: {"Content-Type":"application/json", "X-Usuario-Actual": _usuarioActualParaAuditoria || ""},
+        headers: authHeaders({"Content-Type":"application/json"}),
         body: JSON.stringify(data)
       });
       if (!r.ok) throw new Error(await r.text());
@@ -144,7 +141,7 @@ const api = {
     try {
       const r = await fetch(`${API_URL}${path}`, {
         method: "DELETE",
-        headers: {"X-Usuario-Actual": _usuarioActualParaAuditoria || ""}
+        headers: authHeaders()
       });
       if (!r.ok) throw new Error(await r.text());
       return await r.json();
@@ -178,10 +175,10 @@ const mockContrapartes = [
 ];
 
 const mockContratos = [
-  {id:1,numero:"OC-2025-0001",tipo:"COMPRA",modalidad:"FORMAL",fecha:"2025-03-15",especie:"Soja",campana:"2024/2025",contraparte:"García Juan Carlos",toneladas:300,tipo_precio:"FIJO",precio:285000,moneda:"PESOS",tipo_entrega:"A_RETIRAR",estado:"EN_CURSO",asignadas:180,tipo_liq:"INCISO_A"},
-  {id:2,numero:"OV-2025-0001",tipo:"VENTA",modalidad:"FORMAL",fecha:"2025-03-15",especie:"Soja",campana:"2024/2025",contraparte:"Bunge Argentina S.A.",toneladas:300,tipo_precio:"FIJO",precio:292000,moneda:"PESOS",tipo_entrega:"PUESTO_DESTINO",estado:"EN_CURSO",asignadas:180,tipo_liq:"INCISO_A"},
+  {id:1,numero:"OC-2025-0001",tipo:"COMPRA",modalidad:"FORMAL",fecha:"2025-03-15",especie:"Soja",campana:"2024/2025",contraparte:"García Juan Carlos",toneladas:300,tipo_precio:"PRECIO_HECHO",precio:285000,moneda:"PESOS",tipo_entrega:"A_RETIRAR",estado:"EN_CURSO",asignadas:180,tipo_liq:"INCISO_A"},
+  {id:2,numero:"OV-2025-0001",tipo:"VENTA",modalidad:"FORMAL",fecha:"2025-03-15",especie:"Soja",campana:"2024/2025",contraparte:"Bunge Argentina S.A.",toneladas:300,tipo_precio:"PRECIO_HECHO",precio:292000,moneda:"PESOS",tipo_entrega:"PUESTO_DESTINO",estado:"EN_CURSO",asignadas:180,tipo_liq:"INCISO_A"},
   {id:3,numero:"OC-2025-0002",tipo:"COMPRA",modalidad:"INFORMAL",fecha:"2025-04-02",especie:"Maíz",campana:"2024/2025",contraparte:"Rodríguez Pedro",toneladas:150,tipo_precio:"A_FIJAR",precio:null,moneda:"DOLARES",tipo_entrega:"A_RETIRAR",estado:"CONFIRMADO",asignadas:0,tipo_liq:null},
-  {id:4,numero:"OC-2025-0003",tipo:"COMPRA",modalidad:"FORMAL",fecha:"2025-04-10",especie:"Trigo",campana:"2024/2025",contraparte:"García Juan Carlos",toneladas:200,tipo_precio:"FIJO",precio:180000,moneda:"PESOS",tipo_entrega:"A_RETIRAR",estado:"CONFIRMADO",asignadas:60,tipo_liq:"INCISO_B"},
+  {id:4,numero:"OC-2025-0003",tipo:"COMPRA",modalidad:"FORMAL",fecha:"2025-04-10",especie:"Trigo",campana:"2024/2025",contraparte:"García Juan Carlos",toneladas:200,tipo_precio:"PRECIO_HECHO",precio:180000,moneda:"PESOS",tipo_entrega:"A_RETIRAR",estado:"CONFIRMADO",asignadas:60,tipo_liq:"INCISO_B"},
   {id:5,numero:"OV-2025-0002",tipo:"VENTA",modalidad:"INFORMAL",fecha:"2025-04-05",especie:"Maíz",campana:"2024/2025",contraparte:"Rodríguez Pedro",toneladas:150,tipo_precio:"A_FIJAR",precio:null,moneda:"DOLARES",tipo_entrega:"PUESTO_DESTINO",estado:"CONFIRMADO",asignadas:0,tipo_liq:null},
 ];
 
@@ -489,7 +486,7 @@ const Contrapartes = ({modulo}) => {
                 <Btn variant="danger" size="sm" onClick={async()=>{
                   if(!confirm(`¿Eliminar ${c.razon_social}?`)) return;
                   try {
-                    await fetch(`/api/contrapartes/${c.id}`, {method:"DELETE"});
+                    await fetch(`/api/contrapartes/${c.id}`, {method:"DELETE",headers:authHeaders()});
                     cargarContrapartes();
                   } catch(e) {
                     alert("Error al eliminar: "+e.message);
@@ -647,7 +644,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
   const [campanas,setCampanas]=useState(CAMPANAS.map((d,i)=>({id:i+1,descripcion:d})));
   const [guardando,setGuardando]=useState(false);
   const [form,setForm]=useState({
-    tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"FIJO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",base_calculo_peso: "BRUTO_CAMPO",
+    tipo:"COMPRA",especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",base_calculo_peso: "BRUTO_CAMPO",
     entrega_id_especie: 1, entrega_toneladas: "", entrega_localidad_entrega: "",
     entrega_costo_secada_punto: "", entrega_costo_zarandeo_tn: "", entrega_costo_paritaria_tn: "", entrega_costo_fumigacion_fijo: "", entrega_humedad_max_seco: "13.5", entrega_otros_descripcion: "",
     entrega_costo_secada_destino_punto: "", entrega_costo_zarandeo_destino_tn: "", entrega_costo_paritaria_destino_tn: "", entrega_costo_fumigacion_destino_fijo: "", entrega_otros_destino_descripcion: "", entrega_costo_otros_destino_valor: "",
@@ -672,8 +669,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
       setSelectedContract({
         ...c,
         movimientos: data.movimientos || [],
-        fijaciones: data.fijaciones || [],
-        aplicaciones: data.aplicaciones || []
+        fijaciones: data.fijaciones || []
       });
     } catch(err) {
       alert("Error al cargar detalles: " + err.message);
@@ -708,7 +704,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
       // Fetch directo (no api.post) para poder mostrar el motivo exacto si el backend rechaza por tope de toneladas.
       const r = await fetch(`${API_URL}/api/contratos/${contratoFijacion.id}/fijaciones`, {
         method: "POST",
-        headers: {"Content-Type":"application/json"},
+        headers: authHeaders({"Content-Type":"application/json"}),
         body: JSON.stringify({
           fecha: fijacionForm.fecha,
           cantidad_toneladas: parseFloat(fijacionForm.cantidad_toneladas),
@@ -763,7 +759,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
       // Fetch directo para poder mostrar el motivo exacto si el backend rechaza por tope de toneladas.
       const r = await fetch(`${API_URL}/api/contratos/${selectedContract.id}/fijaciones`, {
         method: "POST",
-        headers: {"Content-Type":"application/json"},
+        headers: authHeaders({"Content-Type":"application/json"}),
         body: JSON.stringify({
           fecha: fijacionForm.fecha,
           cantidad_toneladas: parseFloat(fijacionForm.cantidad_toneladas),
@@ -897,7 +893,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
         id_especie: c.id_especie || 1,
         id_campana: c.id_campana || 2,
         id_contraparte: c.id_contraparte || "",
-        tipo_precio: c.tipo_precio || "FIJO",
+        tipo_precio: c.tipo_precio || "PRECIO_HECHO",
         moneda: c.moneda || "PESOS",
         precio: c.precio_pactado || "",
         precio_referencia: c.precio_referencia || "",
@@ -1081,7 +1077,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
         <Btn onClick={()=>{
           setForm({
             tipo: tab === "CANJE" ? "CANJE" : tab,
-            especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"FIJO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",
+            especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",
             entrega_id_especie: 1, entrega_toneladas: "", entrega_localidad_entrega: "",
             entrega_costo_secada_punto: "", entrega_costo_zarandeo_tn: "", entrega_costo_paritaria_tn: "", entrega_costo_fumigacion_fijo: "", entrega_humedad_max_seco: "13.5", entrega_otros_descripcion: "",
             entrega_costo_secada_destino_punto: "", entrega_costo_zarandeo_destino_tn: "", entrega_costo_paritaria_destino_tn: "", entrega_costo_fumigacion_destino_fijo: "", entrega_otros_destino_descripcion: "", entrega_costo_otros_destino_valor: "",
@@ -1442,12 +1438,12 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
               <FF label="Toneladas" required><input type="number" placeholder="0.000" value={form.toneladas} onChange={e=>setForm({...form,toneladas:e.target.value})}/></FF>
               <FF label="Tipo de Precio" required>
                 <SelectorFlechas
-                  opciones={[{value:"FIJO",label:"Precio Hecho"},{value:"A_FIJAR",label:"A Fijar"}]}
+                  opciones={[{value:"PRECIO_HECHO",label:"Precio Hecho"},{value:"A_FIJAR",label:"A Fijar"}]}
                   value={form.tipo_precio}
                   onChange={v=>setForm({...form,tipo_precio:v})}
                 />
               </FF>
-              {form.tipo_precio==="FIJO"?<>
+              {form.tipo_precio==="PRECIO_HECHO"?<>
                 <FF label="Moneda">
                   <SelectorFlechas
                     opciones={[{value:"PESOS",label:"Pesos $"},{value:"DOLARES",label:"Dólares USD"},{value:"DOLARES_BILLETE",label:"Dólares Billete"}]}
@@ -2045,38 +2041,6 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
             </div>
           )}
 
-          {selectedContract.tipo_contrato === "COMPRA" && (
-            <div style={{marginTop: 16}}>
-              <h4 style={{fontSize: 12, color: "#8890a8", marginBottom: 8}}>Aplicaciones desde Bolsa por Zona</h4>
-              <div style={{maxHeight: 180, overflowY: "auto", border: "1px solid #2a2d3e", borderRadius: 6, background: "rgba(0,0,0,0.1)", padding: 6}}>
-                {selectedContract.aplicaciones && selectedContract.aplicaciones.length > 0 ? (
-                  <table style={{width: "100%", fontSize: 11, borderCollapse: "collapse"}}>
-                    <thead>
-                      <tr style={{borderBottom: "1px solid #2a2d3e", textAlign: "left"}}>
-                        <th style={{padding: 4}}>Fecha</th>
-                        <th style={{padding: 4}}>Zona</th>
-                        <th style={{padding: 4}}>Tn</th>
-                        <th style={{padding: 4}}>Usuario</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedContract.aplicaciones.map(a => (
-                        <tr key={a.id} style={{borderBottom: "1px solid rgba(255,255,255,0.02)"}}>
-                          <td style={{padding: 4}}>{a.fecha}</td>
-                          <td style={{padding: 4}}>{a.zona}</td>
-                          <td style={{padding: 4}}><span className="mono">{parseFloat(a.toneladas).toFixed(3)} tn</span></td>
-                          <td style={{padding: 4, color: "#8890a8"}}>{a.usuario}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div style={{color: "#8890a8", fontSize: 11, textAlign: "center", padding: "20px 0"}}>Todavía no se aplicó stock de ninguna zona a este contrato. Se hace desde "Bolsa por Zona" → "Aplicar a contrato".</div>
-                )}
-              </div>
-            </div>
-          )}
-
           <div style={{display: "flex", justifyContent: "flex-end", marginTop: 20}}>
             <Btn variant="secondary" onClick={() => setSelectedContract(null)}>Cerrar</Btn>
           </div>
@@ -2406,8 +2370,6 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     provincia_destino: "",
     nro_planta_destino: "",
     direccion_destino: "",
-    id_ubicacion_origen: "",
-    id_ubicacion_destino: "",
     transportista_nombre: "",
     chofer_nombre: "",
     patente_chasis: "",
@@ -2422,15 +2384,6 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     humedad_salida_pct: "",
     nro_factura_flete: "",
   });
-
-  // Ubicaciones propias (plantas/depositos de la empresa), para el motor de stock:
-  // si un movimiento entra o sale de una de estas, se suma/resta del Stock.
-  const [ubicacionesPropias, setUbicacionesPropias] = useState([]);
-  useEffect(() => {
-    api.get("/api/ubicaciones").then(data => {
-      setUbicacionesPropias((data || []).filter(u => u.tipo === "PLANTA_PROPIA"));
-    }).catch(() => {});
-  }, []);
 
   // Destinos (plantas de entrega) parametrizados por comprador
   const [idContraparteDestinatario, setIdContraparteDestinatario] = useState("");
@@ -2711,8 +2664,6 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         provincia_destino: m.provincia_destino || "",
         nro_planta_destino: m.nro_planta_destino || "",
         direccion_destino: m.direccion_destino || "",
-        id_ubicacion_origen: m.id_ubicacion_origen || "",
-        id_ubicacion_destino: m.id_ubicacion_destino || "",
         transportista_nombre: m.transportista_nombre || m.transportista || "",
         chofer_nombre: m.chofer_nombre || m.chofer || "",
         patente_chasis: m.patente_chasis || "",
@@ -4757,12 +4708,6 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                 {modulo==="FORMAL"&&<FF label="Descripción Campo"><input value={movForm.descripcion_campo} onChange={e=>setMovForm({...movForm, descripcion_campo: e.target.value})} placeholder="Nombre del establecimiento"/></FF>}
                 {modulo==="FORMAL"&&<FF label="Latitud"><input value={movForm.latitud} onChange={e=>setMovForm({...movForm, latitud: e.target.value})} placeholder="27° 16 58"/></FF>}
                 {modulo==="FORMAL"&&<FF label="Longitud"><input value={movForm.longitud} onChange={e=>setMovForm({...movForm, longitud: e.target.value})} placeholder="64° 40 10"/></FF>}
-                <FF label="¿Sale de un depósito propio?">
-                  <select value={movForm.id_ubicacion_origen} onChange={e=>setMovForm({...movForm, id_ubicacion_origen: e.target.value})}>
-                    <option value="">No / Sale de campo de productor</option>
-                    {ubicacionesPropias.map(u=><option key={u.id} value={u.id}>{u.nombre}{u.localidad?` — ${u.localidad}`:""}</option>)}
-                  </select>
-                </FF>
               </div>
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>{modulo==="FORMAL"?"D — Destino de la Mercadería":"Destino"}</div>
               <div className="form-grid-2" style={{marginBottom:18}}>
@@ -4832,12 +4777,6 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                 </FF>
                 <FF label="N° Planta"><input value={movForm.nro_planta_destino} onChange={e=>setMovForm({...movForm, nro_planta_destino: e.target.value})} placeholder="518477"/></FF>
                 <FF label="Dirección Destino"><input value={movForm.direccion_destino||""} onChange={e=>setMovForm({...movForm, direccion_destino: e.target.value})} placeholder="Dirección destino"/></FF>
-                <FF label="¿Entra a un depósito propio?">
-                  <select value={movForm.id_ubicacion_destino} onChange={e=>setMovForm({...movForm, id_ubicacion_destino: e.target.value})}>
-                    <option value="">No / Va directo al comprador</option>
-                    {ubicacionesPropias.map(u=><option key={u.id} value={u.id}>{u.nombre}{u.localidad?` — ${u.localidad}`:""}</option>)}
-                  </select>
-                </FF>
               </div>
               <div style={{fontSize:11,color:"#f5a623",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #2a2d3e"}}>{modulo==="FORMAL"?"E — Datos del Transporte":"Transporte"}</div>
               <div className="form-grid-2" style={{marginBottom:18}}>
@@ -8742,148 +8681,158 @@ const ReporteCalidades = ({modulo}) => {
 
 // ── POSICIÓN ABIERTA ──
 const PosicionAbierta = ({modulo}) => {
-  const [data,setData]=useState(null);
-  const [cargando,setCargando]=useState(true);
-  const [tab,setTab]=useState("valorizado");
-  const [exposicion,setExposicion]=useState(null);
-  const [cargandoExp,setCargandoExp]=useState(true);
+  const [showAsignar, setShowAsignar] = useState(false);
+  const [seleccionado, setSeleccionado] = useState(null);
 
-  const filtroModalidad = (modulo==="FORMAL"||modulo==="INFORMAL") ? `?modalidad=${modulo}` : "";
+  // Movimientos sin contrato asignado
+  const movsSinContrato = mockMovimientos.filter(m =>
+    m.modalidad === modulo && !m.contrato_compra
+  );
 
-  const cargar = async () => {
-    setCargando(true);
-    const res = await api.get(`/api/posicion/consolidada${filtroModalidad}`);
-    setData(res);
-    setCargando(false);
-  };
-
-  const cargarExposicion = async () => {
-    setCargandoExp(true);
-    const res = await api.get(`/api/posicion/exposicion-neta${filtroModalidad}`);
-    setExposicion(res);
-    setCargandoExp(false);
-  };
-
-  useEffect(()=>{ cargar(); cargarExposicion(); },[modulo]);
-
-  const fmtMoney = (v) => v==null ? "—" : `$ ${Number(v).toLocaleString("es-AR",{maximumFractionDigits:0})}`;
-  const fmtTn = (v) => `${Number(v).toLocaleString("es-AR",{minimumFractionDigits:3,maximumFractionDigits:3})} tn`;
+  // Agrupar por productor y especie
+  const posiciones = mockContrapartes
+    .filter(c => c.tipo === "PRODUCTOR" || c.tipo === "AMBOS")
+    .map(prod => {
+      const movs = movsSinContrato.filter(m => m.productor === prod.razon_social);
+      if (movs.length === 0) return null;
+      const tn = movs.reduce((a, m) => a + (m.kg_liquidables || m.peso_neto_salida || 0) / 1000, 0);
+      return { productor: prod, movs, tn };
+    })
+    .filter(Boolean);
 
   return (
     <div className="fade-in">
-      <div style={{marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
-        <div>
-          <h2 style={{fontSize:18,fontWeight:700}}>Posición Consolidada</h2>
-          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>
-            Todo lo que todavía no está liquidado, valuado a precio de venta si ya lo tiene, o a precio de referencia (neto de flete) si está a fijar. No importa en qué planta esté físicamente.
-          </p>
+      <div style={{marginBottom:20}}>
+        <h2 style={{fontSize:18,fontWeight:700}}>Posición Abierta Sin Contrato</h2>
+        <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>
+          Mercadería recibida sin contrato asignado — stock a fijar sin condiciones prepactadas
+        </p>
+      </div>
+
+      {posiciones.length === 0 ? (
+        <div style={{padding:40,textAlign:"center",color:"#27ae60",fontWeight:600,fontSize:15}}>
+          ✓ No hay mercadería sin contrato asignado
         </div>
-        <Btn variant="secondary" size="sm" onClick={()=>{cargar();cargarExposicion();}}>↻ Actualizar</Btn>
-      </div>
-
-      <div className="tab-bar" style={{marginBottom:20}}>
-        <button className={`tab ${tab==="valorizado"?"active":""}`} onClick={()=>setTab("valorizado")}>Valorizado</button>
-        <button className={`tab ${tab==="exposicion"?"active":""}`} onClick={()=>setTab("exposicion")}>Exposición Neta</button>
-      </div>
-
-      {tab==="exposicion" ? (
-        cargandoExp ? <div>Cargando...</div> : !exposicion || exposicion.length===0 ? (
-          <div style={{padding:40,textAlign:"center",color:"#27ae60",fontWeight:600}}>✓ No hay posición abierta a fijar</div>
-        ) : (
-          <div className="card">
-            <div style={{padding:"14px 18px",fontSize:12,color:"#8890a8"}}>
-              Toneladas compradas "a fijar" menos vendidas "a fijar", por producto. Positivo (largo) = te perjudica que el precio BAJE. Negativo (corto) = te perjudica que el precio SUBA.
+      ) : (
+        posiciones.map(pos => (
+          <div key={pos.productor.id} className="card" style={{marginBottom:14}}>
+            <div className="card-header">
+              <div>
+                <span style={{fontWeight:700,fontSize:15}}>{pos.productor.razon_social}</span>
+                <span style={{color:"#8890a8",fontSize:12,marginLeft:12}}>{pos.productor.cuit||"Informal"}</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <span className="mono" style={{color:"#f5a623",fontWeight:700,fontSize:16}}>
+                  {pos.tn.toFixed(3)} tn sin asignar
+                </span>
+                <Badge label="A FIJAR" color="purple"/>
+              </div>
             </div>
             <table>
-              <thead><tr><th>Producto</th><th>Compradas a fijar</th><th>Vendidas a fijar</th><th>Posición neta</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>N° Mov</th><th>Especie</th><th>Campaña</th>
+                  <th>Comprador</th><th>Kg Liquidables</th>
+                  <th>Humedad</th><th>Factor</th><th>Estado Calidad</th><th>Acción</th>
+                </tr>
+              </thead>
               <tbody>
-                {exposicion.map((e,i)=>(
-                  <tr key={i}>
-                    <td style={{fontWeight:600}}>{e.especie_nombre}</td>
-                    <td className="mono">{fmtTn(e.tn_compradas_a_fijar)}</td>
-                    <td className="mono">{fmtTn(e.tn_vendidas_a_fijar)}</td>
-                    <td className="mono" style={{fontWeight:700,color:e.posicion_neta>0?"#3498db":e.posicion_neta<0?"#e74c3c":"#8890a8"}}>
-                      {e.posicion_neta>0?"+":""}{fmtTn(e.posicion_neta)} {e.posicion_neta>0?"(largo)":e.posicion_neta<0?"(corto)":""}
+                {pos.movs.map(m => (
+                  <tr key={m.id}>
+                    <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{m.numero}</span></td>
+                    <td>{m.especie}</td>
+                    <td><span className="mono" style={{fontSize:11}}>{m.campana}</span></td>
+                    <td style={{color:"#8890a8",fontSize:12}}>{m.destino?.split(",")[0]||"—"}</td>
+                    <td>
+                      <span className="mono" style={{fontWeight:600}}>
+                        {m.kg_liquidables?.toLocaleString() || <span style={{color:"#565d7a"}}>Sin calidad</span>}
+                      </span>
+                    </td>
+                    <td><span className="mono">{m.humedad_llegada||"—"}</span></td>
+                    <td>
+                      {m.factor
+                        ? <span className="mono" style={{color:"#f5a623"}}>{m.factor}</span>
+                        : <Badge label="Falta" color="red"/>
+                      }
+                    </td>
+                    <td>
+                      {m.factor
+                        ? <Badge label="OK" color="green"/>
+                        : <Badge label="Sin calidad" color="red"/>
+                      }
+                    </td>
+                    <td>
+                      <div style={{display:"flex",gap:6}}>
+                        <Btn variant="secondary" size="sm"
+                          onClick={()=>{setSeleccionado(m);setShowAsignar(true);}}>
+                          Asignar Contrato
+                        </Btn>
+                        <Btn variant="ghost" size="sm"
+                          onClick={()=>alert("Crear venta directa desde posición abierta para "+m.numero)}>
+                          Vender
+                        </Btn>
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        )
-      ) : cargando ? <div>Cargando...</div> : !data ? (
-        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No se pudo cargar la posición.</div>
-      ) : (
-        <React.Fragment>
-          <div className="card" style={{padding:"20px 24px",marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div>
-              <div style={{fontSize:12,color:"#8890a8",marginBottom:4}}>Valor total sin liquidar (todos los productos)</div>
-              <div style={{fontSize:28,fontWeight:700,color:"#f5a623"}}>{fmtMoney(data.total_general)}</div>
-            </div>
-            <div style={{fontSize:11,color:"#565d7a"}}>Al {new Date(data.fecha).toLocaleDateString("es-AR")}</div>
-          </div>
+        ))
+      )}
 
-          {data.grupos.length===0 ? (
-            <div style={{padding:40,textAlign:"center",color:"#27ae60",fontWeight:600}}>
-              ✓ No hay posición sin liquidar
+      {/* MODAL ASIGNAR CONTRATO */}
+      {showAsignar && seleccionado && (
+        <Modal title={`Asignar Contrato — ${seleccionado.numero}`} onClose={()=>setShowAsignar(false)}>
+          <div className="alert-info" style={{marginBottom:16}}>
+            Seleccioná un contrato existente o creá uno nuevo para asignar esta mercadería.
+          </div>
+          <div style={{padding:"12px 14px",background:"#0f1117",borderRadius:8,border:"1px solid #2a2d3e",marginBottom:16}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+              {[
+                ["Productor", seleccionado.productor],
+                ["Especie", seleccionado.especie],
+                ["Kg Liquidables", seleccionado.kg_liquidables?.toLocaleString()||"Sin calidad"],
+              ].map(([l,v])=>(
+                <div key={l}>
+                  <div style={{fontSize:11,color:"#8890a8"}}>{l}</div>
+                  <div style={{fontWeight:600,marginTop:2}}>{v}</div>
+                </div>
+              ))}
             </div>
-          ) : (
-            <div className="card">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Producto</th><th>Dónde está</th>
-                    <th>Con precio cerrado</th><th>A precio de referencia</th>
-                    <th>Precio de referencia usado</th><th>Valor total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.grupos.map((g,i)=>(
-                    <tr key={i}>
-                      <td style={{fontWeight:600}}>{g.especie_nombre}</td>
-                      <td>
-                        {g.ubicacion_nombre}
-                        {g.es_propia
-                          ? <Badge label="Propia" color="green"/>
-                          : <Badge label="Tercero" color="orange"/>}
-                      </td>
-                      <td>
-                        {g.toneladas_con_precio>0 ? (
-                          <span className="mono">{fmtTn(g.toneladas_con_precio)} — {fmtMoney(g.valor_con_precio)}</span>
-                        ) : <span style={{color:"#565d7a"}}>—</span>}
-                      </td>
-                      <td>
-                        {g.toneladas_a_fijar>0 ? (
-                          <span className="mono">
-                            {fmtTn(g.toneladas_a_fijar)} — {fmtMoney(g.valor_a_fijar)}
-                            {g.toneladas_a_fijar_sin_valuar>0 && (
-                              <div style={{color:"#e74c3c",fontSize:11}}>{fmtTn(g.toneladas_a_fijar_sin_valuar)} sin precio de referencia cargado</div>
-                            )}
-                          </span>
-                        ) : <span style={{color:"#565d7a"}}>—</span>}
-                      </td>
-                      <td style={{fontSize:12,color:"#8890a8"}}>
-                        {g.precio_referencia_usado!=null ? (
-                          <React.Fragment>
-                            {fmtMoney(g.precio_referencia_usado)}
-                            {g.precio_manual && <Badge label="Manual" color="blue"/>}
-                            {g.ajustado_por_flete && <Badge label="Neto de flete" color="gray"/>}
-                          </React.Fragment>
-                        ) : "Sin cargar"}
-                      </td>
-                      <td className="mono" style={{fontWeight:700,color:"#f5a623"}}>{fmtMoney(g.valor_total)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </React.Fragment>
+          </div>
+          <div className="form-grid-2">
+            <FF label="Asignar a Contrato de Compra Existente">
+              <select>
+                <option value="">Seleccionar contrato...</option>
+                {mockContratos.filter(c=>c.tipo==="COMPRA").map(c=>(
+                  <option key={c.id}>{c.numero} — {c.contraparte} — {c.especie}</option>
+                ))}
+              </select>
+            </FF>
+            <FF label="Asignar a Contrato de Venta Existente">
+              <select>
+                <option value="">Seleccionar contrato...</option>
+                {mockContratos.filter(c=>c.tipo==="VENTA").map(c=>(
+                  <option key={c.id}>{c.numero} — {c.contraparte} — {c.especie}</option>
+                ))}
+              </select>
+            </FF>
+          </div>
+          <div style={{padding:"12px 14px",background:"rgba(39,174,96,.06)",border:"1px solid rgba(39,174,96,.2)",borderRadius:6,marginTop:8,marginBottom:16,fontSize:12,color:"#27ae60"}}>
+            ¿No hay contrato? → Podés crear uno nuevo desde el módulo de Contratos y después volver acá a asignarlo.
+          </div>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <Btn variant="secondary" onClick={()=>setShowAsignar(false)}>Cancelar</Btn>
+            <Btn onClick={()=>{alert("✓ Contrato asignado al movimiento "+seleccionado.numero);setShowAsignar(false);}}>
+              Confirmar Asignación
+            </Btn>
+          </div>
+        </Modal>
       )}
     </div>
   );
 };
-
 
 // ── IMPORTADOR EXCEL ──
 const ImportadorExcel = ({modulo, usuario}) => {
@@ -9723,46 +9672,13 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
   useEffect(()=>{
     api.get("/api/especies").then(d=>setEspecies(d)).catch(()=>{});
     api.get("/api/campanas").then(d=>setCampanas(d)).catch(()=>{});
-    cargarUbicaciones();
-    api.get("/api/contrapartes").then(d=>setCompradoresLista((d||[]).filter(c=>c.tipo_contraparte==="COMPRADOR"||c.tipo_contraparte==="AMBOS"))).catch(()=>{});
   },[]);
 
   useEffect(() => {
     if (tab === "usuarios") {
       api.get("/api/usuarios").then(d => d && setUsuarios(d)).catch(() => {});
     }
-    if (tab === "precios") {
-      cargarPreciosVigentes();
-    }
   }, [tab]);
-
-  const cargarPreciosVigentes = async () => {
-    setCargandoPrecios(true);
-    const data = await api.get("/api/precios/vigentes");
-    setPreciosVigentes(data || []);
-    setCargandoPrecios(false);
-  };
-
-  const actualizarPrecio = async (idEspecie) => {
-    const nuevoValor = edicionPrecio[idEspecie];
-    if (!nuevoValor || isNaN(parseFloat(nuevoValor))) {
-      alert("Ingresá un precio válido");
-      return;
-    }
-    try {
-      await api.post("/api/precios", { id_especie: idEspecie, precio: parseFloat(nuevoValor), moneda: "ARS" });
-      setEdicionPrecio({...edicionPrecio, [idEspecie]: ""});
-      await cargarPreciosVigentes();
-      alert("✓ Precio actualizado");
-    } catch (e) { alert("Error: " + e.message); }
-  };
-
-  const verHistorialPrecio = async (idEspecie) => {
-    if (historialAbierto === idEspecie) { setHistorialAbierto(null); return; }
-    const data = await api.get(`/api/precios/historial/${idEspecie}`);
-    setHistorialPrecio(data || []);
-    setHistorialAbierto(idEspecie);
-  };
 
   const guardarEspecie = async() => {
     if(!nuevaEspecie.nombre||!nuevaEspecie.codigo){alert("Nombre y código son obligatorios");return;}
@@ -9839,12 +9755,9 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
     } catch(e) { alert("Error: "+e.message); }
   };
 
-  const sinZonaCount = ubicaciones.filter(u=>!u.zona).length;
   const tabs = [
     {id:"especies",label:"Especies / Productos"},
     {id:"campanas",label:"Campañas"},
-    {id:"precios",label:"Precios de Referencia"},
-    {id:"ubicaciones",label:sinZonaCount>0?`Ubicaciones / Zonas ⚠ ${sinZonaCount} sin clasificar`:"Ubicaciones / Zonas"},
     {id:"arca",label:"Conexión ARCA"}
   ];
   if (usuario && usuario.rol === 'ADMIN') {
@@ -9867,33 +9780,17 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
         <div>
           <div className="card" style={{marginBottom:16}}>
             <div className="card-header"><span style={{fontWeight:600}}>Especies / Productos registrados</span></div>
-            <table><thead><tr><th>ID</th><th>Nombre</th><th>Código</th><th>Tipo</th><th>Rendimiento teórico</th><th>Estado</th></tr></thead>
+            <table><thead><tr><th>ID</th><th>Nombre</th><th>Código</th><th>Estado</th></tr></thead>
             <tbody>
               {especies.map(e=>(
                 <tr key={e.id}>
                   <td><span className="mono" style={{color:"#565d7a"}}>{e.id}</span></td>
                   <td style={{fontWeight:500}}>{e.nombre}</td>
                   <td><span className="mono" style={{color:"#f5a623"}}>{e.codigo}</span></td>
-                  <td><Badge label={e.tipo_producto==="SUBPRODUCTO"?"Subproducto":"Grano"} color={e.tipo_producto==="SUBPRODUCTO"?"blue":"gray"}/></td>
-                  <td>
-                    {e.tipo_producto==="SUBPRODUCTO" ? (
-                      <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                        <input type="number" step="0.1" defaultValue={e.rendimiento_teorico_pct||""} style={{width:70,padding:"3px 6px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}
-                          onBlur={async(ev)=>{
-                            const val = ev.target.value;
-                            try {
-                              await api.put(`/api/especies/${e.id}`, { rendimiento_teorico_pct: val===""?null:parseFloat(val) });
-                              setEspecies(especies.map(x=>x.id===e.id?{...x,rendimiento_teorico_pct:val===""?null:parseFloat(val)}:x));
-                            } catch(err){ alert("Error al guardar: "+err.message); }
-                          }}/>
-                        <span style={{fontSize:11,color:"#8890a8"}}>% por tn de {especies.find(o=>o.id===e.id_especie_origen)?.nombre||"grano"}</span>
-                      </div>
-                    ) : <span style={{color:"#565d7a"}}>—</span>}
-                  </td>
                   <td><Badge label={e.activa?"Activa":"Inactiva"} color={e.activa?"green":"gray"}/></td>
                 </tr>
               ))}
-              {especies.length===0&&<tr><td colSpan={6} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay especies cargadas</td></tr>}
+              {especies.length===0&&<tr><td colSpan={4} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay especies cargadas</td></tr>}
             </tbody></table>
           </div>
           <div className="card" style={{padding:"18px 20px"}}>
@@ -10366,791 +10263,120 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
   );
 };
 
-// ── COMPONENTE AUDITORÍA ──
-const RegistroAuditoria = ({r}) => {
-  const [expandido, setExpandido] = useState(false);
-  return (
-    <React.Fragment>
-      <tr style={{borderBottom:"1px solid #1e212e"}}>
-        <td style={{padding:8,whiteSpace:"nowrap"}}>{new Date(r.fecha).toLocaleString("es-AR")}</td>
-        <td style={{padding:8}}>{r.usuario}</td>
-        <td style={{padding:8}}>{r.accion}</td>
-        <td style={{padding:8}}>{r.modulo}</td>
-        <td style={{padding:8}}>{r.registro_id ?? "-"}</td>
-        <td style={{padding:8}}>
-          {(r.datos_antes || r.datos_despues) && (
-            <button onClick={()=>setExpandido(!expandido)} style={{background:"none",border:"none",color:"#3498db",cursor:"pointer",fontSize:12}}>
-              {expandido ? "Ocultar" : "Ver detalle"}
-            </button>
-          )}
-        </td>
-      </tr>
-      {expandido && (
-        <tr>
-          <td colSpan={6} style={{padding:"8px 12px",background:"#0f1117"}}>
-            {r.datos_antes && (
-              <div style={{marginBottom:8}}>
-                <div style={{color:"#8890a8",fontSize:11,marginBottom:4}}>ANTES:</div>
-                <pre style={{whiteSpace:"pre-wrap",fontSize:11,color:"#e8eaf0",margin:0}}>{JSON.stringify(r.datos_antes,null,2)}</pre>
-              </div>
-            )}
-            {r.datos_despues && (
-              <div>
-                <div style={{color:"#8890a8",fontSize:11,marginBottom:4}}>DESPUÉS:</div>
-                <pre style={{whiteSpace:"pre-wrap",fontSize:11,color:"#e8eaf0",margin:0}}>{JSON.stringify(r.datos_despues,null,2)}</pre>
-              </div>
-            )}
-          </td>
-        </tr>
-      )}
-    </React.Fragment>
-  );
-};
-
-const Auditoria = () => {
-  const [registros, setRegistros] = useState([]);
-  const [cargando, setCargando] = useState(true);
-  const [filtroModulo, setFiltroModulo] = useState("");
-  const [filtroUsuario, setFiltroUsuario] = useState("");
-  const [filtroAccion, setFiltroAccion] = useState("");
-
-  const cargar = async () => {
-    setCargando(true);
-    const params = new URLSearchParams();
-    if (filtroModulo) params.set("modulo", filtroModulo);
-    if (filtroUsuario) params.set("usuario", filtroUsuario);
-    if (filtroAccion) params.set("accion", filtroAccion);
-    const data = await api.get(`/api/auditoria?${params.toString()}`);
-    setRegistros(data || []);
-    setCargando(false);
-  };
-
-  useEffect(() => { cargar(); }, []);
-
-  const inputStyle = {padding:"6px 10px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4};
-
-  return (
-    <div style={{padding:24}}>
-      <h2 style={{marginBottom:4}}>Auditoría</h2>
-      <div style={{color:"#8890a8",fontSize:12,marginBottom:16}}>
-        Historial de cambios del sistema. Es de solo lectura: ningún usuario, incluido el administrador, puede editar o borrar estos registros.
-      </div>
-      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-        <input placeholder="Buscar por usuario..." value={filtroUsuario} onChange={e=>setFiltroUsuario(e.target.value)} style={inputStyle}/>
-        <select value={filtroModulo} onChange={e=>setFiltroModulo(e.target.value)} style={inputStyle}>
-          <option value="">Todos los módulos</option>
-          <option value="contratos">Contratos</option>
-          <option value="movimientos">Movimientos</option>
-          <option value="liquidaciones">Liquidaciones</option>
-          <option value="usuarios">Usuarios</option>
-          <option value="CONTRAPARTES">Propuestas IA: Contrapartes</option>
-          <option value="CONTRATOS">Propuestas IA: Contratos</option>
-          <option value="MOVIMIENTOS">Propuestas IA: Movimientos</option>
-          <option value="LIQUIDACIONES">Propuestas IA: Liquidaciones</option>
-        </select>
-        <select value={filtroAccion} onChange={e=>setFiltroAccion(e.target.value)} style={inputStyle}>
-          <option value="">Todas las acciones</option>
-          <option value="CREAR">Crear</option>
-          <option value="MODIFICAR">Modificar</option>
-          <option value="ELIMINAR">Eliminar</option>
-          <option value="CAMBIAR_ESTADO">Cambiar estado</option>
-          <option value="CREAR_PROPUESTA">Propuesta creada (Agente IA)</option>
-          <option value="APROBAR_PROPUESTA">Propuesta aprobada</option>
-          <option value="RECHAZAR_PROPUESTA">Propuesta rechazada</option>
-        </select>
-        <Btn onClick={cargar} size="sm">Filtrar</Btn>
-      </div>
-      {cargando ? <div>Cargando...</div> : (
-        <div style={{overflowX:"auto",border:"1px solid #2a2d3e",borderRadius:8}}>
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-            <thead>
-              <tr style={{textAlign:"left",borderBottom:"1px solid #2a2d3e",color:"#8890a8"}}>
-                <th style={{padding:8}}>Fecha</th>
-                <th style={{padding:8}}>Usuario</th>
-                <th style={{padding:8}}>Acción</th>
-                <th style={{padding:8}}>Módulo</th>
-                <th style={{padding:8}}>Registro</th>
-                <th style={{padding:8}}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {registros.map(r => <RegistroAuditoria key={r.id} r={r}/>)}
-              {registros.length === 0 && (
-                <tr><td colSpan={6} style={{padding:16,textAlign:"center",color:"#565d7a"}}>No hay registros para estos filtros.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ── CALCULADORA DE CAPACIDAD DE PAGO (reutilizable) ──
-const CalculadoraCapacidadPago = () => {
-  const [especies, setEspecies] = useState([]);
-  const [calcEspecie, setCalcEspecie] = useState("");
-  const [calcCostoMolienda, setCalcCostoMolienda] = useState("");
-  const [calcResultado, setCalcResultado] = useState(null);
-  const [calculando, setCalculando] = useState(false);
-
-  useEffect(()=>{ api.get("/api/especies").then(d=>setEspecies(d||[])); },[]);
-  const especiesGrano = especies.filter(e=>e.tipo_producto!=="SUBPRODUCTO");
-
-  const calcularCapacidadPago = async () => {
-    if (!calcEspecie) { alert("Elegí el grano"); return; }
-    setCalculando(true);
-    try {
-      const r = await api.get(`/api/posicion/capacidad-pago?id_especie=${calcEspecie}&costo_molienda=${calcCostoMolienda||0}`);
-      setCalcResultado(r);
-    } catch(e) { alert("Error: " + (e.response?.data?.error || e.message)); }
-    finally { setCalculando(false); }
-  };
-
-  return (
-    <div className="card" style={{padding:"16px 20px",marginBottom:20}}>
-      <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>Calculadora de Capacidad de Pago</div>
-      <p style={{color:"#8890a8",fontSize:12,marginBottom:12}}>
-        Cuánto podés pagar como máximo por el grano para que, convertido en subproductos y descontado el costo de molienda, siga siendo negocio. Por encima de este precio para ese destino, perdés plata; por debajo, ganás.
-      </p>
-      <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"}}>
-        <FF label="Grano">
-          <select value={calcEspecie} onChange={e=>{setCalcEspecie(e.target.value);setCalcResultado(null);}}>
-            <option value="">Seleccionar...</option>
-            {especiesGrano.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
-          </select>
-        </FF>
-        <FF label="Costo de molienda ($/tn)"><input type="number" value={calcCostoMolienda} onChange={e=>setCalcCostoMolienda(e.target.value)} placeholder="Ej: 65000"/></FF>
-        <Btn size="sm" disabled={calculando} onClick={calcularCapacidadPago}>{calculando?"Calculando...":"Calcular"}</Btn>
-      </div>
-      {calcResultado && (
-        <div style={{marginTop:14,paddingTop:14,borderTop:"1px solid #2a2d3e"}}>
-          <table style={{fontSize:13}}>
-            <thead><tr><th>Subproducto</th><th>Rendimiento</th><th>Precio de referencia</th><th>Aporte por tn de grano</th></tr></thead>
-            <tbody>
-              {calcResultado.detalle.map((d,i)=>(
-                <tr key={i}>
-                  <td>{d.especie_nombre}</td>
-                  <td className="mono">{d.rendimiento_pct}%</td>
-                  <td className="mono">{d.precio_referencia!=null?`$ ${Number(d.precio_referencia).toLocaleString("es-AR")}`:<span style={{color:"#e74c3c"}}>Sin cargar</span>}</td>
-                  <td className="mono">{d.aporte_por_ton!=null?`$ ${Number(d.aporte_por_ton).toLocaleString("es-AR")}`:"—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {calcResultado.falta_algun_precio && (
-            <div style={{color:"#e74c3c",fontSize:12,marginTop:8}}>⚠ Falta cargar el precio de referencia de algún subproducto (Configuración → Precios de Referencia) — el cálculo está incompleto.</div>
-          )}
-          <div style={{marginTop:12,display:"flex",gap:24}}>
-            <div>
-              <div style={{fontSize:11,color:"#8890a8"}}>Ingreso teórico por tn</div>
-              <div style={{fontSize:18,fontWeight:700}}>$ {Number(calcResultado.ingreso_teorico_por_ton).toLocaleString("es-AR")}</div>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:"#8890a8"}}>Capacidad de pago por tn</div>
-              <div style={{fontSize:22,fontWeight:700,color:"#f5a623"}}>$ {Number(calcResultado.capacidad_pago_por_ton).toLocaleString("es-AR")}</div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ── COMPONENTE CALCULOS (Operaciones) — panel de calculadoras de rentabilidad,
-// pensado para ir sumando mas calculadoras ademas de Capacidad de Pago ──
-const Calculos = () => {
-  return (
-    <div className="fade-in">
-      <div style={{marginBottom:20}}>
-        <h2 style={{fontSize:18,fontWeight:700}}>Cálculos</h2>
-        <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Calculadoras de rentabilidad para decidir si conviene o no una operación.</p>
-      </div>
-      <CalculadoraCapacidadPago/>
-    </div>
-  );
-};
-
-// ── COMPONENTE REGULARIZACION POR PRODUCTOR ──
-// Compara, por productor, cuanto entrego informal vs. cuanto formalizo
-// despues como produccion propia (CTG 101) -- para ver si cierra la
-// cuenta, sin exigir que los kilos coincidan camion a camion.
-const RegularizacionProductor = () => {
-  const [data, setData] = useState(null);
-  const [cargando, setCargando] = useState(true);
-
-  const cargar = async () => {
-    setCargando(true);
-    const res = await api.get("/api/regularizacion/por-productor");
-    setData(res);
-    setCargando(false);
-  };
-
-  useEffect(()=>{ cargar(); },[]);
-
-  const fmtTn = (v) => `${Number(v).toLocaleString("es-AR",{minimumFractionDigits:3,maximumFractionDigits:3})} tn`;
-
-  return (
-    <div className="fade-in">
-      <div style={{marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div>
-          <h2 style={{fontSize:18,fontWeight:700}}>Regularización por Productor</h2>
-          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>
-            Cuánto entregó cada productor de manera informal, contra cuánto entró después formalmente como producción propia suya (detectado por CTG 101). No exige que coincida camión a camión, es para ver de un vistazo si cierra.
-          </p>
-        </div>
-        <Btn variant="secondary" size="sm" onClick={cargar}>↻ Actualizar</Btn>
-      </div>
-      {cargando ? <div>Cargando...</div> : !data || data.length===0 ? (
-        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay datos para mostrar todavía.</div>
-      ) : (
-        <div className="card">
-          <table>
-            <thead>
-              <tr>
-                <th>Productor</th><th>Producto</th>
-                <th>Informal total</th><th>Informal sin contrato</th>
-                <th>Formal (producción propia)</th><th>Diferencia</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((g,i)=>(
-                <tr key={i}>
-                  <td style={{fontWeight:600}}>{g.productor}<div style={{fontSize:11,color:"#8890a8"}}>{g.cuit}</div></td>
-                  <td>{g.especie_nombre}</td>
-                  <td className="mono">{fmtTn(g.tn_informal_total)}</td>
-                  <td className="mono">{fmtTn(g.tn_informal_sin_contrato)}</td>
-                  <td className="mono">{fmtTn(g.tn_formal_propia)}</td>
-                  <td className="mono" style={{fontWeight:700,color:Math.abs(g.diferencia)<0.01?"#27ae60":"#e74c3c"}}>{fmtTn(g.diferencia)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ── COMPONENTE INDICADORES (KPIs) ──
-const Indicadores = () => {
-  const [tab, setTab] = useState("margen");
-  const [margenes, setMargenes] = useState(null);
-  const [saldos, setSaldos] = useState(null);
-  const [rotacion, setRotacion] = useState(null);
-  const [cargando, setCargando] = useState(true);
-
-  const cargar = async () => {
-    setCargando(true);
-    const [m, s, r] = await Promise.all([
-      api.get("/api/kpis/margen-clientes"),
-      api.get("/api/kpis/antiguedad-saldos"),
-      api.get("/api/kpis/rotacion-stock")
-    ]);
-    setMargenes(m||[]);
-    setSaldos(s||[]);
-    setRotacion(r||[]);
-    setCargando(false);
-  };
-
-  useEffect(()=>{ cargar(); },[]);
-
-  const fmtMoney = (v) => `$ ${Number(v).toLocaleString("es-AR",{maximumFractionDigits:0})}`;
-  const fmtTn = (v) => `${Number(v).toLocaleString("es-AR",{minimumFractionDigits:3,maximumFractionDigits:3})} tn`;
-
-  return (
-    <div className="fade-in">
-      <div style={{marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div>
-          <h2 style={{fontSize:18,fontWeight:700}}>Indicadores</h2>
-          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Margen por cliente, antigüedad de saldos y rotación de stock.</p>
-        </div>
-        <Btn variant="secondary" size="sm" onClick={cargar}>↻ Actualizar</Btn>
-      </div>
-
-      <div className="tab-bar" style={{marginBottom:20}}>
-        <button className={`tab ${tab==="margen"?"active":""}`} onClick={()=>setTab("margen")}>Margen por Cliente</button>
-        <button className={`tab ${tab==="saldos"?"active":""}`} onClick={()=>setTab("saldos")}>Antigüedad de Saldos</button>
-        <button className={`tab ${tab==="rotacion"?"active":""}`} onClick={()=>setTab("rotacion")}>Rotación de Stock</button>
-      </div>
-
-      {cargando ? <div>Cargando...</div> : (
-        <React.Fragment>
-          {tab==="margen" && (
-            margenes.length===0 ? <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay liquidaciones de venta todavía.</div> : (
-              <div className="card">
-                <div style={{padding:"10px 16px",fontSize:12,color:"#8890a8"}}>
-                  El margen usa el precio de compra del contrato vinculado a cada movimiento cuando existe; si no, esas toneladas quedan aparte (sin costo de referencia) para no inventar un número.
-                </div>
-                <table>
-                  <thead><tr><th>Cliente</th><th>Toneladas</th><th>Ingreso</th><th>Costo</th><th>Margen bruto</th><th>Sin costo de ref.</th></tr></thead>
-                  <tbody>
-                    {margenes.map((g,i)=>(
-                      <tr key={i}>
-                        <td style={{fontWeight:600}}>{g.cliente}</td>
-                        <td className="mono">{fmtTn(g.toneladas)}</td>
-                        <td className="mono">{fmtMoney(g.ingreso_total)}</td>
-                        <td className="mono">{fmtMoney(g.costo_total)}</td>
-                        <td className="mono" style={{fontWeight:700,color:g.margen_bruto>=0?"#27ae60":"#e74c3c"}}>{fmtMoney(g.margen_bruto)}</td>
-                        <td className="mono" style={{color:"#8890a8"}}>{g.toneladas_sin_costo_de_referencia>0?fmtTn(g.toneladas_sin_costo_de_referencia):"—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
-          )}
-
-          {tab==="saldos" && (
-            saldos.length===0 ? <div style={{padding:40,textAlign:"center",color:"#27ae60",fontWeight:600}}>✓ No hay saldos abiertos</div> : (
-              <div className="card">
-                <table>
-                  <thead><tr><th>Contraparte</th><th>0-30 días</th><th>31-60 días</th><th>61-90 días</th><th>+90 días</th><th>Total</th></tr></thead>
-                  <tbody>
-                    {saldos.map((g,i)=>(
-                      <tr key={i}>
-                        <td style={{fontWeight:600}}>{g.contraparte}</td>
-                        <td className="mono">{fmtMoney(g.d0_30)}</td>
-                        <td className="mono">{fmtMoney(g.d31_60)}</td>
-                        <td className="mono" style={{color:g.d61_90!==0?"#f5a623":"inherit"}}>{fmtMoney(g.d61_90)}</td>
-                        <td className="mono" style={{color:g.d90_mas!==0?"#e74c3c":"inherit"}}>{fmtMoney(g.d90_mas)}</td>
-                        <td className="mono" style={{fontWeight:700}}>{fmtMoney(g.total)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
-          )}
-
-          {tab==="rotacion" && (
-            rotacion.length===0 ? <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay stock cargado todavía.</div> : (
-              <div className="card">
-                <table>
-                  <thead><tr><th>Producto</th><th>Ubicación</th><th>Stock actual</th><th>Entraron (30d)</th><th>Salieron (30d)</th></tr></thead>
-                  <tbody>
-                    {rotacion.map((g,i)=>(
-                      <tr key={i}>
-                        <td style={{fontWeight:600}}>{g.especie_nombre}</td>
-                        <td>{g.ubicacion_nombre}</td>
-                        <td className="mono">{fmtTn(g.stock_actual)}</td>
-                        <td className="mono" style={{color:"#27ae60"}}>{fmtTn(g.entraron_30d)}</td>
-                        <td className="mono" style={{color:"#e74c3c"}}>{fmtTn(g.salieron_30d)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
-          )}
-        </React.Fragment>
-      )}
-    </div>
-  );
-};
-
-// ── COMPONENTE BOLSA POR ZONA ──
-// Descargas sin contrato entran a la bolsa de su zona (via el motor de
-// stock); desde aca se "saca" de esa bolsa para completar contratos de
-// compra, sin tener que vincular camion por camion.
-const BolsaPorZona = ({modulo}) => {
-  const [bolsas, setBolsas] = useState([]);
-  const [cargando, setCargando] = useState(true);
-  const [contratos, setContratos] = useState([]);
-  const [aplicando, setAplicando] = useState(null); // clave de la bolsa siendo aplicada
-  const [contratoSel, setContratoSel] = useState("");
-  const [toneladasSel, setToneladasSel] = useState("");
-  const [guardando, setGuardando] = useState(false);
-
-  const [retirando, setRetirando] = useState(null); // clave de la bolsa con retiro abierto
-  const [contrapartes, setContrapartes] = useState([]);
-  const [productorSel, setProductorSel] = useState("");
-  const [toneladasRetiro, setToneladasRetiro] = useState("");
-  const [numero1116rt, setNumero1116rt] = useState("");
-
-  const cargar = async () => {
-    setCargando(true);
-    const [b, c, cp] = await Promise.all([
-      api.get("/api/stock/por-zona"),
-      api.get("/api/contratos"),
-      api.get("/api/contrapartes")
-    ]);
-    setBolsas(b||[]);
-    setContratos((c||[]).filter(x=>x.tipo_contrato==="COMPRA" && x.modalidad===modulo && x.estado!=="CUMPLIDO" && x.activo!==false));
-    setContrapartes((cp||[]).filter(x=>x.tipo_contraparte==="PRODUCTOR"||x.tipo_contraparte==="AMBOS"));
-    setCargando(false);
-  };
-
-  useEffect(()=>{ cargar(); },[modulo]);
-
-  const fmtTn = (v) => `${Number(v).toLocaleString("es-AR",{minimumFractionDigits:3,maximumFractionDigits:3})} tn`;
-
-  const abrirAplicar = (bolsa) => {
-    const clave = `${bolsa.zona}|${bolsa.id_especie}|${bolsa.id_campana}`;
-    setAplicando(clave);
-    setContratoSel("");
-    setToneladasSel("");
-  };
-
-  const aplicar = async (bolsa) => {
-    if (!contratoSel || !toneladasSel) { alert("Elegí el contrato y las toneladas"); return; }
-    setGuardando(true);
-    try {
-      const r = await api.post(`/api/contratos/${contratoSel}/aplicar-stock-zona`, {
-        zona: bolsa.zona, toneladas: parseFloat(toneladasSel)
-      });
-      if (r && r.aplicacion) {
-        alert(`✓ Aplicadas ${r.aplicacion.toneladas}tn al contrato`);
-        setAplicando(null);
-        cargar();
-      } else {
-        alert("Error: " + (r?.error || "no se pudo aplicar"));
-      }
-    } catch(e) { alert("Error: " + (e.response?.data?.error || e.message)); }
-    finally { setGuardando(false); }
-  };
-
-  const contratosDeEspecie = (idEspecie) => contratos.filter(c=>c.id_especie===idEspecie);
-
-  const abrirRetiro = (bolsa) => {
-    const clave = `${bolsa.zona}|${bolsa.id_especie}|${bolsa.id_campana}`;
-    setRetirando(clave);
-    setProductorSel("");
-    setToneladasRetiro("");
-    setNumero1116rt("");
-  };
-
-  const confirmarRetiro = async (bolsa) => {
-    if (!productorSel || !toneladasRetiro) { alert("Elegí el productor y las toneladas"); return; }
-    setGuardando(true);
-    try {
-      const r = await api.post("/api/retiros-productor", {
-        id_contraparte: parseInt(productorSel), zona: bolsa.zona,
-        id_especie: bolsa.id_especie, id_campana: bolsa.id_campana,
-        toneladas: parseFloat(toneladasRetiro), numero_1116rt: numero1116rt || null
-      });
-      if (r && r.retiro) {
-        alert(`✓ Retiro registrado: ${r.retiro.toneladas}tn`);
-        setRetirando(null);
-        cargar();
-      } else {
-        alert("Error: " + (r?.error || "no se pudo registrar"));
-      }
-    } catch(e) { alert("Error: " + (e.response?.data?.error || e.message)); }
-    finally { setGuardando(false); }
-  };
-
-  return (
-    <div className="fade-in">
-      <div style={{marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div>
-          <h2 style={{fontSize:18,fontWeight:700}}>Bolsa por Zona</h2>
-          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>
-            Lo que entra sin contrato se junta acá, agrupado por zona de referencia. Desde acá se aplica a los contratos de compra hasta completarlos.
-          </p>
-        </div>
-        <Btn variant="secondary" size="sm" onClick={cargar}>↻ Actualizar</Btn>
-      </div>
-
-      {cargando ? <div>Cargando...</div> : bolsas.length===0 ? (
-        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay stock en ninguna zona todavía.</div>
-      ) : (
-        <div className="card">
-          <table>
-            <thead><tr><th>Zona</th><th>Producto</th><th>Toneladas</th><th>Costo promedio</th><th colSpan={2}></th></tr></thead>
-            <tbody>
-              {bolsas.map((b,i)=>{
-                const clave = `${b.zona}|${b.id_especie}|${b.id_campana}`;
-                return (
-                  <React.Fragment key={i}>
-                    <tr>
-                      <td style={{fontWeight:600}}>{b.zona}</td>
-                      <td>{b.especie_nombre} <span style={{fontSize:11,color:"#8890a8"}}>({b.campana_desc})</span></td>
-                      <td className="mono">{fmtTn(b.toneladas_totales)}</td>
-                      <td className="mono">$ {Number(b.costo_promedio_ponderado).toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
-                      <td><Btn size="sm" variant="secondary" onClick={()=>abrirAplicar(b)}>Aplicar a contrato</Btn></td>
-                      <td><Btn size="sm" variant="secondary" onClick={()=>abrirRetiro(b)}>Retiro de Productor</Btn></td>
-                    </tr>
-                    {aplicando===clave && (
-                      <tr>
-                        <td colSpan={6} style={{padding:"10px 16px",background:"#0f1117"}}>
-                          <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"}}>
-                            <FF label="Contrato de compra">
-                              <select value={contratoSel} onChange={e=>setContratoSel(e.target.value)}>
-                                <option value="">Seleccionar...</option>
-                                {contratosDeEspecie(b.id_especie).map(c=>(
-                                  <option key={c.id} value={c.id}>{c.numero_contrato} — faltan {(parseFloat(c.cantidad_toneladas_pactadas)-parseFloat(c.cantidad_toneladas_asignadas||0)).toFixed(3)}tn</option>
-                                ))}
-                              </select>
-                            </FF>
-                            <FF label="Toneladas a aplicar"><input type="number" value={toneladasSel} onChange={e=>setToneladasSel(e.target.value)} placeholder={`máx ${b.toneladas_totales}`}/></FF>
-                            <Btn size="sm" disabled={guardando} onClick={()=>aplicar(b)}>{guardando?"Aplicando...":"Confirmar"}</Btn>
-                            <Btn size="sm" variant="ghost" onClick={()=>setAplicando(null)}>Cancelar</Btn>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                    {retirando===clave && (
-                      <tr>
-                        <td colSpan={6} style={{padding:"10px 16px",background:"#0f1117"}}>
-                          <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"}}>
-                            <FF label="Productor">
-                              <select value={productorSel} onChange={e=>setProductorSel(e.target.value)}>
-                                <option value="">Seleccionar...</option>
-                                {contrapartes.map(c=><option key={c.id} value={c.id}>{c.razon_social}</option>)}
-                              </select>
-                            </FF>
-                            <FF label="Toneladas a retirar"><input type="number" value={toneladasRetiro} onChange={e=>setToneladasRetiro(e.target.value)} placeholder={`máx ${b.toneladas_totales}`}/></FF>
-                            <FF label="N° 1116RT (si ya lo tramitaste)"><input value={numero1116rt} onChange={e=>setNumero1116rt(e.target.value)} placeholder="Opcional"/></FF>
-                            <Btn size="sm" disabled={guardando} onClick={()=>confirmarRetiro(b)}>{guardando?"Guardando...":"Confirmar retiro"}</Btn>
-                            <Btn size="sm" variant="ghost" onClick={()=>setRetirando(null)}>Cancelar</Btn>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ── COMPONENTE PRODUCCION / MAQUILA ──
-const OrdenesProduccion = ({modulo, usuario}) => {
-  const [ordenes, setOrdenes] = useState([]);
-  const [cargando, setCargando] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [contrapartes, setContrapartes] = useState([]);
-  const [especies, setEspecies] = useState([]);
-  const [ubicacionesPropias, setUbicacionesPropias] = useState([]);
-  const [campanas, setCampanas] = useState([]);
-  const [form, setForm] = useState({ id_contraparte:"", id_especie:"", id_campana:"", cantidad_toneladas_pactadas:"", id_ubicacion_origen:"", costo_servicio_produccion:"", observaciones:"" });
-  const [guardando, setGuardando] = useState(false);
-
-  const [detalleAbierto, setDetalleAbierto] = useState(null);
-  const [salidas, setSalidas] = useState({});
-  const [nuevaSalida, setNuevaSalida] = useState({ id_especie:"", cantidad_kg:"", id_ubicacion_destino:"" });
-
-  const cargar = async () => {
-    setCargando(true);
-    const data = await api.get("/api/contratos");
-    setOrdenes((data||[]).filter(c => c.tipo_contrato === "PRODUCCION" && c.modalidad === modulo));
-    setCargando(false);
-  };
-
-  useEffect(()=>{
-    cargar();
-    api.get("/api/contrapartes").then(d=>setContrapartes(d||[]));
-    api.get("/api/especies").then(d=>setEspecies(d||[]));
-    api.get("/api/campanas").then(d=>setCampanas(d||[]));
-    api.get("/api/ubicaciones").then(d=>setUbicacionesPropias((d||[]).filter(u=>u.tipo==="PLANTA_PROPIA")));
-  },[modulo]);
-
-  const especiesGrano = especies.filter(e=>e.tipo_producto!=="SUBPRODUCTO");
-  const especiesSubproducto = especies.filter(e=>e.tipo_producto==="SUBPRODUCTO");
-
-  const crearOrden = async () => {
-    if(!form.id_contraparte||!form.id_especie||!form.id_campana||!form.cantidad_toneladas_pactadas){
-      alert("Completá procesador, especie, campaña y toneladas"); return;
-    }
-    setGuardando(true);
-    try {
-      await api.post("/api/contratos", {
-        tipo_contrato:"PRODUCCION", modalidad: modulo,
-        fecha_contrato: new Date().toISOString().split("T")[0],
-        id_contraparte: parseInt(form.id_contraparte),
-        id_especie: parseInt(form.id_especie),
-        id_campana: parseInt(form.id_campana),
-        cantidad_toneladas_pactadas: parseFloat(form.cantidad_toneladas_pactadas),
-        tipo_precio: "FIJO", precio_pactado: 0, moneda: "ARS", tipo_entrega:"A_RETIRAR",
-        id_ubicacion_origen: form.id_ubicacion_origen || null,
-        costo_servicio_produccion: form.costo_servicio_produccion ? parseFloat(form.costo_servicio_produccion) : 0,
-        observaciones: form.observaciones || null
-      });
-      alert("✓ Orden de producción creada");
-      setShowForm(false);
-      setForm({ id_contraparte:"", id_especie:"", id_campana:"", cantidad_toneladas_pactadas:"", id_ubicacion_origen:"", costo_servicio_produccion:"", observaciones:"" });
-      cargar();
-    } catch(e){ alert("Error: "+e.message); }
-    finally{ setGuardando(false); }
-  };
-
-  const cargarSalidas = async (idOrden) => {
-    const data = await api.get(`/api/contratos/${idOrden}/salidas`);
-    setSalidas(prev=>({...prev, [idOrden]: data||[]}));
-  };
-
-  const agregarSalida = async (idOrden) => {
-    if(!nuevaSalida.id_especie||!nuevaSalida.cantidad_kg){ alert("Completá producto y kilos"); return; }
-    try {
-      await api.post(`/api/contratos/${idOrden}/salidas`, {
-        id_especie: parseInt(nuevaSalida.id_especie),
-        cantidad_kg: parseFloat(nuevaSalida.cantidad_kg),
-        id_ubicacion_destino: nuevaSalida.id_ubicacion_destino || null
-      });
-      setNuevaSalida({ id_especie:"", cantidad_kg:"", id_ubicacion_destino:"" });
-      cargarSalidas(idOrden);
-    } catch(e){ alert("Error: "+e.message); }
-  };
-
-  const cerrarOrden = async (idOrden) => {
-    if(!confirm("¿Cerrar la orden? Se va a repartir el costo entre las salidas cargadas y sumarse al Stock. No se puede deshacer.")) return;
-    try {
-      const r = await api.post(`/api/contratos/${idOrden}/cerrar`, {});
-      const metodo = r.reparto_por === "valor_de_mercado" ? "por valor de mercado de cada producto" : "por peso (faltó cargar algún precio de referencia, revisá Configuración → Precios)";
-      alert(`✓ Orden cerrada. Costo total repartido ${metodo}: $ ${Number(r.costo_total_pool).toLocaleString("es-AR")}`);
-      cargar();
-      cargarSalidas(idOrden);
-    } catch(e){ alert("Error: "+e.message); }
-  };
-
-  return (
-    <div className="fade-in">
-      <div style={{marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div>
-          <h2 style={{fontSize:18,fontWeight:700}}>Producción (Maquila)</h2>
-          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Grano que mandás a moler/extraer a un tercero, y lo que te devuelve (aceite, expeller, afrechillo...).</p>
-        </div>
-        <Btn onClick={()=>setShowForm(true)}>+ Nueva Orden</Btn>
-      </div>
-
-      <CalculadoraCapacidadPago/>
-
-      {showForm && (
-        <Modal title="Nueva Orden de Producción" onClose={()=>setShowForm(false)} footer={
-          <Btn disabled={guardando} onClick={crearOrden}>{guardando?"Guardando...":"Crear Orden"}</Btn>
-        }>
-          <FF label="Procesador *">
-            <select value={form.id_contraparte} onChange={e=>setForm({...form,id_contraparte:e.target.value})}>
-              <option value="">Seleccionar...</option>
-              {contrapartes.map(c=><option key={c.id} value={c.id}>{c.razon_social}</option>)}
-            </select>
-          </FF>
-          <FF label="Grano que mandás *">
-            <select value={form.id_especie} onChange={e=>setForm({...form,id_especie:e.target.value})}>
-              <option value="">Seleccionar...</option>
-              {especiesGrano.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
-            </select>
-          </FF>
-          <FF label="Campaña *">
-            <select value={form.id_campana} onChange={e=>setForm({...form,id_campana:e.target.value})}>
-              <option value="">Seleccionar...</option>
-              {campanas.map(c=><option key={c.id} value={c.id}>{c.descripcion}</option>)}
-            </select>
-          </FF>
-          <FF label="Toneladas que mandás *"><input type="number" value={form.cantidad_toneladas_pactadas} onChange={e=>setForm({...form,cantidad_toneladas_pactadas:e.target.value})}/></FF>
-          <FF label="¿Sale de un depósito propio?">
-            <select value={form.id_ubicacion_origen} onChange={e=>setForm({...form,id_ubicacion_origen:e.target.value})}>
-              <option value="">No descontar de Stock</option>
-              {ubicacionesPropias.map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
-            </select>
-          </FF>
-          <FF label="Costo del servicio de transformación (si te cobran)"><input type="number" value={form.costo_servicio_produccion} onChange={e=>setForm({...form,costo_servicio_produccion:e.target.value})}/></FF>
-          <FF label="Observaciones"><input value={form.observaciones} onChange={e=>setForm({...form,observaciones:e.target.value})}/></FF>
-        </Modal>
-      )}
-
-      {cargando ? <div>Cargando...</div> : ordenes.length===0 ? (
-        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay órdenes de producción todavía.</div>
-      ) : (
-        ordenes.map(o=>(
-          <div key={o.id} className="card" style={{marginBottom:14}}>
-            <div className="card-header">
-              <div>
-                <span style={{fontWeight:700}}>{o.numero_contrato}</span>
-                <span style={{color:"#8890a8",fontSize:12,marginLeft:12}}>{o.cantidad_toneladas_pactadas} tn enviadas</span>
-              </div>
-              <Badge label={o.estado} color={o.estado==="CUMPLIDO"?"green":"orange"}/>
-            </div>
-            <div style={{padding:"12px 16px"}}>
-              <Btn variant="secondary" size="sm" onClick={()=>{ if(detalleAbierto===o.id){setDetalleAbierto(null);} else {setDetalleAbierto(o.id); cargarSalidas(o.id);} }}>
-                {detalleAbierto===o.id?"Ocultar salidas":"Ver / cargar salidas"}
-              </Btn>
-              {detalleAbierto===o.id && (
-                <div style={{marginTop:12}}>
-                  <table>
-                    <thead><tr><th>Producto</th><th>Kilos</th><th>Destino</th></tr></thead>
-                    <tbody>
-                      {(salidas[o.id]||[]).map(s=>(
-                        <tr key={s.id}><td>{s.especie_nombre}</td><td className="mono">{Number(s.cantidad_kg).toLocaleString("es-AR")}</td><td>{s.ubicacion_nombre||"—"}</td></tr>
-                      ))}
-                      {(salidas[o.id]||[]).length===0 && <tr><td colSpan={3} style={{textAlign:"center",color:"#565d7a",padding:12}}>Sin salidas cargadas</td></tr>}
-                    </tbody>
-                  </table>
-                  {o.estado!=="CUMPLIDO" && (
-                    <div style={{display:"flex",gap:8,marginTop:12,alignItems:"end",flexWrap:"wrap"}}>
-                      <FF label="Producto">
-                        <select value={nuevaSalida.id_especie} onChange={e=>setNuevaSalida({...nuevaSalida,id_especie:e.target.value})}>
-                          <option value="">Seleccionar...</option>
-                          {especiesSubproducto.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
-                        </select>
-                      </FF>
-                      <FF label="Kilos"><input type="number" value={nuevaSalida.cantidad_kg} onChange={e=>setNuevaSalida({...nuevaSalida,cantidad_kg:e.target.value})}/></FF>
-                      <FF label="¿A qué depósito propio?">
-                        <select value={nuevaSalida.id_ubicacion_destino} onChange={e=>setNuevaSalida({...nuevaSalida,id_ubicacion_destino:e.target.value})}>
-                          <option value="">Seleccionar...</option>
-                          {ubicacionesPropias.map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
-                        </select>
-                      </FF>
-                      <Btn size="sm" onClick={()=>agregarSalida(o.id)}>+ Agregar</Btn>
-                      <Btn size="sm" variant="secondary" onClick={()=>cerrarOrden(o.id)}>Cerrar orden y repartir costo</Btn>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        ))
-      )}
-    </div>
-  );
-};
-
 // ── APP PRINCIPAL ──
+const DocumentosArca = () => {
+  const [documentos,setDocumentos]=useState([]);
+  const [paginacion,setPaginacion]=useState({pagina:1,paginas:1,total:0});
+  const [conciliacion,setConciliacion]=useState({totalCuits:0,vinculadas:0,pendientes:0});
+  const [buscar,setBuscar]=useState("");
+  const [desde,setDesde]=useState("2026-01-01");
+  const [hasta,setHasta]=useState("");
+  const [pagina,setPagina]=useState(1);
+  const [cargando,setCargando]=useState(false);
+  const [detalle,setDetalle]=useState(null);
+  const [error,setError]=useState("");
+
+  const cargar = async (paginaSolicitada=pagina) => {
+    setCargando(true); setError("");
+    try {
+      const params=new URLSearchParams({fuente:"WSFE_EMITIDA",desde,pagina:String(paginaSolicitada),limite:"50"});
+      if(hasta) params.set("hasta",hasta);
+      if(buscar.trim()) params.set("buscar",buscar.trim());
+      const [docs,concil]=await Promise.all([
+        api.get(`/api/arca/documentos?${params.toString()}`),
+        api.get("/api/arca/documentos/conciliacion-contrapartes")
+      ]);
+      setDocumentos(docs.documentos||[]);
+      setPaginacion(docs.paginacion||{pagina:1,paginas:1,total:0});
+      setConciliacion(concil);
+    } catch(e) { setError(e.message||"No se pudieron cargar los documentos ARCA."); }
+    finally { setCargando(false); }
+  };
+  useEffect(()=>{cargar(pagina);},[pagina]);
+
+  const money=value=>Number(value||0).toLocaleString("es-AR",{style:"currency",currency:"ARS"});
+  const tipoNombre=tipo=>({1:"Factura A",2:"Nota de Débito A",3:"Nota de Crédito A",6:"Factura B",7:"Nota de Débito B",8:"Nota de Crédito B",11:"Factura C",12:"Nota de Débito C",13:"Nota de Crédito C",201:"Factura de Crédito MiPyME A",206:"Factura de Crédito MiPyME B"}[Number(tipo)]||`Tipo ${tipo||"-"}`);
+
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18}}>
+      <div><h2 style={{fontSize:20,fontWeight:700,marginBottom:4}}>Documentos ARCA</h2><div style={{fontSize:12,color:"#8890a8"}}>Comprobantes oficiales emitidos por Inversiones del Salado S.A. · Solo consulta</div></div>
+      <Btn onClick={()=>cargar(pagina)} disabled={cargando}>{cargando?"Actualizando...":"Actualizar"}</Btn>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:16}}>
+      {[["Comprobantes",paginacion.total,"#3498db"],["CUIT receptores",conciliacion.totalCuits,"#f5a623"],["Contrapartes vinculadas",conciliacion.vinculadas,"#27ae60"],["Pendientes de alta",conciliacion.pendientes,"#e74c3c"]].map(([label,value,color])=>
+        <div className="card" key={label} style={{padding:"14px 16px"}}><div style={{fontSize:11,color:"#8890a8",textTransform:"uppercase"}}>{label}</div><div style={{fontSize:24,fontWeight:700,color,marginTop:5}}>{value||0}</div></div>
+      )}
+    </div>
+    <div className="card" style={{padding:"12px 14px",marginBottom:14,display:"grid",gridTemplateColumns:"2fr 1fr 1fr auto",gap:10,alignItems:"end"}}>
+      <div><label className="form-label">Buscar CUIT, contraparte o comprobante</label><input value={buscar} onChange={e=>setBuscar(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){setPagina(1);cargar(1);}}} placeholder="Ej: 30506792165"/></div>
+      <div><label className="form-label">Desde</label><input type="date" value={desde} onChange={e=>setDesde(e.target.value)}/></div>
+      <div><label className="form-label">Hasta</label><input type="date" value={hasta} onChange={e=>setHasta(e.target.value)}/></div>
+      <Btn onClick={()=>{setPagina(1);cargar(1);}}>Filtrar</Btn>
+    </div>
+    {error&&<div style={{padding:12,background:"rgba(231,76,60,.12)",color:"#e74c3c",borderRadius:7,marginBottom:12}}>{error}</div>}
+    <div className="card" style={{overflow:"hidden"}}>
+      <table style={{width:"100%",borderCollapse:"collapse"}}>
+        <thead><tr>{["Fecha","Comprobante","Receptor","Contraparte","Importe","Estado",""].map(h=><th key={h} style={{padding:"11px 12px",textAlign:"left",fontSize:10,color:"#8890a8",textTransform:"uppercase",borderBottom:"1px solid #2a2d3e"}}>{h}</th>)}</tr></thead>
+        <tbody>
+          {!cargando&&documentos.length===0&&<tr><td colSpan="7" style={{padding:28,textAlign:"center",color:"#8890a8"}}>No hay comprobantes para estos filtros.</td></tr>}
+          {documentos.map(d=>{const p=d.payload||{};return <tr key={d.id} style={{borderBottom:"1px solid #252837"}}>
+            <td style={{padding:"10px 12px"}}>{d.document_date?String(d.document_date).slice(0,10):"-"}</td>
+            <td style={{padding:"10px 12px"}}><div style={{fontWeight:600}}>{tipoNombre(p.CbteTipo)}</div><div style={{fontSize:11,color:"#8890a8"}}>PV {p.PtoVta} · N° {p.CbteDesde}</div></td>
+            <td style={{padding:"10px 12px",fontFamily:"'IBM Plex Mono',monospace"}}>{p.DocNro||"-"}</td>
+            <td style={{padding:"10px 12px"}}>{d.contraparte_razon_social||<span style={{color:"#e74c3c"}}>Sin alta</span>}</td>
+            <td style={{padding:"10px 12px",fontWeight:600}}>{money(p.ImpTotal)}</td>
+            <td style={{padding:"10px 12px"}}><Badge label={d.contraparte_estado==="VINCULADA"?"Vinculada":"Pendiente alta"} color={d.contraparte_estado==="VINCULADA"?"green":"red"}/></td>
+            <td style={{padding:"10px 12px"}}><Btn variant="secondary" onClick={()=>setDetalle(d)}>Ver</Btn></td>
+          </tr>;})}
+        </tbody>
+      </table>
+      <div style={{padding:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontSize:12,color:"#8890a8"}}>Página {paginacion.pagina||1} de {Math.max(1,paginacion.paginas||1)}</span>
+        <div style={{display:"flex",gap:7}}><Btn variant="secondary" disabled={pagina<=1} onClick={()=>setPagina(v=>Math.max(1,v-1))}>Anterior</Btn><Btn variant="secondary" disabled={pagina>=(paginacion.paginas||1)} onClick={()=>setPagina(v=>v+1)}>Siguiente</Btn></div>
+      </div>
+    </div>
+    {detalle&&<Modal title="Detalle del comprobante ARCA" onClose={()=>setDetalle(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <FF label="Tipo"><div>{tipoNombre(detalle.payload?.CbteTipo)}</div></FF><FF label="Fecha"><div>{String(detalle.document_date||"").slice(0,10)}</div></FF>
+        <FF label="Punto de venta / número"><div>{detalle.payload?.PtoVta} / {detalle.payload?.CbteDesde}</div></FF><FF label="CUIT receptor"><div>{detalle.payload?.DocNro||"-"}</div></FF>
+        <FF label="Importe total"><div>{money(detalle.payload?.ImpTotal)}</div></FF><FF label="Moneda"><div>{detalle.payload?.MonId||"-"} · Cotización {detalle.payload?.MonCotiz||"-"}</div></FF>
+        <FF label="Contraparte"><div>{detalle.contraparte_razon_social||"Pendiente de alta"}</div></FF><FF label="Código de autorización"><div style={{fontFamily:"monospace"}}>{detalle.payload?.CodAutorizacion||"-"}</div></FF>
+      </div><div style={{marginTop:14,fontSize:11,color:"#565d7a"}}>Hash SHA-256: {detalle.payload_hash}</div>
+    </Modal>}
+  </div>;
+};
+
 const MENU_FORMAL = [
   {id:"dashboard",label:"Dashboard",icon:"⊞"},
-  {id:"contratos",label:"Contratos",icon:"📋",group:"Operaciones"},
-  {id:"movimientos",label:"Movimientos",icon:"🚛",group:"Operaciones"},
-  {id:"produccion",label:"Producción (Maquila)",icon:"🏭",group:"Operaciones"},
-  {id:"bolsa_zona",label:"Bolsa por Zona",icon:"🗂",group:"Operaciones"},
-  {id:"calculos",label:"Cálculos",icon:"🧮",group:"Operaciones"},
-  {id:"contrapartes",label:"Contrapartes",icon:"👤",group:"Cargas"},
-  {id:"liquidaciones",label:"Liquidaciones",icon:"📊",group:"Finanzas"},
-  {id:"cc",label:"Cuenta Corriente",icon:"💰",group:"Finanzas"},
-  {id:"stock",label:"Stock",icon:"🌾",group:"Finanzas"},
-  {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚",group:"Reportes"},
-  {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬",group:"Reportes"},
-  {id:"posicion_abierta",label:"Posición Abierta",icon:"📌",group:"Reportes"},
-  {id:"regularizacion",label:"Regularización Productor",icon:"🔁",group:"Reportes"},
-  {id:"indicadores",label:"Indicadores",icon:"📈",group:"Reportes"},
+  {id:"documentos_arca",label:"Documentos ARCA",icon:"📄"},
+  {id:"contrapartes",label:"Contrapartes",icon:"👤"},
+  {id:"contratos",label:"Contratos",icon:"📋"},
+  {id:"movimientos",label:"Movimientos",icon:"🚛"},
+  {id:"liquidaciones",label:"Liquidaciones",icon:"📊"},
+  {id:"cc",label:"Cuenta Corriente",icon:"💰"},
+  {id:"stock",label:"Stock",icon:"🌾"},
+  {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚"},
+  {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
+  {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
+  {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
-  {id:"auditoria",label:"Auditoría",icon:"🕵"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
 ];
 
 const MENU_INFORMAL = [
   {id:"dashboard",label:"Dashboard",icon:"⊞"},
-  {id:"contratos",label:"Contratos",icon:"📋",group:"Operaciones"},
-  {id:"movimientos",label:"Movimientos",icon:"🚛",group:"Operaciones"},
-  {id:"produccion",label:"Producción (Maquila)",icon:"🏭",group:"Operaciones"},
-  {id:"bolsa_zona",label:"Bolsa por Zona",icon:"🗂",group:"Operaciones"},
-  {id:"calculos",label:"Cálculos",icon:"🧮",group:"Operaciones"},
-  {id:"contrapartes",label:"Contrapartes",icon:"👤",group:"Cargas"},
-  {id:"importador_excel",label:"Importar Excel",icon:"📥",group:"Cargas"},
-  {id:"liquidaciones",label:"Liquidaciones",icon:"📊",group:"Finanzas"},
-  {id:"cc",label:"Cuenta Corriente",icon:"💰",group:"Finanzas"},
-  {id:"stock",label:"Stock",icon:"🌾",group:"Finanzas"},
-  {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚",group:"Reportes"},
-  {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬",group:"Reportes"},
-  {id:"posicion_abierta",label:"Posición Abierta",icon:"📌",group:"Reportes"},
-  {id:"regularizacion",label:"Regularización Productor",icon:"🔁",group:"Reportes"},
-  {id:"indicadores",label:"Indicadores",icon:"📈",group:"Reportes"},
+  {id:"contrapartes",label:"Contrapartes",icon:"👤"},
+  {id:"contratos",label:"Contratos",icon:"📋"},
+  {id:"movimientos",label:"Movimientos",icon:"🚛"},
+  {id:"liquidaciones",label:"Liquidaciones",icon:"📊"},
+  {id:"cc",label:"Cuenta Corriente",icon:"💰"},
+  {id:"stock",label:"Stock",icon:"🌾"},
+  {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚"},
+  {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
+  {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
+  {id:"importador_excel",label:"Importar Excel",icon:"📥"},
+  {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
-  {id:"auditoria",label:"Auditoría",icon:"🕵"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
 ];
 
@@ -11159,6 +10385,7 @@ const MENU_CONSOLIDADO = [
   {id:"stock",label:"Stock Consolidado",icon:"🌾"},
   {id:"cc",label:"CC Consolidada",icon:"💰"},
   {id:"posicion_abierta",label:"Posición Global",icon:"📌"},
+  {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
 ];
 
@@ -11188,7 +10415,8 @@ function Login({onLogin}) {
         return;
       }
       const data = await r.json();
-      onLogin(data);
+      sessionStorage.setItem("granosys_access_token", data.token);
+      onLogin(data.user);
     } catch (e) {
       setErr("Error de conexión con el servidor");
     }
@@ -11568,6 +10796,717 @@ const AgenteIA = ({ modulo, usuario }) => {
   );
 };
 
+// ── COMPONENTE REPORTES IA ──
+const ReportesIA = ({modulo, usuario}) => {
+  const [titulo, setTitulo] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [sqlQuery, setSqlQuery] = useState("");
+  const [columnas, setColumnas] = useState([]);
+  const [filas, setFilas] = useState([]);
+  const [multitabla, setMultitabla] = useState(false);
+  const [tablas, setTablas] = useState([]);
+  const [historial, setHistorial] = useState([]);
+  const [cargando, setCargando] = useState(false);
+  const [filtros, setFiltros] = useState([]);
+  const [columnaSeleccionada, setColumnaSeleccionada] = useState("");
+  
+  // Controles del nuevo filtro a agregar
+  const [filtroMinVal, setFiltroMinVal] = useState("");
+  const [filtroMaxVal, setFiltroMaxVal] = useState("");
+  const [filtroMinDate, setFiltroMinDate] = useState("");
+  const [filtroMaxDate, setFiltroMaxDate] = useState("");
+  const [filtroValoresSeleccionados, setFiltroValoresSeleccionados] = useState([]);
+
+  useEffect(() => {
+    cargarHistorial();
+  }, []);
+
+  const cargarHistorial = async () => {
+    try {
+      const data = await api.get("/api/reportes/ia");
+      setHistorial(data || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const generarReporte = async () => {
+    if (!prompt.trim()) return alert("Ingresá un prompt para pedirle a la IA");
+    setCargando(true);
+    setFiltros([]); // Limpiar filtros al generar nueva consulta
+    try {
+      const res = await api.post("/api/reportes/generar-ia", { prompt, modalidad: modulo });
+      if (res) {
+        setSqlQuery(res.sql || "");
+        if (res.multitabla) {
+          setMultitabla(true);
+          setTablas(res.tablas || []);
+          setColumnas(res.tablas[0]?.columnas || []);
+          setFilas(res.tablas[0]?.filas || []);
+        } else {
+          setMultitabla(false);
+          setTablas([]);
+          setColumnas(res.columnas || []);
+          setFilas(res.filas || []);
+        }
+        if (!titulo) {
+          setTitulo(`Reporte: ${prompt.substring(0, 30)}${prompt.length > 30 ? "..." : ""}`);
+        }
+      }
+    } catch (e) {
+      alert("Error al generar reporte: " + e.message);
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const guardarReporte = async () => {
+    if (!titulo.trim()) return alert("Ingresá un título para el reporte");
+    if (!sqlQuery) return alert("Generá un reporte antes de guardarlo");
+    try {
+      await api.post("/api/reportes/ia", {
+        titulo,
+        prompt,
+        sql_query: sqlQuery,
+        columnas
+      });
+      alert("✓ Reporte guardado exitosamente");
+      cargarHistorial();
+    } catch (e) {
+      alert("Error al guardar: " + e.message);
+    }
+  };
+
+  const cargarReporteGuardado = async (id) => {
+    setCargando(true);
+    setFiltros([]);
+    try {
+      const res = await api.get(`/api/reportes/ia/${id}`);
+      if (res) {
+        setTitulo(res.titulo);
+        setPrompt(res.prompt);
+        setSqlQuery(res.sql_query);
+        if (res.multitabla) {
+          setMultitabla(true);
+          setTablas(res.tablas || []);
+          setColumnas(res.tablas[0]?.columnas || []);
+          setFilas(res.tablas[0]?.filas || []);
+        } else {
+          setMultitabla(false);
+          setTablas([]);
+          setColumnas(res.columnas || []);
+          setFilas(res.filas || []);
+        }
+      }
+    } catch (e) {
+      alert("Error al cargar reporte: " + e.message);
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const getColumnaTipo = (col) => {
+    const colLower = col.toLowerCase();
+    if (colLower.includes("fecha") || colLower.includes("vencimiento") || colLower.includes("creación")) return "date-range";
+    if (colLower.includes("neto") || colLower.includes("tara") || colLower.includes("bruto") || colLower.includes("faltante") || colLower.includes("kg") || colLower.includes("toneladas") || colLower.includes("precio") || colLower.includes("monto") || colLower.includes("tarifa") || colLower.includes("km") || colLower.includes("factor") || colLower.includes("humedad") || colLower.includes("descuento")) {
+      return "number-range";
+    }
+    for (let r of filas) {
+      const val = r[col];
+      if (val !== null && val !== undefined) {
+        if (typeof val === "number") return "number-range";
+        if (typeof val === "string") {
+          if (/^\d{4}-\d{2}-\d{2}/.test(val) || /^\d{2}\/\d{2}\/\d{4}/.test(val)) return "date-range";
+        }
+      }
+    }
+    return "multiselect";
+  };
+
+  // Obtener valores únicos de una columna
+  const getValoresUnicos = (col) => {
+    const vals = new Set();
+    filas.forEach(r => {
+      const val = r[col];
+      if (val !== null && val !== undefined && val !== "") {
+        vals.add(String(val));
+      }
+    });
+    return Array.from(vals).sort();
+  };
+
+  const agregarFiltro = () => {
+    if (!columnaSeleccionada) return;
+    
+    // Verificar si ya existe filtro para esta columna
+    if (filtros.some(f => f.columna === columnaSeleccionada)) {
+      alert("Ya existe un filtro activo para la columna " + columnaSeleccionada);
+      return;
+    }
+
+    const tipo = getColumnaTipo(columnaSeleccionada);
+    
+    const nuevoFiltro = {
+      columna: columnaSeleccionada,
+      tipo,
+      minVal: filtroMinVal,
+      maxVal: filtroMaxVal,
+      minDate: filtroMinDate,
+      maxDate: filtroMaxDate,
+      selectedValues: [...filtroValoresSeleccionados]
+    };
+
+    setFiltros([...filtros, nuevoFiltro]);
+    
+    // Resetear campos
+    setColumnaSeleccionada("");
+    setFiltroMinVal("");
+    setFiltroMaxVal("");
+    setFiltroMinDate("");
+    setFiltroMaxDate("");
+    setFiltroValoresSeleccionados([]);
+  };
+
+  const removerFiltro = (index) => {
+    setFiltros(filtros.filter((_, i) => i !== index));
+  };
+
+  // Aplicar filtros a las filas
+  const filasFiltradas = filas.filter(row => {
+    return filtros.every(f => {
+      const val = row[f.columna];
+      if (f.tipo === "date-range") {
+        if (!val) return false;
+        const dVal = new Date(val).getTime();
+        if (f.minDate && new Date(f.minDate).getTime() > dVal) return false;
+        if (f.maxDate && new Date(f.maxDate).getTime() < dVal) return false;
+        return true;
+      }
+      if (f.tipo === "number-range") {
+        const nVal = parseFloat(val);
+        if (isNaN(nVal)) return false;
+        if (f.minVal !== "" && f.minVal !== null && parseFloat(f.minVal) > nVal) return false;
+        if (f.maxVal !== "" && f.maxVal !== null && parseFloat(f.maxVal) < nVal) return false;
+        return true;
+      }
+      if (f.tipo === "multiselect") {
+        if (f.selectedValues.length === 0) return true;
+        return f.selectedValues.includes(String(val));
+      }
+      return true;
+    });
+  });
+
+  // Exportar a Excel
+  const exportarExcel = () => {
+    let worksheet;
+    const workbook = XLSX.utils.book_new();
+
+    if (multitabla) {
+      const aoa = [];
+      tablas.forEach((tbl) => {
+        // Título de la tabla
+        aoa.push([tbl.titulo.toUpperCase()]);
+        // Columnas
+        aoa.push(tbl.columnas);
+        // Filas
+        tbl.filas.forEach((row) => {
+          const rowData = tbl.columnas.map(col => {
+            const val = row[col];
+            return val !== null && val !== undefined ? val : "";
+          });
+          aoa.push(rowData);
+        });
+        // Separador
+        aoa.push([]);
+        aoa.push([]);
+      });
+      worksheet = XLSX.utils.aoa_to_sheet(aoa);
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Resumen Contratos");
+    } else {
+      if (filasFiltradas.length === 0) return alert("No hay datos para exportar");
+      
+      const dataToExport = filasFiltradas.map(row => {
+        const obj = {};
+        // ID del movimiento obligatoriamente en la primera columna para cruzamientos
+        obj["ID Movimiento"] = row.id || row.ID || "";
+        
+        // Mapear el resto de las columnas del reporte de IA
+        columnas.forEach(col => {
+          if (col.toLowerCase() !== "id") {
+            obj[col] = row[col] !== null && row[col] !== undefined ? row[col] : "";
+          }
+        });
+        return obj;
+      });
+
+      worksheet = XLSX.utils.json_to_sheet(dataToExport);
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Reporte IA");
+    }
+    
+    const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbout], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${titulo.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'reporte_ia'}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="fade-in" style={{paddingBottom: 40}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+        <div>
+          <h2 style={{fontSize:20,fontWeight:700}}>🤖 Generador de Reportes con IA</h2>
+          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Pedile al sistema en lenguaje natural qué información querés ver y la IA generará la consulta SQL correspondiente.</p>
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"260px 1fr",gap:20,alignItems:"start"}}>
+        {/* HISTORIAL / LATERAL */}
+        <div className="card" style={{padding:"16px 18px"}}>
+          <div style={{fontWeight:600,fontSize:13,color:"#f5a623",textTransform:"uppercase",letterSpacing:".05em",marginBottom:14,borderBottom:"1px solid #2a2d3e",paddingBottom:8}}>
+            📋 Reportes Guardados
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:450,overflowY:"auto"}}>
+            {historial.length === 0 ? (
+              <div style={{fontSize:12,color:"#565d7a",textAlign:"center",padding:"10px 0"}}>No hay reportes guardados aún.</div>
+            ) : (
+              historial.map(h => (
+                <button
+                  key={h.id}
+                  onClick={() => cargarReporteGuardado(h.id)}
+                  style={{
+                    background: "rgba(255,255,255,.02)",
+                    border: "1px solid #2a2d3e",
+                    borderRadius: 6,
+                    padding: "8px 10px",
+                    textAlign: "left",
+                    cursor: "pointer",
+                    transition: "all .2s"
+                  }}
+                  onMouseEnter={e => e.target.style.background = "rgba(255,255,255,.05)"}
+                  onMouseLeave={e => e.target.style.background = "rgba(255,255,255,.02)"}
+                >
+                  <div style={{fontSize:12,fontWeight:600,color:"#e8eaf0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.titulo}</div>
+                  <div style={{fontSize:10,color:"#565d7a",marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.prompt}</div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* CONTENIDO PRINCIPAL */}
+        <div style={{display:"flex",flexDirection:"column",gap:20}}>
+          {/* FORMULARIO DE CONSULTA */}
+          <div className="card" style={{padding:20}}>
+            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:16,marginBottom:16}}>
+              <FF label="Título del Reporte">
+                <input
+                  type="text"
+                  placeholder="Ej: Reporte de Movimientos de Soja de la campaña 24/25"
+                  value={titulo}
+                  onChange={e => setTitulo(e.target.value)}
+                />
+              </FF>
+              <FF label="Modalidad Actual">
+                <input readOnly value={modulo === "CONSOLIDADO" ? "Consolidado" : modulo === "FORMAL" ? "📋 Formal" : "📝 Informal"} style={{background:"rgba(255,255,255,.02)",color:"#8890a8"}}/>
+              </FF>
+            </div>
+            
+            <FF label="¿Qué información querés ver? (Pedile a la IA en lenguaje natural)">
+              <textarea
+                placeholder="Ej: Mostrame todos los movimientos de soja en tránsito de la campaña 24/25 filtrados por productor García"
+                value={prompt}
+                onChange={e => setPrompt(e.target.value)}
+                style={{
+                  width: "100%",
+                  height: 70,
+                  padding: "10px 14px",
+                  fontSize: 13,
+                  background: "#0f1117",
+                  border: "1px solid #2a2d3e",
+                  borderRadius: 6,
+                  color: "#e8eaf0",
+                  resize: "none"
+                }}
+              />
+            </FF>
+
+            <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:16}}>
+              {sqlQuery && (
+                <button
+                  onClick={guardarReporte}
+                  style={{
+                    padding: "8px 16px",
+                    background: "transparent",
+                    color: "#f5a623",
+                    border: "1px solid #f5a623",
+                    borderRadius: 6,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer"
+                  }}
+                >
+                  💾 Guardar Reporte
+                </button>
+              )}
+              <button
+                onClick={generarReporte}
+                disabled={cargando}
+                style={{
+                  padding: "8px 18px",
+                  background: "#f5a623",
+                  color: "#000",
+                  border: "none",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  opacity: cargando ? 0.7 : 1
+                }}
+              >
+                {cargando ? "Generando consulta..." : "🔍 Consultar IA"}
+              </button>
+            </div>
+          </div>
+
+          {/* VISOR SQL */}
+          {sqlQuery && (
+            <div className="card" style={{padding:"14px 18px",background:"#0a0b0f",border:"1px solid #1a1d27"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#565d7a",textTransform:"uppercase",marginBottom:6}}>
+                🖥️ Consulta SQL Generada
+              </div>
+              <pre style={{
+                fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: 12,
+                color: "#8890a8",
+                overflowX: "auto",
+                whiteSpace: "pre-wrap",
+                margin: 0,
+                background: "rgba(0,0,0,.2)",
+                padding: "8px 10px",
+                borderRadius: 4
+              }}>
+                {sqlQuery}
+              </pre>
+            </div>
+          )}
+
+          {/* GRILLA DE RESULTADOS Y FILTROS */}
+          {filas.length > 0 ? (
+            <div className="card" style={{padding:20}}>
+              {/* PANEL DE FILTROS */}
+              <div style={{marginBottom:18,borderBottom:"1px solid #2a2d3e",paddingBottom:16}}>
+                <div style={{fontWeight:600,fontSize:14,color:"#e8eaf0",marginBottom:12}}>
+                  🛠️ Filtros de Reporte Avanzados
+                </div>
+                
+                {/* FILTROS ACTIVOS */}
+                {filtros.length > 0 && (
+                  <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+                    {filtros.map((f, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          background: "rgba(245,166,35,.12)",
+                          border: "1px solid rgba(245,166,35,.3)",
+                          color: "#f5a623",
+                          borderRadius: 6,
+                          padding: "4px 10px",
+                          fontSize: 11,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6
+                        }}
+                      >
+                        <span>
+                          <strong>{f.columna}:</strong>{" "}
+                          {f.tipo === "multiselect"
+                            ? f.selectedValues.join(", ")
+                            : f.tipo === "number-range"
+                            ? `${f.minVal || "Min"} - ${f.maxVal || "Max"}`
+                            : `${f.minDate || "Min"} a ${f.maxDate || "Max"}`
+                          }
+                        </span>
+                        <button
+                          onClick={() => removerFiltro(idx)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#f5a623",
+                            fontSize: 14,
+                            cursor: "pointer",
+                            padding: "0 2px"
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* AGREGAR FILTRO FORM */}
+                <div style={{display:"flex",alignItems:"end",gap:12,flexWrap:"wrap",background:"rgba(255,255,255,.02)",padding:"12px 14px",borderRadius:6,border:"1px solid #2a2d3e"}}>
+                  <div style={{minWidth:160}}>
+                    <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Columna</label>
+                    <select
+                      value={columnaSeleccionada}
+                      onChange={e => {
+                        setColumnaSeleccionada(e.target.value);
+                        setFiltroMinVal("");
+                        setFiltroMaxVal("");
+                        setFiltroMinDate("");
+                        setFiltroMaxDate("");
+                        setFiltroValoresSeleccionados([]);
+                      }}
+                      style={{width:"100%"}}
+                    >
+                      <option value="">Seleccionar...</option>
+                      {columnas.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {columnaSeleccionada && (() => {
+                    const tipo = getColumnaTipo(columnaSeleccionada);
+                    if (tipo === "number-range") {
+                      return (
+                        <>
+                          <div>
+                            <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Min</label>
+                            <input
+                              type="number"
+                              value={filtroMinVal}
+                              onChange={e => setFiltroMinVal(e.target.value)}
+                              style={{width:100}}
+                            />
+                          </div>
+                          <div>
+                            <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Max</label>
+                            <input
+                              type="number"
+                              value={filtroMaxVal}
+                              onChange={e => setFiltroMaxVal(e.target.value)}
+                              style={{width:100}}
+                            />
+                          </div>
+                        </>
+                      );
+                    }
+                    if (tipo === "date-range") {
+                      return (
+                        <>
+                          <div>
+                            <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Desde</label>
+                            <input
+                              type="date"
+                              value={filtroMinDate}
+                              onChange={e => setFiltroMinDate(e.target.value)}
+                              style={{width:130}}
+                            />
+                          </div>
+                          <div>
+                            <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Hasta</label>
+                            <input
+                              type="date"
+                              value={filtroMaxDate}
+                              onChange={e => setFiltroMaxDate(e.target.value)}
+                              style={{width:130}}
+                            />
+                          </div>
+                        </>
+                      );
+                    }
+                    if (tipo === "multiselect") {
+                      const unicos = getValoresUnicos(columnaSeleccionada);
+                      return (
+                        <div style={{minWidth:200}}>
+                          <label style={{display:"block",fontSize:10,color:"#8890a8",marginBottom:5,textTransform:"uppercase"}}>Valores</label>
+                          <div style={{
+                            maxHeight:110,
+                            overflowY:"auto",
+                            background:"#0f1117",
+                            border:"1px solid #2a2d3e",
+                            borderRadius:6,
+                            padding:"6px 10px",
+                            display:"flex",
+                            flexDirection:"column",
+                            gap:4
+                          }}>
+                            {unicos.map(val => (
+                              <label key={val} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}>
+                                <input
+                                  type="checkbox"
+                                  checked={filtroValoresSeleccionados.includes(val)}
+                                  onChange={e => {
+                                    if (e.target.checked) {
+                                      setFiltroValoresSeleccionados([...filtroValoresSeleccionados, val]);
+                                    } else {
+                                      setFiltroValoresSeleccionados(filtroValoresSeleccionados.filter(v => v !== val));
+                                    }
+                                  }}
+                                />
+                                {val}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+
+                  {columnaSeleccionada && (
+                    <button
+                      onClick={agregarFiltro}
+                      style={{
+                        padding: "8px 14px",
+                        background: "#3498db",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 6,
+                        fontWeight: 600,
+                        fontSize: 12,
+                        cursor: "pointer"
+                      }}
+                    >
+                      + Aplicar Filtro
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* CONTROLES EXPORTACION */}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div style={{fontSize:13,color:"#8890a8"}}>
+                  Mostrando <strong>{filasFiltradas.length}</strong> de {filas.length} filas
+                </div>
+                <button
+                  onClick={exportarExcel}
+                  style={{
+                    padding: "7px 14px",
+                    background: "rgba(39,174,96,.12)",
+                    color: "#27ae60",
+                    border: "1px solid rgba(39,174,96,.3)",
+                    borderRadius: 6,
+                    fontWeight: 600,
+                    fontSize: 12,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6
+                  }}
+                >
+                  📥 Exportar a Excel
+                </button>
+              </div>
+
+              {/* GRILLA */}
+              {multitabla ? (
+                <div style={{display:"flex",flexDirection:"column",gap:24}}>
+                  {tablas.map((tbl, idx) => (
+                    <div key={idx} className="card" style={{padding:18,background:"#0c0d13",border:"1px solid #2a2d3e",borderRadius:8}}>
+                      <h3 style={{fontSize:15,fontWeight:700,color:"#f5a623",marginBottom:14,textTransform:"uppercase",letterSpacing:".05em",borderBottom:"1px solid #1a1c28",paddingBottom:8}}>{tbl.titulo}</h3>
+                      <div style={{overflowX:"auto"}}>
+                        <table>
+                          <thead>
+                            <tr>
+                              {tbl.columnas.map(col => <th key={col}>{col}</th>)}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {tbl.filas.map((row, fIdx) => (
+                              <tr key={fIdx}>
+                                {tbl.columnas.map(col => {
+                                  const val = row[col];
+                                  let renderVal = val !== null && val !== undefined ? String(val) : "—";
+                                  
+                                  // Formateo de números de Tn o Kg
+                                  if (col.toLowerCase().includes("tn") || col.toLowerCase().includes("toneladas") || col.toLowerCase().includes("pactadas") || col.toLowerCase().includes("asignadas") || col.toLowerCase().includes("pendientes") || col.toLowerCase().includes("comprado") || col.toLowerCase().includes("recibir")) {
+                                    const n = parseFloat(val);
+                                    if (!isNaN(n)) renderVal = n.toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 2});
+                                  }
+                                  
+                                  // Formateo de precios
+                                  if (col.toLowerCase().includes("precio") || col.toLowerCase().includes("monto") || col.toLowerCase().includes("tarifa")) {
+                                    const n = parseFloat(val);
+                                    if (!isNaN(n)) renderVal = `$ ${n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                                  }
+                                  
+                                  return <td key={col} className={typeof val === "number" ? "mono" : ""}>{renderVal}</td>;
+                                })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{overflowX:"auto"}}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style={{background:"rgba(52,152,219,.1)",color:"#3498db",fontWeight:600}}>ID Movimiento</th>
+                        {columnas.map(col => {
+                          if (col.toLowerCase() !== "id") {
+                            return <th key={col}>{col}</th>;
+                          }
+                          return null;
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filasFiltradas.map((row, idx) => (
+                        <tr key={idx}>
+                          <td style={{fontFamily:"'IBM Plex Mono', monospace",fontSize:11,color:"#3498db",fontWeight:600}}>{row.id || row.ID || "—"}</td>
+                          {columnas.map(col => {
+                            if (col.toLowerCase() !== "id") {
+                              const val = row[col];
+                              let renderVal = val !== null && val !== undefined ? String(val) : "—";
+                              
+                              // Formateo de números de kg
+                              if (col.toLowerCase().includes("kg") || col.toLowerCase().includes("neto") || col.toLowerCase().includes("tara") || col.toLowerCase().includes("bruto") || col.toLowerCase().includes("liquidable")) {
+                                const n = parseFloat(val);
+                                if (!isNaN(n)) renderVal = Math.round(n).toLocaleString();
+                              }
+                              // Formateo de fletes o precios
+                              if (col.toLowerCase().includes("precio") || col.toLowerCase().includes("monto") || col.toLowerCase().includes("tarifa")) {
+                                const n = parseFloat(val);
+                                if (!isNaN(n)) renderVal = `$ ${n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                              }
+                              
+                              return <td key={col} className={typeof val === "number" ? "mono" : ""}>{renderVal}</td>;
+                            }
+                            return null;
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : (
+            !cargando && sqlQuery && (
+              <div className="card" style={{padding:"30px 20px",textAlign:"center",color:"#565d7a"}}>
+                La consulta se ejecutó pero no devolvió filas. Probá ampliando los criterios de búsqueda.
+              </div>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const NuevaUbicacionRapida = ({ idContraparte }) => {
   const [nombre, setNombre] = useState("");
   const [localidad, setLocalidad] = useState("");
@@ -11586,7 +11525,7 @@ const NuevaUbicacionRapida = ({ idContraparte }) => {
     try {
       const r = await fetch(`${API_URL}/api/contrapartes/${idContraparte}/ubicaciones`, {
         method: "POST",
-        headers: {"Content-Type":"application/json"},
+        headers: authHeaders({"Content-Type":"application/json"}),
         body: JSON.stringify({ nombre, localidad, provincia, direccion, nro_planta: nroPlanta })
       });
       const body = await r.json().catch(()=>null);
@@ -11674,7 +11613,7 @@ function App() {
     }
   }, [logueado]);
 
-  if(!logueado) return <Login onLogin={(u)=>{setLogueado(true);setUsuario(u);api.setUsuario(u);}}/>;
+  if(!logueado) return <Login onLogin={(u)=>{setLogueado(true);setUsuario(u);}}/>;
 
   const idContraparteNuevaUbicacion = new URLSearchParams(window.location.search).get('nueva_ubicacion');
   if (idContraparteNuevaUbicacion) {
@@ -11682,7 +11621,7 @@ function App() {
   }
 
   const handleAccesoOculto = () => {
-    if(codigoOculto==="invdelsal"){
+    if(usuario.rol==="ADMIN"){
       setInformalUnlocked(true);
       setModulo("INFORMAL");
       setSec("dashboard");
@@ -11690,12 +11629,11 @@ function App() {
       setCodigoOculto("");
     } else {
       setCodigoOculto("");
-      alert("Clave incorrecta");
+      alert("El acceso al circuito informal requiere rol ADMIN.");
     }
   };
 
-  const menuBase = modulo==="FORMAL"?MENU_FORMAL:modulo==="INFORMAL"?MENU_INFORMAL:MENU_CONSOLIDADO;
-  const menuActual = menuBase.filter(item => item.id !== "auditoria" || (usuario && usuario.rol === "ADMIN"));
+  const menuActual = modulo==="FORMAL"?MENU_FORMAL:modulo==="INFORMAL"?MENU_INFORMAL:MENU_CONSOLIDADO;
 
   const render = () => {
     const userStr = usuario ? usuario.usuario : "";
@@ -11716,29 +11654,26 @@ function App() {
         case "stock": return <StockConsolidado {...p}/>;
         case "cc": return <CCConsolidada {...p}/>;
         case "posicion_abierta": return <PosicionAbierta {...p}/>;
+        case "reportes_ia": return <ReportesIA {...p}/>;
         case "agente_ia": return <AgenteIA {...p}/>;
         default: return <DashboardConsolidado {...p}/>;
       }
     }
     switch(sec){
       case "dashboard": return <Dashboard {...p}/>;
+      case "documentos_arca": return <DocumentosArca {...p}/>;
       case "contrapartes": return <Contrapartes {...p}/>;
       case "contratos": return <Contratos {...p}/>;
       case "movimientos": return <Movimientos {...p}/>;
-      case "produccion": return <OrdenesProduccion {...p}/>;
-      case "bolsa_zona": return <BolsaPorZona {...p}/>;
-      case "calculos": return <Calculos/>;
       case "liquidaciones": return <Liquidaciones {...p}/>;
       case "cc": return <CuentaCorriente {...p}/>;
       case "stock": return <Stock {...p}/>;
       case "rep_fletes": return <ReporteFletes {...p}/>;
       case "rep_calidades": return <ReporteCalidades {...p}/>;
       case "posicion_abierta": return <PosicionAbierta {...p}/>;
-      case "regularizacion": return <RegularizacionProductor/>;
-      case "indicadores": return <Indicadores/>;
       case "importador_excel": return <ImportadorExcel {...p} setSec={setSec}/>;
+      case "reportes_ia": return <ReportesIA {...p}/>;
       case "agente_ia": return <AgenteIA {...p}/>;
-      case "auditoria": return <Auditoria/>;
       case "configuracion": return <Configuracion usuario={usuario} defaultTab={configDefaultTab} setDefaultTab={setConfigDefaultTab}/>;
       default: return <Dashboard {...p}/>;
     }
@@ -11795,25 +11730,11 @@ function App() {
           </div>
         </div>
         <nav style={{flex:1,padding:"8px 8px",overflowY:"auto"}}>
-          {(() => {
-            let grupoAnterior = null;
-            return menuActual.map(item=>{
-              const mostrarTitulo = item.group && item.group !== grupoAnterior;
-              grupoAnterior = item.group || null;
-              return (
-                <React.Fragment key={item.id}>
-                  {mostrarTitulo && (
-                    <div style={{fontSize:10,color:"#565d7a",margin:"14px 10px 4px",textTransform:"uppercase",letterSpacing:".06em",fontWeight:600}}>
-                      {item.group}
-                    </div>
-                  )}
-                  <button onClick={()=>{ setSec(item.id); if (item.id === "configuracion") setConfigDefaultTab("especies"); }} className={`nav-btn ${sec===item.id?"active":""}`}>
-                    <span style={{fontSize:14}}>{item.icon}</span>{item.label}
-                  </button>
-                </React.Fragment>
-              );
-            });
-          })()}
+          {menuActual.map(item=>(
+            <button key={item.id} onClick={()=>{ setSec(item.id); if (item.id === "configuracion") setConfigDefaultTab("especies"); }} className={`nav-btn ${sec===item.id?"active":""}`}>
+              <span style={{fontSize:14}}>{item.icon}</span>{item.label}
+            </button>
+          ))}
         </nav>
         {/* PROFILE CARD */}
         {usuario && (
@@ -11877,9 +11798,10 @@ function App() {
               )}
               <button
                 onClick={() => {
+                  api.post("/api/usuarios/logout", {});
+                  sessionStorage.removeItem("granosys_access_token");
                   setLogueado(false);
                   setUsuario("");
-                  api.setUsuario(null);
                 }}
                 style={{
                   flex:1,
