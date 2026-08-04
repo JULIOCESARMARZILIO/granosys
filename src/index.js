@@ -1,15 +1,13 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
 const path = require('path');
 const { initDB } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CORS abierto para cualquier origen
-app.use(cors({ origin: '*', methods: ['GET','POST','PUT','DELETE','OPTIONS'], allowedHeaders: ['Content-Type', 'X-Usuario-Actual'] }));
-app.options('*', cors());
+// Frontend y API se sirven desde el mismo origen (este mismo Express),
+// asi que no hace falta CORS abierto para el uso normal de la app.
 app.use(express.json());
 
 // Health check
@@ -36,52 +34,6 @@ app.use('/api/posicion',     require('./routes/posicion'));
 app.use('/api/kpis',         require('./routes/kpis'));
 app.use('/api/regularizacion', require('./routes/regularizacion'));
 app.use('/api/retiros-productor', require('./routes/retiros'));
-
-// Endpoint de diagnóstico temporal para ver archivos y commits en Railway
-app.get('/api/debug-files', (req, res) => {
-  const fs = require('fs');
-  const { execSync } = require('child_process');
-  
-  const debugData = {};
-  
-  // 1. Contenido de directorios
-  try {
-    debugData.files = fs.readdirSync(path.join(__dirname, '..'));
-    debugData.publicFiles = fs.readdirSync(path.join(__dirname, '../public'));
-  } catch (err) {
-    debugData.filesError = err.message;
-  }
-  
-  // 2. Versión en el archivo index.html en disco
-  try {
-    const indexPath = path.join(__dirname, '../public/index.html');
-    const indexContent = fs.readFileSync(indexPath, 'utf8');
-    const versionMatch = indexContent.match(/v2\.1\.\d+/);
-    debugData.indexHtmlVersion = versionMatch ? versionMatch[0] : "Not found";
-  } catch (err) {
-    debugData.indexHtmlVersionError = err.message;
-  }
-  
-  // 3. Ejecución de comandos Git (si están disponibles)
-  try {
-    debugData.gitLog = execSync('git log -n 5 --oneline', { encoding: 'utf8' }).split('\n');
-    debugData.gitStatus = execSync('git status', { encoding: 'utf8' }).split('\n');
-  } catch (err) {
-    debugData.gitError = err.message;
-  }
-  
-  // 4. Variables de entorno de Railway
-  debugData.env = {
-    PORT: process.env.PORT,
-    NODE_ENV: process.env.NODE_ENV,
-    RAILWAY_STATIC_URL: process.env.RAILWAY_STATIC_URL,
-    RAILWAY_GIT_COMMIT_SHA: process.env.RAILWAY_GIT_COMMIT_SHA,
-    RAILWAY_GIT_COMMIT_MESSAGE: process.env.RAILWAY_GIT_COMMIT_MESSAGE,
-    RAILWAY_GIT_BRANCH: process.env.RAILWAY_GIT_BRANCH
-  };
-
-  res.json(debugData);
-});
 
 // Frontend - VA AL FINAL
 app.get('/mobile', (req, res) => {
