@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const { pool } = require('../db');
 const { registrarAuditoria } = require('../services/auditoria');
-const { sumarStock, restarStock, restarStockPorZona, stockDisponibleEnZona } = require('../services/stockService');
+const { sumarStock, restarStock, camionesDisponiblesEnZona } = require('../services/stockService');
 const { precioVigente } = require('../services/preciosService');
 
 // Si viene precio de referencia + descuento %, calcula el precio final descontado.
@@ -239,15 +239,28 @@ router.get('/:id', async (req, res) => {
       ORDER BY fecha DESC, id DESC
     `, [req.params.id]);
 
-    // Aplicaciones de stock de Bolsa por Zona (solo aplica a contratos de COMPRA)
+    // Aplicaciones de stock de Bolsa por Zona (solo aplica a contratos de COMPRA),
+    // con el desglose camion-por-camion de cada una.
     const { rows: aplicaciones } = await pool.query(`
       SELECT id, zona, toneladas, usuario, TO_CHAR(fecha, 'YYYY-MM-DD') as fecha, created_at
       FROM contrato_aplicaciones_stock
       WHERE id_contrato = $1
       ORDER BY fecha DESC, id DESC
     `, [req.params.id]);
+    const { rows: aplicCamiones } = await pool.query(`
+      SELECT asm.id_aplicacion, asm.id_movimiento, asm.kg_aplicados, m.numero_movimiento, m.fecha_descarga
+      FROM aplicacion_stock_movimientos asm
+      JOIN movimientos m ON m.id = asm.id_movimiento
+      WHERE asm.id_aplicacion = ANY($1::int[])
+      ORDER BY m.fecha_descarga ASC NULLS LAST, asm.id ASC
+    `, [aplicaciones.map(a => a.id)]);
+    const camionesPorAplicacion = {};
+    for (const d of aplicCamiones) {
+      (camionesPorAplicacion[d.id_aplicacion] = camionesPorAplicacion[d.id_aplicacion] || []).push(d);
+    }
+    const aplicacionesConCamiones = aplicaciones.map(a => ({ ...a, camiones: camionesPorAplicacion[a.id] || [] }));
 
-    res.json({ ...rows[0], movimientos: movs, fijaciones, aplicaciones });
+    res.json({ ...rows[0], movimientos: movs, fijaciones, aplicaciones: aplicacionesConCamiones });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -502,27 +515,26 @@ router.post('/:id/cerrar', async (req, res) => {
 
 // POST /:id/aplicar-stock-zona
 // Aplica toneladas de la "bolsa" de una zona (sub-zona de referencia, ej.
-// Rosario Norte) al cumplimiento de este contrato de compra, sin necesidad
-// de vincular camion por camion. Descuenta la bolsa (de la/las ubicaciones
-// que la componen) y queda registrado como aplicacion, sumando a las
-// toneladas cumplidas del contrato.
+// Rosario Norte) al cumplimiento de este contrato de compra. La unidad real
+// es el camion: un movimiento ya descargado, con su kg_liquidables (neto ya
+// con el descuento de humedad/calidad aplicado, no el peso bruto de origen).
+// Se toman camiones enteros por orden de llegada (FIFO) hasta cubrir los
+// kilos pedidos -- el ultimo camion de la lista se parte si hace falta, pero
+// el movimiento nunca se toca ni se duplica: la particion queda registrada
+// en aplicacion_stock_movimientos.
 router.post('/:id/aplicar-stock-zona', async (req, res) => {
+  const client = await pool.connect();
   try {
     const { zona, toneladas } = req.body;
     if (!zona || !toneladas || parseFloat(toneladas) <= 0) {
       return res.status(400).json({ error: 'zona y toneladas (mayor a 0) son obligatorios' });
     }
 
-    const { rows: contratoRows } = await pool.query('SELECT * FROM contratos WHERE id = $1', [req.params.id]);
+    const { rows: contratoRows } = await client.query('SELECT * FROM contratos WHERE id = $1', [req.params.id]);
     const contrato = contratoRows[0];
     if (!contrato) return res.status(404).json({ error: 'Contrato no encontrado' });
     if (contrato.tipo_contrato !== 'COMPRA') {
       return res.status(400).json({ error: 'Solo se puede aplicar stock de zona a contratos de COMPRA' });
-    }
-
-    const disponible = await stockDisponibleEnZona({ zona, id_especie: contrato.id_especie, id_campana: contrato.id_campana });
-    if (parseFloat(toneladas) > disponible + 0.001) {
-      return res.status(400).json({ error: `La zona "${zona}" solo tiene ${disponible.toFixed(3)}tn disponibles de este producto/campaña.` });
     }
 
     const restante = parseFloat(contrato.cantidad_toneladas_pactadas) - parseFloat(contrato.cantidad_toneladas_asignadas || 0);
@@ -530,27 +542,67 @@ router.post('/:id/aplicar-stock-zona', async (req, res) => {
       return res.status(400).json({ error: `El contrato solo tiene ${restante.toFixed(3)}tn pendientes de cumplir.` });
     }
 
+    const kgPedidos = parseFloat(toneladas) * 1000;
+    const camiones = await camionesDisponiblesEnZona({ zona, id_especie: contrato.id_especie, id_campana: contrato.id_campana }, client);
+    const totalDisponibleKg = camiones.reduce((acc, c) => acc + parseFloat(c.kg_disponible), 0);
+    if (kgPedidos > totalDisponibleKg + 0.001) {
+      return res.status(400).json({ error: `La zona "${zona}" solo tiene ${(totalDisponibleKg / 1000).toFixed(3)}tn disponibles de este producto/campaña (en camiones ya descargados).` });
+    }
+
+    // Arma la particion: camiones enteros por FIFO, el ultimo aporta solo lo
+    // que falta para completar los kilos pedidos.
+    const asignaciones = [];
+    let kgRestante = kgPedidos;
+    for (const c of camiones) {
+      if (kgRestante <= 0.001) break;
+      const kgDisponible = parseFloat(c.kg_disponible);
+      const aTomar = Math.min(kgDisponible, kgRestante);
+      if (aTomar <= 0) continue;
+      asignaciones.push({ id_movimiento: c.id, numero_movimiento: c.numero_movimiento, id_ubicacion_destino: c.id_ubicacion_destino, kg: aTomar });
+      kgRestante -= aTomar;
+    }
+
     const usuario = req.get('X-Usuario-Actual') || 'desconocido';
-    const kg = parseFloat(toneladas) * 1000;
 
-    const { detalle, kgSinCubrir } = await restarStockPorZona({ zona, id_especie: contrato.id_especie, id_campana: contrato.id_campana, kg });
-
-    const { rows: aplicacionRows } = await pool.query(
+    await client.query('BEGIN');
+    const { rows: aplicacionRows } = await client.query(
       `INSERT INTO contrato_aplicaciones_stock (id_contrato, zona, id_especie, id_campana, toneladas, usuario)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [req.params.id, zona, contrato.id_especie, contrato.id_campana, toneladas, usuario]
+      [req.params.id, zona, contrato.id_especie, contrato.id_campana, parseFloat(toneladas), usuario]
     );
+    const aplicacion = aplicacionRows[0];
+    for (const a of asignaciones) {
+      await client.query(
+        `INSERT INTO aplicacion_stock_movimientos (id_aplicacion, id_movimiento, kg_aplicados) VALUES ($1,$2,$3)`,
+        [aplicacion.id, a.id_movimiento, a.kg]
+      );
+    }
+    await client.query('COMMIT');
+
+    // Descuenta stock (para el costo promedio ponderado) de la ubicacion
+    // real de cada camion consumido -- agrupado, por si dos camiones
+    // consumidos comparten la misma ubicacion de destino.
+    const kgPorUbicacion = {};
+    for (const a of asignaciones) {
+      kgPorUbicacion[a.id_ubicacion_destino] = (kgPorUbicacion[a.id_ubicacion_destino] || 0) + a.kg;
+    }
+    for (const [id_ubicacion, kg] of Object.entries(kgPorUbicacion)) {
+      await restarStock({ id_ubicacion: parseInt(id_ubicacion), id_especie: contrato.id_especie, id_campana: contrato.id_campana, kg });
+    }
 
     await recalcularContrato(req.params.id);
 
     await registrarAuditoria(req, {
       accion: 'APLICAR_STOCK_ZONA', modulo: 'contratos', registro_id: contrato.id,
-      datos_despues: { ...aplicacionRows[0], detalle_ubicaciones: detalle }
+      datos_despues: { ...aplicacion, camiones: asignaciones }
     });
 
-    res.status(201).json({ aplicacion: aplicacionRows[0], detalle_ubicaciones: detalle, kg_sin_cubrir: kgSinCubrir });
+    res.status(201).json({ aplicacion, camiones: asignaciones });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -561,7 +613,19 @@ router.get('/:id/aplicaciones-stock', async (req, res) => {
       `SELECT * FROM contrato_aplicaciones_stock WHERE id_contrato = $1 ORDER BY id DESC`,
       [req.params.id]
     );
-    res.json(rows);
+    const { rows: detalle } = await pool.query(
+      `SELECT asm.id_aplicacion, asm.id_movimiento, asm.kg_aplicados, m.numero_movimiento, m.fecha_descarga
+       FROM aplicacion_stock_movimientos asm
+       JOIN movimientos m ON m.id = asm.id_movimiento
+       WHERE asm.id_aplicacion = ANY($1::int[])
+       ORDER BY m.fecha_descarga ASC NULLS LAST, asm.id ASC`,
+      [rows.map(r => r.id)]
+    );
+    const detallePorAplicacion = {};
+    for (const d of detalle) {
+      (detallePorAplicacion[d.id_aplicacion] = detallePorAplicacion[d.id_aplicacion] || []).push(d);
+    }
+    res.json(rows.map(r => ({ ...r, camiones: detallePorAplicacion[r.id] || [] })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

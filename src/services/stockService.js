@@ -135,4 +135,29 @@ async function stockDisponibleEnZona({ zona, id_especie, id_campana }) {
   return parseFloat(rows[0].toneladas) || 0;
 }
 
-module.exports = { sumarStock, restarStock, restarStockPorZona, stockDisponibleEnZona };
+// Camiones (movimientos ya descargados) disponibles en la bolsa de una zona,
+// con cuanto de su kg_liquidables todavia no fue aplicado a ningun contrato
+// (se resta lo ya usado en aplicacion_stock_movimientos, nunca se cachea).
+// Se usa tanto para mostrar la lista antes de aplicar como, con el mismo
+// client de una transaccion, para el algoritmo de aplicacion en si --
+// siempre por orden de llegada (FIFO), el mas viejo primero.
+async function camionesDisponiblesEnZona({ zona, id_especie, id_campana }, dbClient = pool) {
+  const { rows } = await dbClient.query(`
+    SELECT * FROM (
+      SELECT m.id, m.numero_movimiento, m.fecha_descarga, m.kg_liquidables, m.id_ubicacion_destino,
+             u.nombre AS ubicacion_destino_nombre,
+             m.kg_liquidables - COALESCE((
+               SELECT SUM(kg_aplicados) FROM aplicacion_stock_movimientos WHERE id_movimiento = m.id
+             ), 0) AS kg_disponible
+      FROM movimientos m
+      JOIN ubicaciones u ON u.id = m.id_ubicacion_destino
+      WHERE u.zona = $1 AND m.id_especie = $2 AND m.id_campana = $3
+        AND m.estado = 'DESCARGADO' AND m.kg_liquidables IS NOT NULL
+    ) t
+    WHERE kg_disponible > 0.001
+    ORDER BY fecha_descarga ASC NULLS LAST, id ASC
+  `, [zona, id_especie, id_campana]);
+  return rows;
+}
+
+module.exports = { sumarStock, restarStock, restarStockPorZona, stockDisponibleEnZona, camionesDisponiblesEnZona };

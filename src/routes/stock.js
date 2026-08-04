@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { pool } = require('../db');
+const { camionesDisponiblesEnZona } = require('../services/stockService');
 
 router.get('/', async (req, res) => {
   try {
@@ -39,6 +40,28 @@ router.get('/por-zona', async (req, res) => {
       ORDER BY u.zona, e.nombre
     `);
     res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/stock/por-zona/:zona/camiones?id_especie=&id_campana=
+// Lista los movimientos (camiones) ya descargados que componen la bolsa de
+// esa zona para ese producto/campaña, con cuanto de cada uno todavia esta
+// sin aplicar a ningun contrato. Sirve para mostrar, antes de confirmar una
+// aplicacion, exactamente que camiones se van a consumir.
+router.get('/por-zona/:zona/camiones', async (req, res) => {
+  try {
+    const { id_especie, id_campana } = req.query;
+    if (!id_especie || !id_campana) {
+      return res.status(400).json({ error: 'id_especie e id_campana son obligatorios' });
+    }
+    const camiones = await camionesDisponiblesEnZona({
+      zona: req.params.zona,
+      id_especie: parseInt(id_especie),
+      id_campana: parseInt(id_campana)
+    });
+    res.json(camiones);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -413,6 +413,20 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       );
 
+      -- Detalle camion-por-camion de cada aplicacion de Bolsa por Zona a un
+      -- contrato: que movimientos (camiones) la componen y cuantos kg de
+      -- kg_liquidables de cada uno se usaron. Un mismo movimiento puede
+      -- aparecer en mas de una fila (repartido entre varias aplicaciones/
+      -- contratos) sin que el movimiento en si se toque ni se duplique.
+      CREATE TABLE IF NOT EXISTS aplicacion_stock_movimientos (
+        id SERIAL PRIMARY KEY,
+        id_aplicacion INTEGER NOT NULL REFERENCES contrato_aplicaciones_stock(id) ON DELETE CASCADE,
+        id_movimiento INTEGER NOT NULL REFERENCES movimientos(id),
+        kg_aplicados DECIMAL(12,3) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_aplic_stock_mov_movimiento ON aplicacion_stock_movimientos(id_movimiento);
+
       CREATE TABLE IF NOT EXISTS mermas_humedad (
         id SERIAL PRIMARY KEY,
         id_especie INTEGER REFERENCES especies(id),
