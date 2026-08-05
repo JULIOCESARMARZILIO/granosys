@@ -10364,7 +10364,8 @@ const DocumentosArca = () => {
       let oficial={};
       try {
         const respuestaA13=await api.get(`/api/arca/padron/${cuit}`);
-        const padron=respuestaA13?.datos_padron||respuestaA13||{};
+        const contribuyente=respuestaA13?.contribuyente||respuestaA13||{};
+        const padron=contribuyente?.datos_padron||contribuyente||{};
         const generales=padron.datosGenerales||padron||{};
         const domicilio=generales.domicilioFiscal||padron.domicilio_fiscal||{};
         oficial={
