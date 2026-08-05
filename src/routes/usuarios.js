@@ -1,10 +1,36 @@
 const router = require('express').Router();
 const { pool } = require('../db');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const { registrarAuditoria } = require('../services/auditoria');
 
-function hashPassword(password) {
+function hashPasswordLegacy(password) {
   return crypto.createHash('sha256').update(password).digest('hex');
+}
+
+function hashPassword(password) {
+  return bcrypt.hashSync(password, 10);
+}
+
+function esHashBcrypt(hash) {
+  return typeof hash === 'string' && /^\$2[aby]\$/.test(hash);
+}
+
+function firmarToken(user) {
+  return jwt.sign(
+    { id: user.id, usuario: user.usuario, rol: user.rol },
+    process.env.JWT_SECRET,
+    { expiresIn: '12h' }
+  );
+}
+
+function requiereAdmin(req, res) {
+  if (!req.user || req.user.rol !== 'ADMIN') {
+    res.status(403).json({ error: 'Requiere rol ADMIN' });
+    return false;
+  }
+  return true;
 }
 
 // POST /login - Autenticar usuario
@@ -15,11 +41,9 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Usuario y contraseña requeridos' });
     }
 
-    const hash = hashPassword(contrasena);
-
     const { rows } = await pool.query(
-      'SELECT id, usuario, nombre, rol, activo FROM usuarios WHERE usuario = $1 AND contrasena = $2',
-      [usuario, hash]
+      'SELECT id, usuario, nombre, rol, activo, contrasena FROM usuarios WHERE usuario = $1',
+      [usuario]
     );
 
     if (rows.length === 0) {
@@ -27,11 +51,27 @@ router.post('/login', async (req, res) => {
     }
 
     const user = rows[0];
+    let coincide = false;
+
+    if (esHashBcrypt(user.contrasena)) {
+      coincide = bcrypt.compareSync(contrasena, user.contrasena);
+    } else if (user.contrasena === hashPasswordLegacy(contrasena)) {
+      coincide = true;
+      // Migración silenciosa a bcrypt en el primer login exitoso con el hash viejo.
+      const nuevoHash = hashPassword(contrasena);
+      await pool.query('UPDATE usuarios SET contrasena=$1 WHERE id=$2', [nuevoHash, user.id]);
+    }
+
+    if (!coincide) {
+      return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+    }
+
     if (!user.activo) {
       return res.status(403).json({ error: 'El usuario está inactivo' });
     }
 
-    res.json(user);
+    const userSinHash = { id: user.id, usuario: user.usuario, nombre: user.nombre, rol: user.rol, activo: user.activo };
+    res.json({ token: firmarToken(userSinHash), user: userSinHash });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -50,6 +90,7 @@ router.get('/', async (req, res) => {
 // POST / - Crear usuario nuevo
 router.post('/', async (req, res) => {
   try {
+    if (!requiereAdmin(req, res)) return;
     const { usuario, contrasena, nombre, rol } = req.body;
     if (!usuario || !contrasena || !nombre || !rol) {
       return res.status(400).json({ error: 'Todos los campos son obligatorios' });
@@ -79,6 +120,7 @@ router.post('/', async (req, res) => {
 // PUT /:id - Modificar usuario
 router.put('/:id', async (req, res) => {
   try {
+    if (!requiereAdmin(req, res)) return;
     const { id } = req.params;
     const { usuario, contrasena, nombre, rol, activo } = req.body;
 
@@ -127,8 +169,9 @@ router.put('/:id', async (req, res) => {
 // DELETE /:id - Eliminar usuario
 router.delete('/:id', async (req, res) => {
   try {
+    if (!requiereAdmin(req, res)) return;
     const { id } = req.params;
-    
+
     // Evitar auto-eliminación si es el usuario actual, eso se valida en el frontend,
     // pero evitamos eliminar el admin principal
     const { rows: user } = await pool.query('SELECT id, usuario, nombre, rol, activo FROM usuarios WHERE id = $1', [id]);

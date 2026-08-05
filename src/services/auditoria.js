@@ -3,7 +3,7 @@ const { pool } = require('../db');
 // Registra un evento en la auditoria inmutable. Nunca lanza: un fallo al
 // auditar no debe impedir que la operacion de negocio se complete.
 async function registrarAuditoria(req, { accion, modulo, registro_id, datos_antes, datos_despues }) {
-  const usuario = (req && req.get && req.get('X-Usuario-Actual')) || 'desconocido';
+  const usuario = (req && req.user && req.user.usuario) || (req && req.get && req.get('X-Usuario-Actual')) || 'desconocido';
   const ip = req ? (req.ip || null) : null;
   try {
     await pool.query(

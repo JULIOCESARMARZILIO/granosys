@@ -488,6 +488,11 @@ async function initDB() {
         valor_tonelada DECIMAL(12,4) NOT NULL,
         UNIQUE(id_tabla, km)
       );
+
+      -- Soportan el filtro por defecto de "recientes" en Movimientos (10 dias)
+      -- y Contratos (30 dias), para no traer siempre la tabla entera.
+      CREATE INDEX IF NOT EXISTS idx_movimientos_created_at ON movimientos(created_at);
+      CREATE INDEX IF NOT EXISTS idx_contratos_created_at ON contratos(created_at);
     `);
 
     // Migración para relaciones de contrapartes, usuario de carga y reportes
