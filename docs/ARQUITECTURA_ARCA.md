@@ -34,6 +34,16 @@
 - Implementada sincronización consultiva WSLPG por punto de emisión para LPG, LSG, ajustes incluidos y certificaciones electrónicas.
 - Pendiente: identificar todos los puntos de emisión WSLPG utilizados, sincronizador WSCPE, importación Portal IVA y flujo de aprobación reforzado.
 
+## Control fiscal de IVA Ventas
+
+- El XML oficial de WSFE es la evidencia primaria y se conserva sin alteraciones junto con su hash SHA-256.
+- El resumen consultivo normaliza total, neto gravado, IVA, operaciones exentas, conceptos no gravados y otros tributos.
+- El IVA se desglosa por codigo de alicuota y los tributos por codigo y descripcion.
+- Las notas de credito se exponen con signo negativo para obtener el movimiento fiscal neto del periodo.
+- Se controla que total = no gravado + neto gravado + exento + tributos + IVA, con tolerancia de dos centavos.
+- El resultado no presenta IVA Simple, no reemplaza el Libro IVA Digital, no genera asientos y exige revision humana.
+- IVA Compras, retenciones y percepciones sufridas quedan fuera de este primer alcance hasta incorporar su fuente oficial.
+
 ## Restricciones conocidas de consulta
 
 - WSLPG recupera por punto de emisión y número de orden los documentos emitidos por la CUIT representada.
