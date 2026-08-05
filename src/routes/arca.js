@@ -1,4 +1,4 @@
-﻿const router = require('express').Router();
+const router = require('express').Router();
 const arcaService = require('../services/arcaService');
 const arcaOfficialClient = require('../services/arcaOfficialClient');
 
