@@ -1,4 +1,4 @@
-﻿jest.mock('pg');
+jest.mock('pg');
 
 describe('ARCA to current-account reconciliation', () => {
   let pool;
