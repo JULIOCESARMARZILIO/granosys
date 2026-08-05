@@ -10356,6 +10356,45 @@ const DocumentosArca = () => {
       setCargando(false);
     }
   };
+  const autorizarAltaContraparte = async item => {
+    const cuit=String(item.receptor_cuit||"").replace(/\D/g,"");
+    if(cuit.length!==11) return alert("El comprobante no tiene un CUIT receptor válido.");
+    setCargando(true);
+    try {
+      const oficial=await api.get(`/api/contrapartes/consulta-arca/${cuit}`);
+      const razonSocial=String(oficial?.razon_social||"").trim();
+      if(!razonSocial) {
+        return alert("ARCA no devolvió una razón social. No se creó ninguna contraparte.");
+      }
+      const mensaje=[
+        "AUTORIZACIÓN HUMANA DE ALTA",
+        `CUIT: ${cuit}`,
+        `Razón social oficial: ${razonSocial}`,
+        "Tipo: COMPRADOR · Canal: FORMAL",
+        "",
+        "Al confirmar se creará la contraparte y se vincularán automáticamente sus comprobantes ARCA por CUIT.",
+        "No se generarán movimientos de cuenta corriente."
+      ].join("\n");
+      if(!window.confirm(mensaje)) return;
+      await api.post("/api/contrapartes",{
+        cuit,
+        razon_social:razonSocial,
+        tipo_contraparte:"COMPRADOR",
+        canal_operacion:"FORMAL",
+        condicion_iva:oficial.condicion_iva||"RI",
+        domicilio:oficial.domicilio||"",
+        localidad:oficial.localidad||"",
+        provincia:oficial.provincia||"",
+        observaciones:`Alta autorizada por usuario desde Documentos ARCA. Origen: ${oficial.origen||"ARCA"}.`
+      });
+      await cargar(1);
+      alert(`Contraparte ${razonSocial} creada y vinculada por CUIT. Ahora podés decidir la cuenta corriente.`);
+    } catch(e) {
+      alert(e.message||"No se pudo crear la contraparte. No se realizó ningún cambio.");
+    } finally {
+      setCargando(false);
+    }
+  };
   const esperarSync = async job => {
     for(let intento=0;intento<180;intento+=1) {
       const respuesta=await api.get(`/api/arca/sync/${job.id}`);
@@ -10444,6 +10483,7 @@ const DocumentosArca = () => {
               <td style={{padding:7,fontWeight:700}}>{money(item.importe)}</td>
               <td style={{padding:7}}>{item.candidato_cc_id?<span style={{color:"#f5a623"}}>Coincide con CC #{item.candidato_cc_id}</span>:item.contraparte?"Revisar creación":"Alta requerida"}</td>
               <td style={{padding:7}}><div style={{display:"flex",gap:5}}>
+                {!item.contraparte_id&&<Btn size="sm" variant="success" disabled={cargando} onClick={()=>autorizarAltaContraparte(item)}>Autorizar alta</Btn>}
                 {item.candidato_cc_id&&<Btn size="sm" variant="success" disabled={cargando} onClick={()=>decidirCc(item,"VINCULAR_EXISTENTE")}>Vincular</Btn>}
                 <Btn size="sm" variant="secondary" disabled={cargando||!item.contraparte_id} onClick={()=>decidirCc(item,"CREAR_MOVIMIENTO")}>Crear CC</Btn>
                 <Btn size="sm" variant="danger" disabled={cargando||!item.contraparte_id} onClick={()=>decidirCc(item,"RECHAZAR")}>Rechazar</Btn>
@@ -11371,7 +11411,6 @@ const MENU_FORMAL = [
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
   {id:"indicadores",label:"Indicadores",icon:"📈"},
-  {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
   {id:"auditoria",label:"Auditoría",icon:"🕵"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
@@ -11393,7 +11432,6 @@ const MENU_INFORMAL = [
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
   {id:"indicadores",label:"Indicadores",icon:"📈"},
   {id:"importador_excel",label:"Importar Excel",icon:"📥"},
-  {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
   {id:"auditoria",label:"Auditoría",icon:"🕵"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
@@ -11404,7 +11442,6 @@ const MENU_CONSOLIDADO = [
   {id:"stock",label:"Stock Consolidado",icon:"🌾"},
   {id:"cc",label:"CC Consolidada",icon:"💰"},
   {id:"posicion_abierta",label:"Posición Global",icon:"📌"},
-  {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
 ];
 
@@ -12673,7 +12710,6 @@ function App() {
         case "stock": return <StockConsolidado {...p}/>;
         case "cc": return <CCConsolidada {...p}/>;
         case "posicion_abierta": return <PosicionAbierta {...p}/>;
-        case "reportes_ia": return <ReportesIA {...p}/>;
         case "agente_ia": return <AgenteIA {...p}/>;
         default: return <DashboardConsolidado {...p}/>;
       }
@@ -12695,7 +12731,6 @@ function App() {
       case "posicion_abierta": return <PosicionAbierta {...p}/>;
       case "indicadores": return <Indicadores/>;
       case "importador_excel": return <ImportadorExcel {...p} setSec={setSec}/>;
-      case "reportes_ia": return <ReportesIA {...p}/>;
       case "agente_ia": return <AgenteIA {...p}/>;
       case "auditoria": return <Auditoria/>;
       case "configuracion": return <Configuracion usuario={usuario} defaultTab={configDefaultTab} setDefaultTab={setConfigDefaultTab}/>;
