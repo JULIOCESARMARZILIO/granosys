@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -10302,6 +10302,8 @@ const DocumentosArca = () => {
   const [documentos,setDocumentos]=useState([]);
   const [paginacion,setPaginacion]=useState({pagina:1,paginas:1,total:0});
   const [conciliacion,setConciliacion]=useState({totalCuits:0,vinculadas:0,pendientes:0});
+  const [ivaVentas,setIvaVentas]=useState({totales:{},periodos:[],alicuotas:[],tributos:[],controlIntegridad:{observados:0}});
+  const [ccConciliaciones,setCcConciliaciones]=useState({total:0,pendientesSinContraparte:0,posiblesDuplicados:0,conciliaciones:[]});
   const [buscar,setBuscar]=useState("");
   const [desde,setDesde]=useState("2026-01-01");
   const [hasta,setHasta]=useState("");
@@ -10316,13 +10318,19 @@ const DocumentosArca = () => {
       const params=new URLSearchParams({fuente:"WSFE_EMITIDA",desde,pagina:String(paginaSolicitada),limite:"50"});
       if(hasta) params.set("hasta",hasta);
       if(buscar.trim()) params.set("buscar",buscar.trim());
-      const [docs,concil]=await Promise.all([
+      const ivaParams=new URLSearchParams({desde});
+      if(hasta) ivaParams.set("hasta",hasta);
+      const [docs,concil,iva,ccConcil]=await Promise.all([
         api.get(`/api/arca/documentos?${params.toString()}`),
-        api.get("/api/arca/documentos/conciliacion-contrapartes")
+        api.get("/api/arca/documentos/conciliacion-contrapartes"),
+        api.get(`/api/arca/documentos/iva-ventas/resumen?${ivaParams.toString()}`),
+        api.get(`/api/arca/cc/conciliaciones?${ivaParams.toString()}&estado=PENDIENTE&limite=200`)
       ]);
       setDocumentos(docs.documentos||[]);
       setPaginacion(docs.paginacion||{pagina:1,paginas:1,total:0});
       setConciliacion(concil);
+      setIvaVentas(iva.resultado||{totales:{},periodos:[],alicuotas:[],tributos:[],controlIntegridad:{observados:0}});
+      setCcConciliaciones(ccConcil?.resultado||{total:0,pendientesSinContraparte:0,posiblesDuplicados:0,conciliaciones:[]});
     } catch(e) { setError(e.message||"No se pudieron cargar los documentos ARCA."); }
     finally { setCargando(false); }
   };
@@ -10330,6 +10338,21 @@ const DocumentosArca = () => {
 
   const money=value=>Number(value||0).toLocaleString("es-AR",{style:"currency",currency:"ARS"});
   const tipoNombre=tipo=>({1:"Factura A",2:"Nota de Débito A",3:"Nota de Crédito A",6:"Factura B",7:"Nota de Débito B",8:"Nota de Crédito B",11:"Factura C",12:"Nota de Débito C",13:"Nota de Crédito C",201:"Factura de Crédito MiPyME A",206:"Factura de Crédito MiPyME B"}[Number(tipo)]||`Tipo ${tipo||"-"}`);
+  const decidirCc = async (item,decision) => {
+    const accion=decision==="VINCULAR_EXISTENTE"?"vincular el movimiento existente":decision==="CREAR_MOVIMIENTO"?"crear un movimiento FORMAL en cuenta corriente":"rechazar la conciliación";
+    if(!window.confirm(`Confirmá ${accion} para ${item.contraparte||item.receptor_cuit} por ${money(item.importe)}. Esta decisión quedará auditada.`)) return;
+    setCargando(true);
+    try {
+      const result=await api.post(`/api/arca/cc/conciliaciones/${item.document_id}/decidir`,{
+        decision,
+        ccMovimientoId:decision==="VINCULAR_EXISTENTE"?item.candidato_cc_id:null
+      });
+      if(!result?.ok) return alert("No se pudo completar la conciliación. Revisá contraparte, importe y permisos.");
+      await cargar(1);
+    } finally {
+      setCargando(false);
+    }
+  };
 
   return <div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18}}>
@@ -10340,6 +10363,43 @@ const DocumentosArca = () => {
       {[["Comprobantes",paginacion.total,"#3498db"],["CUIT receptores",conciliacion.totalCuits,"#f5a623"],["Contrapartes vinculadas",conciliacion.vinculadas,"#27ae60"],["Pendientes de alta",conciliacion.pendientes,"#e74c3c"]].map(([label,value,color])=>
         <div className="card" key={label} style={{padding:"14px 16px"}}><div style={{fontSize:11,color:"#8890a8",textTransform:"uppercase"}}>{label}</div><div style={{fontSize:24,fontWeight:700,color,marginTop:5}}>{value||0}</div></div>
       )}
+    </div>
+    <div className="card" style={{padding:"14px 16px",marginBottom:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",gap:16,alignItems:"flex-start",marginBottom:12}}>
+        <div><div style={{fontSize:15,fontWeight:700}}>IVA Ventas · borrador de control</div><div style={{fontSize:11,color:"#8890a8",marginTop:3}}>Comprobantes WSFE emitidos. Requiere revisión humana antes de su presentación impositiva.</div></div>
+        <Badge label={(ivaVentas.controlIntegridad?.observados||0)===0?"Integridad OK":`${ivaVentas.controlIntegridad?.observados||0} observados`} color={(ivaVentas.controlIntegridad?.observados||0)===0?"green":"red"}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8}}>
+        {[["Total",ivaVentas.totales?.importeTotal],["Neto gravado",ivaVentas.totales?.netoGravado],["IVA débito fiscal",ivaVentas.totales?.iva],["Exento",ivaVentas.totales?.exento],["No gravado",ivaVentas.totales?.noGravado],["Otros tributos",ivaVentas.totales?.otrosTributos]].map(([label,value])=>
+          <div key={label} style={{padding:"10px",background:"#11141d",borderRadius:7}}><div style={{fontSize:10,color:"#8890a8",textTransform:"uppercase"}}>{label}</div><div style={{fontSize:14,fontWeight:700,marginTop:5}}>{money(value)}</div></div>
+        )}
+      </div>
+    </div>
+    <div className="card" style={{padding:"14px 16px",marginBottom:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,marginBottom:10}}>
+        <div><div style={{fontSize:15,fontWeight:700}}>Conciliación ARCA → Cuenta corriente</div><div style={{fontSize:11,color:"#8890a8",marginTop:3}}>No genera movimientos sin confirmación humana. Solo modalidad FORMAL.</div></div>
+        <div style={{fontSize:11,color:"#8890a8"}}>{ccConciliaciones.total||0} pendientes · {ccConciliaciones.posiblesDuplicados||0} posibles coincidencias · {ccConciliaciones.pendientesSinContraparte||0} sin contraparte</div>
+      </div>
+      <div style={{maxHeight:310,overflow:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead><tr>{["Fecha","Comprobante","Contraparte","Importe","Recomendación","Decisión humana"].map(h=><th key={h} style={{padding:"7px",textAlign:"left",borderBottom:"1px solid #2a2d3e",color:"#8890a8"}}>{h}</th>)}</tr></thead>
+          <tbody>
+            {(ccConciliaciones.conciliaciones||[]).length===0&&<tr><td colSpan="6" style={{padding:18,textAlign:"center",color:"#8890a8"}}>No hay documentos pendientes para estos filtros.</td></tr>}
+            {(ccConciliaciones.conciliaciones||[]).map(item=><tr key={item.document_id} style={{borderBottom:"1px solid #252837"}}>
+              <td style={{padding:7}}>{String(item.document_date||"").slice(0,10)}</td>
+              <td style={{padding:7}}>PV {item.punto_venta} · Nº {item.numero}</td>
+              <td style={{padding:7}}>{item.contraparte||<span style={{color:"#e74c3c"}}>CUIT {item.receptor_cuit} sin alta</span>}</td>
+              <td style={{padding:7,fontWeight:700}}>{money(item.importe)}</td>
+              <td style={{padding:7}}>{item.candidato_cc_id?<span style={{color:"#f5a623"}}>Coincide con CC #{item.candidato_cc_id}</span>:item.contraparte?"Revisar creación":"Alta requerida"}</td>
+              <td style={{padding:7}}><div style={{display:"flex",gap:5}}>
+                {item.candidato_cc_id&&<Btn size="sm" variant="success" disabled={cargando} onClick={()=>decidirCc(item,"VINCULAR_EXISTENTE")}>Vincular</Btn>}
+                <Btn size="sm" variant="secondary" disabled={cargando||!item.contraparte_id} onClick={()=>decidirCc(item,"CREAR_MOVIMIENTO")}>Crear CC</Btn>
+                <Btn size="sm" variant="danger" disabled={cargando||!item.contraparte_id} onClick={()=>decidirCc(item,"RECHAZAR")}>Rechazar</Btn>
+              </div></td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
     </div>
     <div className="card" style={{padding:"12px 14px",marginBottom:14,display:"grid",gridTemplateColumns:"2fr 1fr 1fr auto",gap:10,alignItems:"end"}}>
       <div><label className="form-label">Buscar CUIT, contraparte o comprobante</label><input value={buscar} onChange={e=>setBuscar(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){setPagina(1);cargar(1);}}} placeholder="Ej: 30506792165"/></div>
@@ -10374,6 +10434,8 @@ const DocumentosArca = () => {
         <FF label="Tipo"><div>{tipoNombre(detalle.payload?.CbteTipo)}</div></FF><FF label="Fecha"><div>{String(detalle.document_date||"").slice(0,10)}</div></FF>
         <FF label="Punto de venta / número"><div>{detalle.payload?.PtoVta} / {detalle.payload?.CbteDesde}</div></FF><FF label="CUIT receptor"><div>{detalle.payload?.DocNro||"-"}</div></FF>
         <FF label="Importe total"><div>{money(detalle.payload?.ImpTotal)}</div></FF><FF label="Moneda"><div>{detalle.payload?.MonId||"-"} · Cotización {detalle.payload?.MonCotiz||"-"}</div></FF>
+        <FF label="Neto gravado"><div>{money(detalle.payload?.ImpNeto)}</div></FF><FF label="IVA"><div>{money(detalle.payload?.ImpIVA)}</div></FF>
+        <FF label="Exento / no gravado"><div>{money(detalle.payload?.ImpOpEx)} / {money(detalle.payload?.ImpTotConc)}</div></FF><FF label="Otros tributos"><div>{money(detalle.payload?.ImpTrib)}</div></FF>
         <FF label="Contraparte"><div>{detalle.contraparte_razon_social||"Pendiente de alta"}</div></FF><FF label="Código de autorización"><div style={{fontFamily:"monospace"}}>{detalle.payload?.CodAutorizacion||"-"}</div></FF>
       </div><div style={{marginTop:14,fontSize:11,color:"#565d7a"}}>Hash SHA-256: {detalle.payload_hash}</div>
     </Modal>}
