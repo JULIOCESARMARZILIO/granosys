@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -98,20 +98,10 @@ const authHeaders = (extra={}) => {
   return token ? {...extra, Authorization:`Bearer ${token}`} : extra;
 };
 
-let manejandoNoAutenticado = false;
-const manejarNoAutenticado = () => {
-  if (manejandoNoAutenticado) return;
-  manejandoNoAutenticado = true;
-  sessionStorage.removeItem("granosys_access_token");
-  alert("Tu sesión venció o no es válida. Volvé a iniciar sesión.");
-  location.reload();
-};
-
 const api = {
   get: async (path) => {
     try {
       const r = await fetch(`${API_URL}${path}`, {headers:authHeaders()});
-      if (r.status === 401) { manejarNoAutenticado(); return null; }
       if (!r.ok) throw new Error(await r.text());
       return await r.json();
     } catch(e) {
@@ -126,7 +116,6 @@ const api = {
         headers: authHeaders({"Content-Type":"application/json"}),
         body: JSON.stringify(data)
       });
-      if (r.status === 401) { manejarNoAutenticado(); return null; }
       if (!r.ok) throw new Error(await r.text());
       return await r.json();
     } catch(e) {
@@ -141,7 +130,6 @@ const api = {
         headers: authHeaders({"Content-Type":"application/json"}),
         body: JSON.stringify(data)
       });
-      if (r.status === 401) { manejarNoAutenticado(); return null; }
       if (!r.ok) throw new Error(await r.text());
       return await r.json();
     } catch(e) {
@@ -155,7 +143,6 @@ const api = {
         method: "DELETE",
         headers: authHeaders()
       });
-      if (r.status === 401) { manejarNoAutenticado(); return null; }
       if (!r.ok) throw new Error(await r.text());
       return await r.json();
     } catch(e) {
@@ -293,7 +280,7 @@ const Dashboard = ({modulo}) => {
   const movs = movsReal !== null ? movsReal : mockMovimientos.filter(m=>m.modalidad===modulo);
 
   useEffect(()=>{
-    api.get(`/api/movimientos?modalidad=${modulo}&vista=todos`)
+    api.get(`/api/movimientos?modalidad=${modulo}`)
       .then(data=>{
         const mapped = data.map(m => ({
           id: m.id,
@@ -650,7 +637,6 @@ const Contrapartes = ({modulo}) => {
 // ── CONTRATOS ──
 const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec, autoLiquidacionesContrato, setAutoLiquidacionesContrato}) => {
   const [tab,setTab]=useState("COMPRA");
-  const [vista,setVista]=useState("recientes");
   const [showForm,setShowForm]=useState(false);
   const [lista,setLista]=useState([]);
   const [contrapartes,setContrapartes]=useState([]);
@@ -979,11 +965,11 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
     cargarContrapartes();
     cargarEspecies();
     cargarCampanas();
-  },[modulo,tab,vista,globalFiltroProductor,globalFiltroEspecie]);
+  },[modulo,tab,globalFiltroProductor,globalFiltroEspecie]);
 
   const cargarContratos = async () => {
     try {
-      const data = await api.get(`/api/contratos?modalidad=${modulo}&tipo=${tab}&vista=${vista}`);
+      const data = await api.get(`/api/contratos?modalidad=${modulo}&tipo=${tab}`);
       const mapped = data.map(c => {
         if (c.es_canje) {
           return {
@@ -1088,17 +1074,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
   return (
     <div className="fade-in">
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
-        <div style={{display:"flex",alignItems:"center",gap:14}}>
-          <h2 style={{fontSize:18,fontWeight:700}}>Contratos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
-          <div style={{display:"flex",border:"1px solid #2a2d3e",borderRadius:6,overflow:"hidden"}}>
-            {[["recientes","Recientes"],["pendientes","Pendientes"],["todos","Todos"]].map(([v,label])=>(
-              <button key={v} onClick={()=>setVista(v)} style={{
-                padding:"5px 10px",fontSize:11,fontWeight:600,border:"none",cursor:"pointer",
-                background:vista===v?"#3498db":"transparent",color:vista===v?"#fff":"#8890a8"
-              }}>{label}</button>
-            ))}
-          </div>
-        </div>
+        <h2 style={{fontSize:18,fontWeight:700}}>Contratos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
         <Btn onClick={()=>{
           setForm({
             tipo: tab === "CANJE" ? "CANJE" : tab,
@@ -2307,7 +2283,6 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   const [importingExcel, setImportingExcel] = useState(false);
   const [excelFileName, setExcelFileName] = useState("");
   const [movsReal,setMovsReal]=useState(null);
-  const [vista,setVista]=useState("recientes");
 
   let rawMovs = movsReal !== null ? movsReal : mockMovimientos.filter(m=>m.modalidad===modulo);
   if (globalFiltroProductor) {
@@ -2803,7 +2778,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
 
   const cargarContratos = async () => {
     try {
-      const data = await api.get(`/api/contratos?modalidad=${modulo}&vista=todos`); // Corregido el parámetro de query
+      const data = await api.get(`/api/contratos?modalidad=${modulo}`); // Corregido el parámetro de query
       const mapped = data.map(c => ({
         id: c.id,
         id_contraparte: c.id_contraparte,
@@ -2870,7 +2845,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
 
   const cargarMovimientos = async () => {
     try {
-      const data = await api.get(`/api/movimientos?modalidad=${modulo}&vista=${vista}`);
+      const data = await api.get(`/api/movimientos?modalidad=${modulo}`);
       const mapped = data.map(m => ({
         ...m,
         id: m.id,
@@ -2929,7 +2904,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     cargarContratos();
     cargarContrapartes();
     cargarMermas();
-  },[modulo,vista]);
+  },[modulo]);
 
   const estadoColor = e=>({EN_TRANSITO:"orange",DESCARGADO:"blue",LIQUIDADO:"green",ANULADO:"red",BORRADOR:"gray"}[e]||"gray");
   const liqColor = e=>({LIQUIDADO:"green",ASIGNADO:"blue",PRELIQUIDADO:"orange",SIN_ASIGNAR:"gray"}[e]||"gray");
@@ -3684,17 +3659,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   return (
     <div className="fade-in">
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
-        <div style={{display:"flex",alignItems:"center",gap:14}}>
-          <h2 style={{fontSize:18,fontWeight:700}}>Movimientos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
-          <div style={{display:"flex",border:"1px solid #2a2d3e",borderRadius:6,overflow:"hidden"}}>
-            {[["recientes","Recientes"],["pendientes","Pendientes"],["todos","Todos"]].map(([v,label])=>(
-              <button key={v} onClick={()=>setVista(v)} style={{
-                padding:"5px 10px",fontSize:11,fontWeight:600,border:"none",cursor:"pointer",
-                background:vista===v?"#3498db":"transparent",color:vista===v?"#fff":"#8890a8"
-              }}>{label}</button>
-            ))}
-          </div>
-        </div>
+        <h2 style={{fontSize:18,fontWeight:700}}>Movimientos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
         <div style={{display:"flex",gap:8}}>
           <Btn variant="secondary" size="sm" onClick={()=>setShowRapido(true)}>⚡ Carga Rápida</Btn>
           <Btn variant="secondary" size="sm" onClick={()=>setShowImport(true)}>↑ Importar CPE</Btn>
@@ -5787,8 +5752,8 @@ const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie, setG
       const runAutoLiq = async () => {
         try {
           const cps = await api.get("/api/contrapartes");
-          const ctrs = await api.get(`/api/contratos?modulo=${modulo}&vista=todos`);
-          const movs = await api.get(`/api/movimientos?modalidad=${modulo}&vista=todos`);
+          const ctrs = await api.get(`/api/contratos?modulo=${modulo}`);
+          const movs = await api.get(`/api/movimientos?modalidad=${modulo}`);
           
           const mappedCps = cps.map(c => ({
             ...c,
@@ -5887,8 +5852,8 @@ const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie, setG
   const abrirNuevaModal = async () => {
     try {
       const cps = await api.get("/api/contrapartes");
-      const ctrs = await api.get(`/api/contratos?modulo=${modulo}&vista=todos`);
-      const movs = await api.get(`/api/movimientos?modalidad=${modulo}&vista=todos`);
+      const ctrs = await api.get(`/api/contratos?modulo=${modulo}`);
+      const movs = await api.get(`/api/movimientos?modalidad=${modulo}`);
       
       setContrapartes(cps.map(c => ({
         ...c,
@@ -7333,8 +7298,8 @@ const Stock = ({modulo, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec
     const fetchData = async () => {
       try {
         setCargando(true);
-        const resMov = await api.get(`/api/movimientos?modalidad=${modulo}&vista=todos`);
-        const resCont = await api.get(`/api/contratos?vista=todos`);
+        const resMov = await api.get(`/api/movimientos?modalidad=${modulo}`);
+        const resCont = await api.get(`/api/contratos`);
         
         // Map movements
         const mappedMovs = resMov.map(m => ({
@@ -7986,7 +7951,7 @@ const ReporteFletes = ({modulo}) => {
   const cargarMovimientos = async () => {
     setCargando(true);
     try {
-      const res = await api.get(`/api/movimientos?modalidad=${modulo}&vista=todos`);
+      const res = await api.get(`/api/movimientos?modalidad=${modulo}`);
       if (res) {
         setTodosMovs(res.map(mapMovimiento));
       }
@@ -8915,7 +8880,7 @@ const ImportadorExcel = ({modulo, usuario}) => {
 
   useEffect(() => {
     api.get("/api/contrapartes").then(d => setContrapartes(d || [])).catch(() => {});
-    api.get(`/api/contratos?modulo=${modulo}&vista=todos`).then(d => setContratos(d || [])).catch(() => {});
+    api.get(`/api/contratos?modulo=${modulo}`).then(d => setContratos(d || [])).catch(() => {});
   }, [modulo]);
 
   // Columnas esperadas en el Excel
@@ -10396,11 +10361,34 @@ const DocumentosArca = () => {
     if(cuit.length!==11) return alert("El comprobante no tiene un CUIT receptor válido.");
     setCargando(true);
     try {
-      const oficial=await api.get(`/api/contrapartes/consulta-arca/${cuit}`);
-      const razonSocial=String(oficial?.razon_social||"").trim();
-      if(!razonSocial) {
-        return alert("ARCA no devolvió una razón social. No se creó ninguna contraparte.");
+      let oficial={};
+      try {
+        const respuestaA13=await api.get(`/api/arca/padron/${cuit}`);
+        const padron=respuestaA13?.datos_padron||respuestaA13||{};
+        const generales=padron.datosGenerales||padron||{};
+        const domicilio=generales.domicilioFiscal||padron.domicilio_fiscal||{};
+        oficial={
+          cuit,
+          razon_social:padron.razon_social||generales.razonSocial||
+            `${generales.apellido||""} ${generales.nombre||""}`.trim(),
+          condicion_iva:padron.condicion_iva||"RI",
+          domicilio:domicilio.direccion||"",
+          localidad:domicilio.localidad||"",
+          provincia:domicilio.descripcionProvincia||domicilio.provincia||"",
+          origen:"PADRON_ARCA_A13"
+        };
+      } catch(e) {
+        oficial={};
       }
+      if(!String(oficial.razon_social||"").trim()) {
+        oficial=await api.get(`/api/contrapartes/consulta-arca/${cuit}`);
+      }
+      const razonSocialOficial=String(oficial?.razon_social||"").trim();
+      const razonSocial=razonSocialOficial||String(window.prompt(
+        `ARCA no devolvió la razón social del CUIT ${cuit}.\nIngresala manualmente para crear la contraparte:`,
+        ""
+      )||"").trim();
+      if(!razonSocial) return alert("La razón social es obligatoria. No se creó ninguna contraparte.");
       const mensaje=[
         "AUTORIZACIÓN HUMANA DE ALTA",
         `CUIT: ${cuit}`,
@@ -10420,7 +10408,9 @@ const DocumentosArca = () => {
         domicilio:oficial.domicilio||"",
         localidad:oficial.localidad||"",
         provincia:oficial.provincia||"",
-        observaciones:`Alta autorizada por usuario desde Documentos ARCA. Origen: ${oficial.origen||"ARCA"}.`
+        observaciones:razonSocialOficial
+          ? `Alta autorizada por usuario desde Documentos ARCA. Origen: ${oficial.origen||"ARCA"}.`
+          : "Alta autorizada desde Documentos ARCA con razón social ingresada manualmente; pendiente de validación contra padrón."
       });
       await cargar(1);
       alert(`Contraparte ${razonSocial} creada y vinculada por CUIT. Ahora podés decidir la cuenta corriente.`);
@@ -12712,7 +12702,7 @@ function App() {
   }
 
   const handleAccesoOculto = () => {
-    if(usuario&&usuario.rol==="ADMIN"){
+    if(usuario.rol==="ADMIN"){
       setInformalUnlocked(true);
       setModulo("INFORMAL");
       setSec("dashboard");
