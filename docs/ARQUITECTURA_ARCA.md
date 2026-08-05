@@ -1,4 +1,4 @@
-﻿# Arquitectura viva de integración ARCA
+# Arquitectura viva de integración ARCA
 
 ## Principios obligatorios
 
