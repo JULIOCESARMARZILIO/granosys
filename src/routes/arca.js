@@ -137,6 +137,36 @@ router.get('/documentos/iva-ventas/resumen', async (req, res) => {
   }
 });
 
+router.get('/cc/conciliaciones', async (req, res) => {
+  try {
+    const resultado = await arcaOfficialClient.listarConciliacionesCuentaCorriente({
+      desde: req.query.desde || null,
+      hasta: req.query.hasta || null,
+      estado: req.query.estado || 'PENDIENTE',
+      limite: req.query.limite || 200
+    });
+    res.json({ ok: true, resultado, soloConsulta: true });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
+// Requiere ADMIN por enforceApiPermissions. La decisiÃ³n queda auditada y es idempotente.
+router.post('/cc/conciliaciones/:documentId/decidir', async (req, res) => {
+  try {
+    const resultado = await arcaOfficialClient.decidirConciliacionCuentaCorriente({
+      documentId: req.params.documentId,
+      decision: req.body?.decision,
+      ccMovimientoId: req.body?.ccMovimientoId || null,
+      observacion: req.body?.observacion || '',
+      userId: req.user?.id
+    });
+    res.status(201).json({ ok: true, resultado, aprobacionHumana: true });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/sync/:id', async (req, res) => {
   try {
     const job = await arcaOfficialClient.obtenerSyncJob(req.params.id);
