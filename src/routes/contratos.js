@@ -86,7 +86,7 @@ async function recalcularContrato(id_contrato) {
 router.get('/', async (req, res) => {
   try {
     const modalidad = req.query.modalidad || req.query.modulo;
-    const { tipo, estado } = req.query;
+    const { tipo, estado, vista, desde, hasta } = req.query;
 
     if (tipo === 'CANJE') {
       const { rows } = await pool.query(`
@@ -195,6 +195,17 @@ router.get('/', async (req, res) => {
       query += ` AND c.tipo_contrato = $${params.length} AND c.es_canje = FALSE`;
     }
     if (estado) { params.push(estado); query += ` AND c.estado = $${params.length}`; }
+
+    if (desde) { params.push(desde); query += ` AND c.created_at >= $${params.length}`; }
+    if (hasta) { params.push(hasta); query += ` AND c.created_at <= $${params.length}`; }
+    if (!desde && !hasta) {
+      if (vista === 'pendientes') {
+        query += ` AND c.estado NOT IN ('CUMPLIDO')`;
+      } else if (vista !== 'todos') {
+        query += ` AND c.created_at >= NOW() - INTERVAL '30 days'`;
+      }
+    }
+
     query += ' ORDER BY c.created_at DESC';
 
     const { rows } = await pool.query(query, params);

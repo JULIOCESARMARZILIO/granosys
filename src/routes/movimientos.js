@@ -161,7 +161,7 @@ async function asegurarContraparte(cuit, nombre, tipoDefault) {
 // GET todos los movimientos
 router.get('/', async (req, res) => {
   try {
-    const { modalidad, estado } = req.query;
+    const { modalidad, estado, vista, desde, hasta } = req.query;
     let query = `
       SELECT m.*,
              e.nombre as especie_nombre,
@@ -187,6 +187,17 @@ router.get('/', async (req, res) => {
     const params = [];
     if (modalidad) { params.push(modalidad); query += ` AND m.modalidad = $${params.length}`; }
     if (estado) { params.push(estado); query += ` AND m.estado = $${params.length}`; }
+
+    if (desde) { params.push(desde); query += ` AND m.created_at >= $${params.length}`; }
+    if (hasta) { params.push(hasta); query += ` AND m.created_at <= $${params.length}`; }
+    if (!desde && !hasta) {
+      if (vista === 'pendientes') {
+        query += ` AND m.estado IN ('BORRADOR','EN_TRANSITO')`;
+      } else if (vista !== 'todos') {
+        query += ` AND m.created_at >= NOW() - INTERVAL '10 days'`;
+      }
+    }
+
     query += `
       ORDER BY CASE 
         WHEN m.estado = 'BORRADOR' THEN 1

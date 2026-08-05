@@ -13,6 +13,9 @@ app.use(express.json());
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', version: '2.0.0', time: new Date() }));
 
+// Autenticación - protege todo /api salvo /api/usuarios/login
+app.use('/api', require('./middleware/requireAuth'));
+
 // Rutas API - VAN ANTES del static
 app.use('/api/contrapartes', require('./routes/contrapartes'));
 app.use('/api/especies',     require('./routes/especies'));
