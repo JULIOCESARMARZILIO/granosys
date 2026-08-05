@@ -1,31 +1,86 @@
 const Afip = require('@afipsdk/afip.js');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
+const arcaOfficialClient = require('./arcaOfficialClient');
+
+function getArcaMode() {
+  const mode = String(process.env.ARCA_MODE || 'DISABLED').toUpperCase();
+  if (!['DISABLED', 'SANDBOX', 'HOMOLOGATION', 'PRODUCTION'].includes(mode)) {
+    throw new Error('ARCA_MODE inválido. Use DISABLED, SANDBOX, HOMOLOGATION o PRODUCTION.');
+  }
+  return mode;
+}
+
+function readSecret(pemName, base64Name) {
+  const base64Value = process.env[base64Name];
+  if (base64Value) return Buffer.from(base64Value.trim(), 'base64').toString('utf8').trim();
+  const pemValue = process.env[pemName];
+  return pemValue ? pemValue.replace(/\\n/g, '\n').trim() : null;
+}
+
+function validateCredentialPair(certPem, keyPem, expectedCuit = null) {
+  try {
+    const certificate = new crypto.X509Certificate(certPem);
+    const privateKey = crypto.createPrivateKey(keyPem);
+    const certificatePublicKey = certificate.publicKey.export({ type: 'spki', format: 'der' });
+    const privatePublicKey = crypto.createPublicKey(privateKey).export({ type: 'spki', format: 'der' });
+    if (!crypto.timingSafeEqual(certificatePublicKey, privatePublicKey)) {
+      throw new Error('El certificado ARCA no corresponde a la clave privada configurada.');
+    }
+    const now = new Date();
+    if (now < new Date(certificate.validFrom) || now > new Date(certificate.validTo)) {
+      throw new Error('El certificado ARCA está fuera de su período de validez.');
+    }
+    const normalizedCuit = String(expectedCuit || '').replace(/\D/g, '');
+    if (normalizedCuit && !certificate.subject.replace(/\D/g, '').includes(normalizedCuit)) {
+      throw new Error('La CUIT del certificado ARCA no coincide con AFIP_CUIT.');
+    }
+    return {
+      fingerprint256: certificate.fingerprint256,
+      validFrom: certificate.validFrom,
+      validTo: certificate.validTo,
+      subject: certificate.subject
+    };
+  } catch (error) {
+    if (/no corresponde|período de validez|no coincide/.test(error.message)) throw error;
+    throw new Error('El certificado o la clave privada ARCA no tienen un formato PEM válido.');
+  }
+}
 
 // Helper para obtener credenciales de ARCA
 function obtenerCredenciales() {
+  const mode = getArcaMode();
+  if (mode === 'DISABLED') {
+    throw new Error('Integración ARCA deshabilitada. Configure ARCA_MODE explícitamente.');
+  }
   const afipCuit = process.env.AFIP_CUIT;
-  const afipCertStr = process.env.AFIP_CERT;
-  const afipKeyStr = process.env.AFIP_KEY;
+  const afipCertStr = readSecret('AFIP_CERT', 'AFIP_CERT_B64');
+  const afipKeyStr = readSecret('AFIP_KEY', 'AFIP_KEY_B64');
 
   if (!afipCuit || !afipCertStr || !afipKeyStr) {
-    return null; // Devuelve null si falta alguna credencial, activando el modo simulador
+    if (mode === 'SANDBOX') return null;
+    throw new Error(`Faltan credenciales ARCA para el modo ${mode}.`);
   }
+  validateCredentialPair(afipCertStr, afipKeyStr, afipCuit);
 
-  const certPath = path.join(__dirname, '../../afip.crt');
-  const keyPath = path.join(__dirname, '../../afip.key');
+  const credentialDir = path.join(os.tmpdir(), `granosys-arca-${process.pid}`);
+  fs.mkdirSync(credentialDir, { recursive: true, mode: 0o700 });
+  const certPath = path.join(credentialDir, 'afip.crt');
+  const keyPath = path.join(credentialDir, 'afip.key');
 
   try {
     if (afipCertStr.includes('-----BEGIN')) {
-      fs.writeFileSync(certPath, afipCertStr.trim());
+      fs.writeFileSync(certPath, afipCertStr.trim(), { mode: 0o600 });
     }
     if (afipKeyStr.includes('-----BEGIN')) {
-      fs.writeFileSync(keyPath, afipKeyStr.trim());
+      fs.writeFileSync(keyPath, afipKeyStr.trim(), { mode: 0o600 });
     }
     return { cuit: afipCuit, cert: certPath, key: keyPath };
   } catch (e) {
     console.error('Error al preparar archivos de credenciales:', e);
-    return null;
+    throw new Error('No se pudieron preparar las credenciales ARCA.');
   }
 }
 
@@ -76,7 +131,7 @@ async function consultarCPEsActivas(filtro = {}) {
   }
 
   try {
-    const afip = new Afip({ CUIT: parseInt(creds.cuit), cert: creds.cert, key: creds.key, production: process.env.AFIP_PROD === 'true' });
+    return await arcaOfficialClient.consultarPadronA13(cuitLimpio);
     const wscpe = afip.WebService('wscpe');
     // Consulta real a WSCPE usando SOAP
     // Métodos del servicio: consultarCpeDestinatario, etc.
@@ -124,10 +179,10 @@ async function consultarPadronA13(cuitConsultar) {
   }
 
   try {
-    const afip = new Afip({ CUIT: parseInt(creds.cuit), cert: creds.cert, key: creds.key, production: process.env.AFIP_PROD === 'true' });
-    // El cliente específico obtiene token/sign de WSAA y ejecuta el método
-    // oficial getPersona de Padrón Alcance 13 con autenticación WSAA.
-    return await afip.RegisterScopeThirteen.getTaxpayerDetails(parseInt(cuitLimpio));
+    const afip = new Afip({ CUIT: parseInt(creds.cuit), cert: creds.cert, key: creds.key, production: getArcaMode() === 'PRODUCTION' });
+    // El cliente específico obtiene el token/sign de WSAA y ejecuta el
+    // método oficial `getPersona`. El WebService genérico no agrega esas
+    // credenciales y `getPersona_v13` no existe en Padrón Alcance 13.
   } catch (err) {
     console.error('Error real en Padrón A13:', err);
     throw err;
@@ -173,7 +228,7 @@ async function consultarSISA(cuitConsultar) {
   }
 
   try {
-    const afip = new Afip({ CUIT: parseInt(creds.cuit), cert: creds.cert, key: creds.key, production: process.env.AFIP_PROD === 'true' });
+    const afip = new Afip({ CUIT: parseInt(creds.cuit), cert: creds.cert, key: creds.key, production: getArcaMode() === 'PRODUCTION' });
     const ws = afip.WebService('sisa');
     const res = await ws.executeRequest('consultarSisaProductor', {
       cuitConsultada: parseInt(cuitLimpio)
@@ -205,7 +260,7 @@ async function emitirLiquidacionLPG(datos) {
   }
 
   try {
-    const afip = new Afip({ CUIT: parseInt(creds.cuit), cert: creds.cert, key: creds.key, production: process.env.AFIP_PROD === 'true' });
+    const afip = new Afip({ CUIT: parseInt(creds.cuit), cert: creds.cert, key: creds.key, production: getArcaMode() === 'PRODUCTION' });
     const wslpg = afip.WebService('wslpg');
     const res = await wslpg.executeRequest('autorizarLiquidacion', {
       cabecera: {
@@ -241,7 +296,7 @@ async function emitirCertificado1116(tipo, datos) {
   }
 
   try {
-    const afip = new Afip({ CUIT: parseInt(creds.cuit), cert: creds.cert, key: creds.key, production: process.env.AFIP_PROD === 'true' });
+    const afip = new Afip({ CUIT: parseInt(creds.cuit), cert: creds.cert, key: creds.key, production: getArcaMode() === 'PRODUCTION' });
     const ws = afip.WebService('ws_certificacion_granos');
     const res = await ws.executeRequest('registrarCertificado1116', {
       tipoFormulario: tipo,
@@ -272,7 +327,7 @@ async function emitirFacturaElectronica(datos) {
   }
 
   try {
-    const afip = new Afip({ CUIT: parseInt(creds.cuit), cert: creds.cert, key: creds.key, production: process.env.AFIP_PROD === 'true' });
+    const afip = new Afip({ CUIT: parseInt(creds.cuit), cert: creds.cert, key: creds.key, production: getArcaMode() === 'PRODUCTION' });
     // Usar el helper nativo de ElectronicBilling del SDK de Afip
     const lastVoucher = await afip.ElectronicBilling.getLastVoucher(datos.puntoVenta || 1, datos.tipoComp || 1);
     const nextVoucher = lastVoucher + 1;
@@ -335,7 +390,7 @@ async function consultarComprobanteEmitido(tipo, ptoVta, nro) {
   }
 
   try {
-    const afip = new Afip({ CUIT: parseInt(creds.cuit), cert: creds.cert, key: creds.key, production: process.env.AFIP_PROD === 'true' });
+    const afip = new Afip({ CUIT: parseInt(creds.cuit), cert: creds.cert, key: creds.key, production: getArcaMode() === 'PRODUCTION' });
     const res = await afip.ElectronicBilling.getVoucherInfo(nro, ptoVta, tipo);
     return res;
   } catch (err) {
@@ -346,6 +401,9 @@ async function consultarComprobanteEmitido(tipo, ptoVta, nro) {
 
 // Exportar todos los servicios de forma limpia
 module.exports = {
+  getArcaMode,
+  readSecret,
+  validateCredentialPair,
   consultarCPEsActivas,
   consultarPadronA13,
   consultarSISA,

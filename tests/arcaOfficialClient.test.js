@@ -36,7 +36,7 @@ describe('arcaOfficialClient XML helpers', () => {
         '<ResultGet><ImpTotal>1215.50</ImpTotal><ImpTotConc>10</ImpTotConc>',
         '<ImpNeto>1000</ImpNeto><ImpOpEx>5</ImpOpEx><ImpTrib>0.50</ImpTrib><ImpIVA>200</ImpIVA>',
         '<Iva><AlicIva><Id>5</Id><BaseImp>1000</BaseImp><Importe>200</Importe></AlicIva></Iva>',
-        '<Tributos><Tributo><Id>2</Id><Desc>PercepciÃ³n provincial</Desc><BaseImp>1000</BaseImp><Alic>0.05</Alic><Importe>0.50</Importe></Tributo></Tributos>',
+        '<Tributos><Tributo><Id>2</Id><Desc>Percepción provincial</Desc><BaseImp>1000</BaseImp><Alic>0.05</Alic><Importe>0.50</Importe></Tributo></Tributos>',
         '</ResultGet>'
       ].join('')
     };
@@ -50,7 +50,7 @@ describe('arcaOfficialClient XML helpers', () => {
       AlicIva: [{ Id: 5, BaseImp: 1000, Importe: 200 }],
       Tributos: [{
         Id: 2,
-        Desc: 'PercepciÃ³n provincial',
+        Desc: 'Percepción provincial',
         BaseImp: 1000,
         Alic: 0.05,
         Importe: 0.5
@@ -63,5 +63,12 @@ describe('arcaOfficialClient XML helpers', () => {
     expect(client._internal.signoComprobanteWsfe(3)).toBe(-1);
     expect(client._internal.signoComprobanteWsfe(8)).toBe(-1);
     expect(client._internal.signoComprobanteWsfe(203)).toBe(-1);
+  });
+
+  test('normalizes an official Padrón A13 person response', () => {
+    const xml = '<Envelope><Body><getPersonaResponse><personaReturn><persona><idPersona>30701843742</idPersona><tipoPersona>JURIDICA</tipoPersona><estadoClave>ACTIVO</estadoClave><razonSocial>EMPRESA DE PRUEBA SA</razonSocial><domicilio><tipoDomicilio>FISCAL</tipoDomicilio><direccion>RUTA 5 KM 1</direccion><localidad>CHIVILCOY</localidad><codigoPostal>6620</codigoPostal><descripcionProvincia>BUENOS AIRES</descripcionProvincia></domicilio></persona></personaReturn></getPersonaResponse></Body></Envelope>';
+    const result = client._internal.parsearPersonaPadronA13(xml);
+    expect(result.datosGenerales.razonSocial).toBe('EMPRESA DE PRUEBA SA');
+    expect(result.datosGenerales.domicilioFiscal.localidad).toBe('CHIVILCOY');
   });
 });
