@@ -10304,6 +10304,9 @@ const DocumentosArca = () => {
   const [conciliacion,setConciliacion]=useState({totalCuits:0,vinculadas:0,pendientes:0});
   const [ivaVentas,setIvaVentas]=useState({totales:{},periodos:[],alicuotas:[],tributos:[],controlIntegridad:{observados:0}});
   const [ccConciliaciones,setCcConciliaciones]=useState({total:0,pendientesSinContraparte:0,posiblesDuplicados:0,conciliaciones:[]});
+  const [syncJobs,setSyncJobs]=useState([]);
+  const [sincronizando,setSincronizando]=useState(false);
+  const [syncError,setSyncError]=useState("");
   const [buscar,setBuscar]=useState("");
   const [desde,setDesde]=useState("2026-01-01");
   const [hasta,setHasta]=useState("");
@@ -10353,6 +10356,38 @@ const DocumentosArca = () => {
       setCargando(false);
     }
   };
+  const esperarSync = async job => {
+    for(let intento=0;intento<180;intento+=1) {
+      const respuesta=await api.get(`/api/arca/sync/${job.id}`);
+      const actual=respuesta.job||job;
+      setSyncJobs(prev=>prev.map(item=>item.id===actual.id?actual:item));
+      if(["COMPLETADO","PARCIAL","ERROR"].includes(actual.estado)) return actual;
+      await new Promise(resolve=>setTimeout(resolve,2000));
+    }
+    throw new Error(`La sincronización ${job.fuente} continúa en proceso. Podés actualizar la pantalla más tarde.`);
+  };
+  const sincronizarDesdeArca = async () => {
+    if(!window.confirm(`Se consultará ARCA desde ${desde} y se guardarán copias oficiales en GranoSYS. No se emitirán comprobantes ni se crearán movimientos contables. ¿Continuar?`)) return;
+    setSincronizando(true);
+    setSyncError("");
+    setSyncJobs([]);
+    try {
+      const [facturas,granos]=await Promise.all([
+        api.post("/api/arca/sync/facturas-emitidas",{desde,limite:5000}),
+        api.post("/api/arca/sync/granos",{desde,limite:5000,puntosEmision:Array.from({length:20},(_,i)=>i+1)})
+      ]);
+      const jobs=[facturas.job,granos.job].filter(Boolean);
+      setSyncJobs(jobs);
+      const terminados=await Promise.all(jobs.map(esperarSync));
+      const fallidos=terminados.filter(job=>job.estado==="ERROR");
+      if(fallidos.length) setSyncError(fallidos.map(job=>`${job.fuente}: ${job.error}`).join(" · "));
+      await cargar(1);
+    } catch(e) {
+      setSyncError(e.message||"No se pudo completar la sincronización.");
+    } finally {
+      setSincronizando(false);
+    }
+  };
 
   return <div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18}}>
@@ -10363,6 +10398,23 @@ const DocumentosArca = () => {
       {[["Comprobantes",paginacion.total,"#3498db"],["CUIT receptores",conciliacion.totalCuits,"#f5a623"],["Contrapartes vinculadas",conciliacion.vinculadas,"#27ae60"],["Pendientes de alta",conciliacion.pendientes,"#e74c3c"]].map(([label,value,color])=>
         <div className="card" key={label} style={{padding:"14px 16px"}}><div style={{fontSize:11,color:"#8890a8",textTransform:"uppercase"}}>{label}</div><div style={{fontSize:24,fontWeight:700,color,marginTop:5}}>{value||0}</div></div>
       )}
+    </div>
+    <div className="card" style={{padding:"14px 16px",marginBottom:16,border:"1px solid #2f5f88"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:16}}>
+        <div>
+          <div style={{fontSize:15,fontWeight:700}}>Sincronización oficial ARCA</div>
+          <div style={{fontSize:11,color:"#8890a8",marginTop:3}}>Consulta desde {desde}. Importa facturas emitidas por WSFE y documentos disponibles por WSLPG. No emite, anula ni contabiliza.</div>
+        </div>
+        <Btn onClick={sincronizarDesdeArca} disabled={sincronizando}>{sincronizando?"Sincronizando...":"Sincronizar desde ARCA"}</Btn>
+      </div>
+      {syncJobs.length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginTop:12}}>
+        {syncJobs.map(job=><div key={job.id} style={{padding:10,background:"#11141d",borderRadius:7,fontSize:12}}>
+          <div style={{display:"flex",justifyContent:"space-between"}}><b>{job.fuente}</b><Badge label={job.estado} color={job.estado==="ERROR"?"red":job.estado==="COMPLETADO"?"green":"blue"}/></div>
+          <div style={{color:"#8890a8",marginTop:5}}>Revisados: {job.total_revisados||0} · Importados/actualizados: {job.total_importados||0}</div>
+        </div>)}
+      </div>}
+      {syncError&&<div style={{marginTop:10,padding:10,background:"rgba(231,76,60,.12)",color:"#e74c3c",borderRadius:7}}>{syncError}</div>}
+      <div style={{fontSize:10,color:"#6f7892",marginTop:10}}>Las facturas recibidas y los formularios generados exclusivamente en servicios interactivos no se listan por WSFE/WSLPG: requieren su canal oficial específico o importación por COE/PDF.</div>
     </div>
     <div className="card" style={{padding:"14px 16px",marginBottom:16}}>
       <div style={{display:"flex",justifyContent:"space-between",gap:16,alignItems:"flex-start",marginBottom:12}}>
