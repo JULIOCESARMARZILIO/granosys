@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { pool } = require('../db');
 const crypto = require('crypto');
+const { registrarAuditoria } = require('../services/auditoria');
 
 function hashPassword(password) {
   return crypto.createHash('sha256').update(password).digest('hex');
@@ -61,6 +62,11 @@ router.post('/', async (req, res) => {
       VALUES ($1, $2, $3, $4, TRUE) RETURNING id, usuario, nombre, rol, activo
     `, [usuario, hash, nombre, rol]);
 
+    await registrarAuditoria(req, {
+      accion: 'CREAR', modulo: 'usuarios', registro_id: rows[0].id,
+      datos_despues: rows[0]
+    });
+
     res.status(201).json(rows[0]);
   } catch (err) {
     if (err.code === '23505') {
@@ -80,13 +86,19 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Usuario, Nombre y Rol son requeridos' });
     }
 
+    const { rows: antesRows } = await pool.query(
+      'SELECT id, usuario, nombre, rol, activo FROM usuarios WHERE id=$1', [id]
+    );
+
     let query = 'UPDATE usuarios SET usuario=$1, nombre=$2, rol=$3, activo=$4';
     const params = [usuario, nombre, rol, activo];
+    let cambioContrasena = false;
 
     if (contrasena && contrasena.trim() !== '') {
       const hash = hashPassword(contrasena);
       params.push(hash);
       query += `, contrasena=$${params.length}`;
+      cambioContrasena = true;
     }
 
     params.push(id);
@@ -96,6 +108,12 @@ router.put('/:id', async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
+
+    await registrarAuditoria(req, {
+      accion: 'MODIFICAR', modulo: 'usuarios', registro_id: rows[0].id,
+      datos_antes: antesRows[0] || null,
+      datos_despues: { ...rows[0], contrasena_modificada: cambioContrasena }
+    });
 
     res.json(rows[0]);
   } catch (err) {
@@ -113,7 +131,7 @@ router.delete('/:id', async (req, res) => {
     
     // Evitar auto-eliminación si es el usuario actual, eso se valida en el frontend,
     // pero evitamos eliminar el admin principal
-    const { rows: user } = await pool.query('SELECT usuario FROM usuarios WHERE id = $1', [id]);
+    const { rows: user } = await pool.query('SELECT id, usuario, nombre, rol, activo FROM usuarios WHERE id = $1', [id]);
     if (user[0] && user[0].usuario === 'admin') {
       return res.status(400).json({ error: 'No se puede eliminar el usuario administrador principal' });
     }
@@ -122,6 +140,11 @@ router.delete('/:id', async (req, res) => {
     if (rowCount === 0) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
+
+    await registrarAuditoria(req, {
+      accion: 'ELIMINAR', modulo: 'usuarios', registro_id: parseInt(id),
+      datos_antes: user[0] || null
+    });
 
     res.json({ ok: true });
   } catch (err) {

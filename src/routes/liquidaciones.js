@@ -1,6 +1,7 @@
 // liquidaciones.js
 const router = require('express').Router();
 const { pool } = require('../db');
+const { registrarAuditoria } = require('../services/auditoria');
 
 router.get('/', async (req, res) => {
   try {
@@ -159,6 +160,11 @@ router.post('/', async (req, res) => {
     `, [id_contraparte, rows[0].id, id_contrato, fecha_liquidacion,
         `Liquidación ${nro_liquidacion}`, debeVal, haberVal, saldoAcumulado, modalidad]);
 
+    await registrarAuditoria(req, {
+      accion: 'CREAR', modulo: 'liquidaciones', registro_id: rows[0].id,
+      datos_despues: { ...rows[0], ids_movimientos }
+    });
+
     res.status(201).json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -248,6 +254,12 @@ router.put('/:id', async (req, res) => {
     `, [debeVal, haberVal, saldoAcumulado, id]);
 
     await client.query('COMMIT');
+
+    await registrarAuditoria(req, {
+      accion: 'MODIFICAR', modulo: 'liquidaciones', registro_id: updated[0].id,
+      datos_antes: current[0], datos_despues: updated[0]
+    });
+
     res.json(updated[0]);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -302,6 +314,11 @@ router.delete('/:id', async (req, res) => {
     await client.query('DELETE FROM liquidaciones WHERE id = $1', [id]);
 
     await client.query('COMMIT');
+
+    await registrarAuditoria(req, {
+      accion: 'ELIMINAR', modulo: 'liquidaciones', registro_id: parseInt(id), datos_antes: current[0]
+    });
+
     res.json({ success: true, message: "Liquidación eliminada correctamente" });
   } catch (err) {
     await client.query('ROLLBACK');

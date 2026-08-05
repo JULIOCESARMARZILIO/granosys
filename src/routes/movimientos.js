@@ -1,6 +1,44 @@
 const router = require('express').Router();
 const { pool } = require('../db');
 const { extraerDatosCPE, ExtraccionError } = require('../services/geminiExtraction');
+const { registrarAuditoria } = require('../services/auditoria');
+const { sumarStock, restarStock } = require('../services/stockService');
+
+// Al llegar un movimiento a destino (kg_liquidables ya definitivo), actualiza
+// el stock: si tiene contrato de compra y una ubicacion de destino propia
+// cargada, suma stock ahi; si tiene contrato de venta y una ubicacion de
+// origen propia cargada, resta stock de ahi (salio de un deposito propio).
+async function actualizarStockPorLlegada(mov) {
+  if (!mov || !mov.kg_liquidables) return;
+
+  if (mov.id_contrato_compra && mov.id_ubicacion_destino) {
+    const { rows: contratoRows } = await pool.query(
+      'SELECT tipo_precio, precio_pactado, id_campana FROM contratos WHERE id = $1',
+      [mov.id_contrato_compra]
+    );
+    const contrato = contratoRows[0];
+    if (contrato) {
+      const precioUnitario = contrato.tipo_precio === 'FIJO' && contrato.precio_pactado !== null
+        ? parseFloat(contrato.precio_pactado) : null;
+      await sumarStock({
+        id_ubicacion: mov.id_ubicacion_destino,
+        id_especie: mov.id_especie,
+        id_campana: mov.id_campana || contrato.id_campana,
+        kg: parseFloat(mov.kg_liquidables),
+        precioUnitario
+      });
+    }
+  }
+
+  if (mov.id_contrato_venta && mov.id_ubicacion_origen) {
+    await restarStock({
+      id_ubicacion: mov.id_ubicacion_origen,
+      id_especie: mov.id_especie,
+      id_campana: mov.id_campana,
+      kg: parseFloat(mov.kg_liquidables)
+    });
+  }
+}
 
 // POST /parse-cpe - interpreta con IA el texto de una Carta de Porte Electrónica
 // (el PDF se lee en el cliente con pdf.js; acá solo se estructura el texto plano).
@@ -37,15 +75,27 @@ async function recalcularContrato(id_contrato) {
       fieldToSum = 'kg_liquidables';
     }
 
+    // Si el movimiento tiene un tope de asignacion parcial cargado (kg_asignados_*),
+    // se usa ese valor en vez del peso completo del camion -- es lo que permite
+    // que un camion se reparta entre "lo que entra en el contrato" y el resto
+    // (que queda sin contrato, por ejemplo para un retiro de productor).
     let sumQuery = '';
     if (tipo_contrato === 'COMPRA') {
-      sumQuery = `SELECT COALESCE(SUM(${fieldToSum}), 0) as total_kg FROM movimientos WHERE id_contrato_compra = $1`;
+      sumQuery = `SELECT COALESCE(SUM(COALESCE(kg_asignados_contrato_compra, ${fieldToSum})), 0) as total_kg FROM movimientos WHERE id_contrato_compra = $1`;
     } else {
-      sumQuery = `SELECT COALESCE(SUM(${fieldToSum}), 0) as total_kg FROM movimientos WHERE id_contrato_venta = $1`;
+      sumQuery = `SELECT COALESCE(SUM(COALESCE(kg_asignados_contrato_venta, ${fieldToSum})), 0) as total_kg FROM movimientos WHERE id_contrato_venta = $1`;
     }
 
     const { rows: sumRows } = await client.query(sumQuery, [id_contrato]);
-    const total_toneladas = parseFloat(sumRows[0].total_kg) / 1000;
+    let total_toneladas = parseFloat(sumRows[0].total_kg) / 1000;
+
+    if (tipo_contrato === 'COMPRA') {
+      const { rows: aplicRows } = await client.query(
+        'SELECT COALESCE(SUM(toneladas), 0) as total FROM contrato_aplicaciones_stock WHERE id_contrato = $1',
+        [id_contrato]
+      );
+      total_toneladas += parseFloat(aplicRows[0].total);
+    }
 
     let estado = 'CONFIRMADO';
     if (total_toneladas >= parseFloat(cantidad_toneladas_pactadas)) {
@@ -326,6 +376,24 @@ router.post('/', async (req, res) => {
 
     const createdMov = mainMovRows[0];
 
+    // El prefijo del CTG indica quien lo emitio: 101 = productor (produccion
+    // propia), 102 = acopiador (compra a terceros). Se detecta solo, no
+    // depende de que alguien lo tipee bien.
+    const origenProduccion = nro_ctg && nro_ctg.startsWith('101') ? 'PROPIA'
+      : nro_ctg && nro_ctg.startsWith('102') ? 'ACOPIO' : null;
+
+    // Ubicacion propia de origen/destino (opcional): es lo que le permite al
+    // motor de stock saber si este viaje entra o sale de un deposito propio.
+    if (req.body.id_ubicacion_origen || req.body.id_ubicacion_destino || origenProduccion) {
+      await pool.query(
+        'UPDATE movimientos SET id_ubicacion_origen = $1, id_ubicacion_destino = $2, origen_produccion = COALESCE($3, origen_produccion) WHERE id = $4',
+        [req.body.id_ubicacion_origen || null, req.body.id_ubicacion_destino || null, origenProduccion, createdMov.id]
+      );
+      createdMov.id_ubicacion_origen = req.body.id_ubicacion_origen || null;
+      createdMov.id_ubicacion_destino = req.body.id_ubicacion_destino || null;
+      createdMov.origen_produccion = origenProduccion || createdMov.origen_produccion;
+    }
+
     // Si es INFORMAL y tiene CPE, crear twin FORMAL
     if (modalidad === 'INFORMAL' && nro_cpe) {
       const numero_movimiento_2 = `MOV-${String(num1 + 1).padStart(4, '0')}`;
@@ -375,6 +443,10 @@ router.post('/', async (req, res) => {
           createdMov.id]);
 
       const twinMov = twinRows[0];
+      if (origenProduccion) {
+        await pool.query('UPDATE movimientos SET origen_produccion = $1 WHERE id = $2', [origenProduccion, twinMov.id]);
+        twinMov.origen_produccion = origenProduccion;
+      }
       await pool.query('UPDATE movimientos SET id_movimiento_vinculado = $1 WHERE id = $2', [twinMov.id, createdMov.id]);
       createdMov.id_movimiento_vinculado = twinMov.id;
     }
@@ -382,6 +454,10 @@ router.post('/', async (req, res) => {
     // Recalcular toneladas y estado de contratos
     await recalcularContrato(final_id_contrato_compra);
     await recalcularContrato(final_id_contrato_venta);
+
+    await registrarAuditoria(req, {
+      accion: 'CREAR', modulo: 'movimientos', registro_id: createdMov.id, datos_despues: createdMov
+    });
 
     res.status(201).json(createdMov);
   } catch (err) {
@@ -487,14 +563,15 @@ router.put('/:id/llegada', async (req, res) => {
         humedad_llegada_pct||null, diferencia, tolerancia, faltante,
         factor_calculado, db_factor_manual, factor_aplicado, kg_liquidables,
         req.params.id]);
-    
+
     if (rows[0]) {
       await recalcularContrato(rows[0].id_contrato_compra);
       await recalcularContrato(rows[0].id_contrato_venta);
-      
+      await actualizarStockPorLlegada(rows[0]);
+
       if (rows[0].id_movimiento_vinculado) {
         const vinculoId = rows[0].id_movimiento_vinculado;
-        const { rows: vMov } = await pool.query('SELECT id_contrato_compra, id_contrato_venta FROM movimientos WHERE id = $1', [vinculoId]);
+        const { rows: vMov } = await pool.query('SELECT * FROM movimientos WHERE id = $1', [vinculoId]);
         
         await pool.query(`
           UPDATE movimientos SET
@@ -514,6 +591,7 @@ router.put('/:id/llegada', async (req, res) => {
         if (vMov[0]) {
           await recalcularContrato(vMov[0].id_contrato_compra);
           await recalcularContrato(vMov[0].id_contrato_venta);
+          await actualizarStockPorLlegada({ ...vMov[0], kg_liquidables });
         }
       }
     }
@@ -1043,6 +1121,17 @@ router.put('/:id', async (req, res) => {
         nro_factura_flete||null, fecha_partida||null, estado_liq, req.params.id
     ]);
 
+    const origenProduccionEdit = nro_ctg && nro_ctg.startsWith('101') ? 'PROPIA'
+      : nro_ctg && nro_ctg.startsWith('102') ? 'ACOPIO' : null;
+
+    if (req.body.id_ubicacion_origen !== undefined || req.body.id_ubicacion_destino !== undefined || origenProduccionEdit) {
+      const { rows: ubicRows } = await pool.query(
+        'UPDATE movimientos SET id_ubicacion_origen = $1, id_ubicacion_destino = $2, origen_produccion = COALESCE($3, origen_produccion) WHERE id = $4 RETURNING *',
+        [req.body.id_ubicacion_origen || null, req.body.id_ubicacion_destino || null, origenProduccionEdit, req.params.id]
+      );
+      if (ubicRows[0]) rows[0] = ubicRows[0];
+    }
+
     // Recalcular toneladas y estado de contratos involucrados
     await recalcularContrato(oldCompraId);
     await recalcularContrato(oldVentaId);
@@ -1053,6 +1142,11 @@ router.put('/:id', async (req, res) => {
       await recalcularContrato(id_contrato_venta);
     }
 
+    await registrarAuditoria(req, {
+      accion: 'MODIFICAR', modulo: 'movimientos', registro_id: rows[0].id,
+      datos_antes: currentMov[0], datos_despues: rows[0]
+    });
+
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1062,28 +1156,39 @@ router.put('/:id', async (req, res) => {
 // PUT asignar contrato
 router.put('/:id/asignar', async (req, res) => {
   try {
-    const { id_contrato_compra, id_contrato_venta } = req.body;
+    const { id_contrato_compra, id_contrato_venta, kg_asignado_compra, kg_asignado_venta } = req.body;
 
     // Obtener los contratos anteriores
-    const { rows: currentMov } = await pool.query('SELECT id_contrato_compra, id_contrato_venta FROM movimientos WHERE id = $1', [req.params.id]);
+    const { rows: currentMov } = await pool.query('SELECT id_contrato_compra, id_contrato_venta, kg_liquidables FROM movimientos WHERE id = $1', [req.params.id]);
     if (!currentMov[0]) return res.status(404).json({ error: 'No encontrado' });
 
     const oldCompraId = currentMov[0].id_contrato_compra;
     const oldVentaId = currentMov[0].id_contrato_venta;
-    
+
     // Permitir actualizar a null si se pasa explícitamente en el body
     const id_compra = id_contrato_compra !== undefined ? id_contrato_compra : null;
     const id_venta = id_contrato_venta !== undefined ? id_contrato_venta : null;
     const estado_liq = (id_compra === null && id_venta === null) ? 'SIN_ASIGNAR' : 'ASIGNADO';
+
+    // Asignacion parcial: si viene un kg_asignado_* menor al peso del camion,
+    // solo esa parte cuenta para el contrato; el resto queda sin contrato
+    // (por ejemplo, para un retiro de productor). No mandar el campo = camion completo.
+    const kgLiquidables = parseFloat(currentMov[0].kg_liquidables) || 0;
+    const kgAsignadoCompra = kg_asignado_compra !== undefined && kg_asignado_compra !== null && kg_asignado_compra !== ''
+      ? Math.min(parseFloat(kg_asignado_compra), kgLiquidables) : null;
+    const kgAsignadoVenta = kg_asignado_venta !== undefined && kg_asignado_venta !== null && kg_asignado_venta !== ''
+      ? Math.min(parseFloat(kg_asignado_venta), kgLiquidables) : null;
 
     const { rows } = await pool.query(`
       UPDATE movimientos SET
         id_contrato_compra=$1,
         id_contrato_venta=$2,
         estado_liquidacion=$3,
+        kg_asignados_contrato_compra=$4,
+        kg_asignados_contrato_venta=$5,
         updated_at=NOW()
-      WHERE id=$4 RETURNING *
-    `, [id_compra, id_venta, estado_liq, req.params.id]);
+      WHERE id=$6 RETURNING *
+    `, [id_compra, id_venta, estado_liq, kgAsignadoCompra, kgAsignadoVenta, req.params.id]);
 
     // Recalcular contratos viejos y nuevos
     await recalcularContrato(oldCompraId);
@@ -1094,6 +1199,11 @@ router.put('/:id/asignar', async (req, res) => {
     if (id_venta && id_venta !== oldVentaId) {
       await recalcularContrato(id_venta);
     }
+
+    await registrarAuditoria(req, {
+      accion: 'ASIGNAR_CONTRATO', modulo: 'movimientos', registro_id: rows[0].id,
+      datos_antes: currentMov[0], datos_despues: rows[0]
+    });
 
     res.json(rows[0]);
   } catch (err) {
@@ -1112,8 +1222,8 @@ router.delete('/:id', async (req, res) => {
       return res.status(400).json({ error: 'No se puede eliminar un movimiento que ya está liquidado' });
     }
 
-    // Obtener contratos antes de borrar
-    const { rows: mov } = await pool.query('SELECT id_contrato_compra, id_contrato_venta FROM movimientos WHERE id = $1', [id]);
+    // Obtener el movimiento completo antes de borrar (para auditoria y para recalcular contratos)
+    const { rows: mov } = await pool.query('SELECT * FROM movimientos WHERE id = $1', [id]);
     if (mov.length === 0) {
       return res.status(404).json({ error: 'Movimiento no encontrado' });
     }
@@ -1136,6 +1246,10 @@ router.delete('/:id', async (req, res) => {
     // Recalcular contratos
     await recalcularContrato(oldCompraId);
     await recalcularContrato(oldVentaId);
+
+    await registrarAuditoria(req, {
+      accion: 'ELIMINAR', modulo: 'movimientos', registro_id: parseInt(id), datos_antes: mov[0]
+    });
 
     res.json({ ok: true });
   } catch (err) {

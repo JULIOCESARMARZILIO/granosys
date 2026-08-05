@@ -24,6 +24,8 @@ async function initDB() {
         id SERIAL PRIMARY KEY,
         nombre VARCHAR(50) NOT NULL,
         codigo VARCHAR(10) NOT NULL UNIQUE,
+        tipo_producto VARCHAR(20) NOT NULL DEFAULT 'GRANO',
+        id_especie_origen INTEGER REFERENCES especies(id),
         activa BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT NOW()
       );
@@ -351,8 +353,117 @@ async function initDB() {
         toneladas_con_precio DECIMAL(12,3) DEFAULT 0,
         toneladas_a_fijar DECIMAL(12,3) DEFAULT 0,
         toneladas_comprometidas DECIMAL(12,3) DEFAULT 0,
+        costo_promedio_ponderado DECIMAL(14,4) DEFAULT 0,
+        valor_total DECIMAL(16,4) DEFAULT 0,
         updated_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(id_ubicacion, id_especie, id_campana)
+      );
+
+      -- Historial de precios de referencia (para valuar posicion "a fijar" y
+      -- subproductos). Es de solo agregado: nunca se pisa un precio viejo,
+      -- se inserta uno nuevo con su fecha de vigencia. id_ubicacion y
+      -- modalidad son opcionales: NULL significa "aplica en general" salvo
+      -- que exista un precio mas especifico para esa ubicacion/modalidad.
+      CREATE TABLE IF NOT EXISTS precios_referencia (
+        id SERIAL PRIMARY KEY,
+        id_especie INTEGER NOT NULL REFERENCES especies(id),
+        id_ubicacion INTEGER REFERENCES ubicaciones(id),
+        modalidad VARCHAR(20),
+        precio DECIMAL(14,4) NOT NULL,
+        moneda VARCHAR(20) NOT NULL DEFAULT 'ARS',
+        vigente_desde DATE NOT NULL DEFAULT CURRENT_DATE,
+        usuario VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      -- Registra cuando se aplican toneladas de la "bolsa" de una zona
+      -- (sub-zona de referencia, ej. Rosario Norte) al cumplimiento de un
+      -- contrato de compra, en vez de vincular camion por camion. La
+      -- descarga entra a la bolsa de su zona (via el motor de stock ya
+      -- existente); esto es la operacion de "sacar" de esa bolsa para
+      -- completar un contrato puntual.
+      -- Retiro de Productor: un productor retira o se le transfiere formalmente
+      -- una parte de lo que hay en la bolsa de una zona (el equivalente al
+      -- C1116A -- grano depositado, certificado, sin vender todavia). No
+      -- toca ningun contrato; numero_1116rt se completa cuando se tramita
+      -- por fuera en ARCA (la emision automatica queda para mas adelante).
+      CREATE TABLE IF NOT EXISTS retiros_productor (
+        id SERIAL PRIMARY KEY,
+        id_contraparte INTEGER NOT NULL REFERENCES contrapartes(id),
+        zona VARCHAR(50) NOT NULL,
+        id_especie INTEGER NOT NULL REFERENCES especies(id),
+        id_campana INTEGER NOT NULL REFERENCES campanas(id),
+        toneladas DECIMAL(12,3) NOT NULL,
+        numero_1116rt VARCHAR(50),
+        observaciones VARCHAR(255),
+        usuario VARCHAR(100) NOT NULL,
+        fecha DATE DEFAULT CURRENT_DATE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS contrato_aplicaciones_stock (
+        id SERIAL PRIMARY KEY,
+        id_contrato INTEGER NOT NULL REFERENCES contratos(id) ON DELETE CASCADE,
+        zona VARCHAR(50) NOT NULL,
+        id_especie INTEGER NOT NULL REFERENCES especies(id),
+        id_campana INTEGER NOT NULL REFERENCES campanas(id),
+        toneladas DECIMAL(12,3) NOT NULL,
+        usuario VARCHAR(100) NOT NULL,
+        fecha DATE DEFAULT CURRENT_DATE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      -- Detalle camion-por-camion de cada aplicacion de Bolsa por Zona a un
+      -- contrato: que movimientos (camiones) la componen y cuantos kg de
+      -- kg_liquidables de cada uno se usaron. Un mismo movimiento puede
+      -- aparecer en mas de una fila (repartido entre varias aplicaciones/
+      -- contratos) sin que el movimiento en si se toque ni se duplique.
+      CREATE TABLE IF NOT EXISTS aplicacion_stock_movimientos (
+        id SERIAL PRIMARY KEY,
+        id_aplicacion INTEGER NOT NULL REFERENCES contrato_aplicaciones_stock(id) ON DELETE CASCADE,
+        id_movimiento INTEGER NOT NULL REFERENCES movimientos(id),
+        kg_aplicados DECIMAL(12,3) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_aplic_stock_mov_movimiento ON aplicacion_stock_movimientos(id_movimiento);
+
+      -- Certificados 1116 (A/B/C), carga manual a partir del PDF real (ARCA
+      -- no permite listarlos por API cuando los emite un corredor).
+      -- No se reutiliza retiros_productor: eso es un concepto de negocio
+      -- distinto (retiro de la bolsa por zona), esto es el documento fiscal
+      -- en si, que puede o no terminar asociado a un movimiento puntual.
+      CREATE TABLE IF NOT EXISTS certificados_1116 (
+        id SERIAL PRIMARY KEY,
+        tipo_formulario VARCHAR(5) NOT NULL,
+        numero_certificado VARCHAR(30),
+        coe VARCHAR(30),
+        cuit_productor VARCHAR(13),
+        nombre_productor VARCHAR(200),
+        id_especie INTEGER REFERENCES especies(id),
+        id_campana INTEGER REFERENCES campanas(id),
+        kilos_netos DECIMAL(12,3),
+        fecha_emision DATE,
+        nro_ctg_asociado VARCHAR(30),
+        id_movimiento INTEGER REFERENCES movimientos(id),
+        id_retiro_productor INTEGER REFERENCES retiros_productor(id),
+        direccion VARCHAR(30),
+        origen_carga VARCHAR(20) DEFAULT 'MANUAL',
+        datos_raw JSONB,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_certificados_1116_numero ON certificados_1116(numero_certificado) WHERE numero_certificado IS NOT NULL;
+
+      -- Un certificado 1116 puede cubrir varios camiones/CTG (ej. un
+      -- productor entrega en varias tandas y se consolida en un solo
+      -- certificado de deposito). id_movimiento queda null si ese CTG
+      -- puntual todavia no tiene un movimiento cargado en el sistema.
+      CREATE TABLE IF NOT EXISTS certificado_1116_ctgs (
+        id SERIAL PRIMARY KEY,
+        id_certificado_1116 INTEGER NOT NULL REFERENCES certificados_1116(id) ON DELETE CASCADE,
+        nro_ctg VARCHAR(30) NOT NULL,
+        id_movimiento INTEGER REFERENCES movimientos(id),
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(id_certificado_1116, nro_ctg)
       );
 
       CREATE TABLE IF NOT EXISTS mermas_humedad (
@@ -391,8 +502,62 @@ async function initDB() {
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS calidad_tipo_ajuste VARCHAR(20) DEFAULT 'FACTOR';
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS calidad_valor_ajuste DECIMAL(12,4);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_movimiento_vinculado INTEGER REFERENCES movimientos(id);
-      ALTER TABLE fijaciones_contrato ADD COLUMN IF NOT EXISTS precio_referencia DECIMAL(14,4);
-      ALTER TABLE fijaciones_contrato ADD COLUMN IF NOT EXISTS descuento_pct DECIMAL(8,4);
+      ALTER TABLE especies ADD COLUMN IF NOT EXISTS tipo_producto VARCHAR(20) NOT NULL DEFAULT 'GRANO';
+      ALTER TABLE especies ADD COLUMN IF NOT EXISTS id_especie_origen INTEGER REFERENCES especies(id);
+      ALTER TABLE especies ADD COLUMN IF NOT EXISTS rendimiento_teorico_pct DECIMAL(6,3);
+      ALTER TABLE stock ADD COLUMN IF NOT EXISTS costo_promedio_ponderado DECIMAL(14,4) DEFAULT 0;
+      ALTER TABLE stock ADD COLUMN IF NOT EXISTS valor_total DECIMAL(16,4) DEFAULT 0;
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_ubicacion_origen INTEGER REFERENCES ubicaciones(id);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_ubicacion_destino INTEGER REFERENCES ubicaciones(id);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS origen_produccion VARCHAR(20);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS kg_asignados_contrato_compra DECIMAL(12,3);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS kg_asignados_contrato_venta DECIMAL(12,3);
+      ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS km_a_referencia DECIMAL(8,2);
+      ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS zona VARCHAR(50);
+      ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS sub_zona VARCHAR(50);
+
+      -- Referencia localidad -> zona/sub-zona (ej. "Timbues" -> "Rosario Norte" / "Timbues").
+      -- Se usa para clasificar automaticamente cualquier ubicacion, existente
+      -- o nueva, sin tener que tipear la zona a mano cada vez. Se va
+      -- ampliando con el tiempo, no hace falta tenerla completa de entrada.
+      CREATE TABLE IF NOT EXISTS zonas_localidad (
+        id SERIAL PRIMARY KEY,
+        localidad VARCHAR(100) NOT NULL UNIQUE,
+        zona VARCHAR(50) NOT NULL,
+        sub_zona VARCHAR(50),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      -- Igual que zonas_localidad pero por nombre de planta/empresa (ej.
+      -- "ProAlim", "Transcom"), para cuando no se sabe/importa la localidad
+      -- puntual, solo con que planta se trata.
+      CREATE TABLE IF NOT EXISTS zonas_nombre (
+        id SERIAL PRIMARY KEY,
+        nombre VARCHAR(100) NOT NULL UNIQUE,
+        zona VARCHAR(50) NOT NULL,
+        sub_zona VARCHAR(50),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      ALTER TABLE tablas_flete ADD COLUMN IF NOT EXISTS es_default BOOLEAN DEFAULT FALSE;
+      ALTER TABLE contratos ADD COLUMN IF NOT EXISTS costo_servicio_produccion DECIMAL(14,4) DEFAULT 0;
+      ALTER TABLE contratos ADD COLUMN IF NOT EXISTS costo_grano_enviado_snapshot DECIMAL(14,4);
+      ALTER TABLE contratos ADD COLUMN IF NOT EXISTS id_ubicacion_origen INTEGER REFERENCES ubicaciones(id);
+
+      -- Ordenes de produccion/maquila: se registra 1 contrato PRODUCCION con el
+      -- grano que sale a procesar, y N "salidas" variables (aceite, expeller,
+      -- afrechillo...) a medida que el procesador las va devolviendo. El costo
+      -- se reparte entre las salidas recien cuando se cierra la orden, porque
+      -- hasta entonces no se sabe la proporcion final.
+      CREATE TABLE IF NOT EXISTS contrato_produccion_salidas (
+        id SERIAL PRIMARY KEY,
+        id_contrato INTEGER NOT NULL REFERENCES contratos(id) ON DELETE CASCADE,
+        id_especie INTEGER NOT NULL REFERENCES especies(id),
+        cantidad_kg DECIMAL(12,3) NOT NULL,
+        id_ubicacion_destino INTEGER REFERENCES ubicaciones(id),
+        fecha_recepcion DATE DEFAULT CURRENT_DATE,
+        observaciones VARCHAR(255),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
 
       -- Inicializar estado_flete basado en campos de flete existentes
       UPDATE movimientos SET estado_flete = 'LIQUIDADO' WHERE nro_factura_flete IS NOT NULL AND (estado_flete IS NULL OR estado_flete = 'PENDIENTE');
@@ -434,6 +599,8 @@ async function initDB() {
         observaciones VARCHAR(255),
         created_at TIMESTAMP DEFAULT NOW()
       );
+      ALTER TABLE fijaciones_contrato ADD COLUMN IF NOT EXISTS precio_referencia DECIMAL(14,4);
+      ALTER TABLE fijaciones_contrato ADD COLUMN IF NOT EXISTS descuento_pct DECIMAL(8,4);
 
       CREATE TABLE IF NOT EXISTS propuestas_aprobacion (
         id SERIAL PRIMARY KEY,
@@ -602,6 +769,115 @@ async function initDB() {
       console.log('Semilla de parametros_calidad_especie completada.');
     }
 
+    // Reclasificar automaticamente cualquier especie ya cargada (a mano, antes
+    // de que existiera este catalogo) cuyo nombre sea claramente un subproducto
+    // industrial, para no duplicarla. Corre siempre, es idempotente.
+    await client.query(`
+      UPDATE especies SET tipo_producto = 'SUBPRODUCTO'
+      WHERE tipo_producto = 'GRANO' AND (
+        nombre ILIKE '%aceite%' OR nombre ILIKE '%expeller%' OR nombre ILIKE '%afrechillo%' OR
+        nombre ILIKE '%cascarilla%' OR nombre ILIKE '%c%scara%' OR nombre ILIKE '%pellet%' OR
+        nombre ILIKE '%harina%' OR nombre ILIKE '%partido%'
+      )
+    `);
+
+    // Sembrar catalogo de subproductos si no existen todavia (se identifican
+    // por codigo o nombre para no duplicar algo cargado a mano previamente;
+    // si ya existe, solo se lo retagea como SUBPRODUCTO en vez de crear otro).
+    const { rows: origenes } = await client.query("SELECT id, codigo FROM especies WHERE codigo IN ('SOJ','GIR','TRI','MAI')");
+    const idOrigen = {};
+    origenes.forEach(o => { idOrigen[o.codigo] = o.id; });
+
+    const subproductos = [
+      { nombre: 'Aceite de Soja',       codigo: 'ACE-SOJ', origen: 'SOJ', rendimiento: 13.0 },
+      { nombre: 'Aceite de Girasol',    codigo: 'ACE-GIR', origen: 'GIR', rendimiento: null },
+      { nombre: 'Expeller de Soja',     codigo: 'EXP-SOJ', origen: 'SOJ', rendimiento: 82.0 },
+      { nombre: 'Expeller de Girasol',  codigo: 'EXP-GIR', origen: 'GIR', rendimiento: null },
+      { nombre: 'Afrechillo de Trigo',  codigo: 'AFR-TRI', origen: 'TRI', rendimiento: null },
+      { nombre: 'Afrechillo de Maíz',   codigo: 'AFR-MAI', origen: 'MAI', rendimiento: null },
+      { nombre: 'Maíz Partido',         codigo: 'MAI-PAR', origen: 'MAI', rendimiento: null },
+    ];
+    for (const sp of subproductos) {
+      const { rows: existente } = await client.query(
+        'SELECT id FROM especies WHERE codigo = $1 OR nombre ILIKE $2 LIMIT 1',
+        [sp.codigo, sp.nombre]
+      );
+      if (existente.length > 0) {
+        await client.query(
+          `UPDATE especies SET tipo_producto = 'SUBPRODUCTO', id_especie_origen = COALESCE(id_especie_origen, $1), rendimiento_teorico_pct = COALESCE(rendimiento_teorico_pct, $2) WHERE id = $3`,
+          [idOrigen[sp.origen] || null, sp.rendimiento, existente[0].id]
+        );
+      } else {
+        await client.query(
+          `INSERT INTO especies (nombre, codigo, tipo_producto, id_especie_origen, rendimiento_teorico_pct, activa)
+           VALUES ($1, $2, 'SUBPRODUCTO', $3, $4, TRUE) ON CONFLICT (codigo) DO NOTHING`,
+          [sp.nombre, sp.codigo, idOrigen[sp.origen] || null, sp.rendimiento]
+        );
+      }
+    }
+
+    // Sembrar/actualizar referencia de zonas por localidad (se puede volver a
+    // correr con mas filas en el futuro sin duplicar, por eso ON CONFLICT).
+    const zonasLocalidad = [
+      // Rosario Norte
+      { localidad: 'Timbues', zona: 'Rosario Norte', sub_zona: 'Timbues' },
+      { localidad: 'Timbúes', zona: 'Rosario Norte', sub_zona: 'Timbues' },
+      { localidad: 'San Lorenzo', zona: 'Rosario Norte', sub_zona: 'San Lorenzo' },
+      { localidad: 'Pto San Martin', zona: 'Rosario Norte', sub_zona: 'San Martin' },
+      { localidad: 'Puerto San Martin', zona: 'Rosario Norte', sub_zona: 'San Martin' },
+      { localidad: 'San Martin', zona: 'Rosario Norte', sub_zona: 'San Martin' },
+      { localidad: 'San Martín', zona: 'Rosario Norte', sub_zona: 'San Martin' },
+      // Rosario Sur (sin sub-zonas, va todo junto en una sola bolsa)
+      { localidad: 'Alvear', zona: 'Rosario Sur', sub_zona: null },
+      { localidad: 'Punta Alvear', zona: 'Rosario Sur', sub_zona: null },
+      { localidad: 'Gral.Lagos', zona: 'Rosario Sur', sub_zona: null },
+      { localidad: 'General Lagos', zona: 'Rosario Sur', sub_zona: null },
+      { localidad: 'Arroyo Seco', zona: 'Rosario Sur', sub_zona: null },
+      // Lima (sin sub-zonas, Lima y Zarate/Las Palmas van juntos en una sola bolsa)
+      { localidad: 'Lima', zona: 'Lima', sub_zona: null },
+      { localidad: 'Zarate', zona: 'Lima', sub_zona: null },
+      { localidad: 'Zárate', zona: 'Lima', sub_zona: null },
+    ];
+    for (const zl of zonasLocalidad) {
+      await client.query(
+        `INSERT INTO zonas_localidad (localidad, zona, sub_zona) VALUES ($1,$2,$3)
+         ON CONFLICT (localidad) DO UPDATE SET zona = $2, sub_zona = $3`,
+        [zl.localidad, zl.zona, zl.sub_zona]
+      );
+    }
+
+    // Referencia por nombre de planta/empresa (cuando se conoce quien es
+    // pero no en que localidad puntual esta).
+    const zonasNombre = [
+      { nombre: 'ProAlim', zona: 'Saladillo', sub_zona: null },
+      { nombre: 'Transcom', zona: 'Saladillo', sub_zona: null },
+      { nombre: 'Planta La Campana', zona: 'Saladillo', sub_zona: null },
+      { nombre: 'La Campana', zona: 'Saladillo', sub_zona: null },
+      { nombre: 'Cuatro Molinos', zona: 'Saladillo', sub_zona: null },
+    ];
+    for (const zn of zonasNombre) {
+      await client.query(
+        `INSERT INTO zonas_nombre (nombre, zona, sub_zona) VALUES ($1,$2,$3)
+         ON CONFLICT (nombre) DO UPDATE SET zona = $2, sub_zona = $3`,
+        [zn.nombre, zn.zona, zn.sub_zona]
+      );
+    }
+    await client.query(`
+      UPDATE ubicaciones u SET zona = zn.zona, sub_zona = zn.sub_zona
+      FROM zonas_nombre zn
+      WHERE u.nombre ILIKE zn.nombre AND (u.zona IS NULL OR u.zona = zn.zona)
+    `);
+
+    // Aplicar la referencia a ubicaciones que ya tenian localidad cargada:
+    // si todavia no tenian zona, se les asigna; si ya tenian zona/sub_zona
+    // de una version anterior de la referencia, se resincroniza para que
+    // no quede una sub_zona vieja dando vueltas.
+    await client.query(`
+      UPDATE ubicaciones u SET zona = zl.zona, sub_zona = zl.sub_zona
+      FROM zonas_localidad zl
+      WHERE u.localidad = zl.localidad AND (u.zona IS NULL OR u.zona = zl.zona)
+    `);
+
     // Sembrar transportistas y choferes si no existen
     const { rows: tExist } = await client.query('SELECT id FROM transportistas LIMIT 1');
     if (tExist.length === 0) {
@@ -684,6 +960,46 @@ async function initDB() {
         console.error(`Error al crear columna ${col.name}:`, err.message);
       }
     }
+
+    // Corrige contratos guardados con el valor viejo/incorrecto 'PRECIO_HECHO'
+    // (un bug del formulario que mandaba ese valor en vez de 'FIJO', el que
+    // usa el resto del sistema). Idempotente: no hace nada si ya no quedan.
+    const { rowCount: corregidos } = await client.query(
+      "UPDATE contratos SET tipo_precio = 'FIJO' WHERE tipo_precio = 'PRECIO_HECHO'"
+    );
+    if (corregidos > 0) {
+      console.log(`Corregidos ${corregidos} contratos con tipo_precio='PRECIO_HECHO' -> 'FIJO'.`);
+    }
+
+    // Auditoria: registro de quien hizo cada cambio. La tabla es de solo
+    // lectura para la aplicacion (solo INSERT); el trigger bloquea a nivel
+    // de base de datos cualquier UPDATE o DELETE, incluso si hay un bug o
+    // un acceso directo a la base, para que el historial no se pueda alterar.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS auditoria (
+        id SERIAL PRIMARY KEY,
+        fecha TIMESTAMP DEFAULT NOW(),
+        usuario VARCHAR(100) NOT NULL,
+        accion VARCHAR(30) NOT NULL,
+        modulo VARCHAR(50) NOT NULL,
+        registro_id INTEGER,
+        datos_antes JSONB,
+        datos_despues JSONB,
+        ip VARCHAR(50)
+      );
+
+      CREATE OR REPLACE FUNCTION bloquear_modificacion_auditoria()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        RAISE EXCEPTION 'La tabla auditoria es de solo lectura: no se pueden modificar ni borrar registros existentes.';
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS trg_auditoria_inmutable ON auditoria;
+      CREATE TRIGGER trg_auditoria_inmutable
+      BEFORE UPDATE OR DELETE ON auditoria
+      FOR EACH ROW EXECUTE FUNCTION bloquear_modificacion_auditoria();
+    `);
 
     console.log('Base de datos inicializada correctamente');
   } finally {

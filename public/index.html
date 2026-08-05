@@ -7,7 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="/vendor/xlsx-0.20.3.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -93,11 +93,15 @@ const formatFechaAR = (fechaISO) => {
 const API_URL = window.location.hostname === "localhost"
   ? "http://localhost:3000"
   : window.location.origin;
+const authHeaders = (extra={}) => {
+  const token = sessionStorage.getItem("granosys_access_token");
+  return token ? {...extra, Authorization:`Bearer ${token}`} : extra;
+};
 
 const api = {
   get: async (path) => {
     try {
-      const r = await fetch(`${API_URL}${path}`);
+      const r = await fetch(`${API_URL}${path}`, {headers:authHeaders()});
       if (!r.ok) throw new Error(await r.text());
       return await r.json();
     } catch(e) {
@@ -109,7 +113,7 @@ const api = {
     try {
       const r = await fetch(`${API_URL}${path}`, {
         method: "POST",
-        headers: {"Content-Type":"application/json"},
+        headers: authHeaders({"Content-Type":"application/json"}),
         body: JSON.stringify(data)
       });
       if (!r.ok) throw new Error(await r.text());
@@ -123,7 +127,7 @@ const api = {
     try {
       const r = await fetch(`${API_URL}${path}`, {
         method: "PUT",
-        headers: {"Content-Type":"application/json"},
+        headers: authHeaders({"Content-Type":"application/json"}),
         body: JSON.stringify(data)
       });
       if (!r.ok) throw new Error(await r.text());
@@ -136,7 +140,8 @@ const api = {
   delete: async (path) => {
     try {
       const r = await fetch(`${API_URL}${path}`, {
-        method: "DELETE"
+        method: "DELETE",
+        headers: authHeaders()
       });
       if (!r.ok) throw new Error(await r.text());
       return await r.json();
@@ -481,7 +486,7 @@ const Contrapartes = ({modulo}) => {
                 <Btn variant="danger" size="sm" onClick={async()=>{
                   if(!confirm(`¿Eliminar ${c.razon_social}?`)) return;
                   try {
-                    await fetch(`/api/contrapartes/${c.id}`, {method:"DELETE"});
+                    await fetch(`/api/contrapartes/${c.id}`, {method:"DELETE",headers:authHeaders()});
                     cargarContrapartes();
                   } catch(e) {
                     alert("Error al eliminar: "+e.message);
@@ -664,7 +669,8 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
       setSelectedContract({
         ...c,
         movimientos: data.movimientos || [],
-        fijaciones: data.fijaciones || []
+        fijaciones: data.fijaciones || [],
+        aplicaciones: data.aplicaciones || []
       });
     } catch(err) {
       alert("Error al cargar detalles: " + err.message);
@@ -699,7 +705,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
       // Fetch directo (no api.post) para poder mostrar el motivo exacto si el backend rechaza por tope de toneladas.
       const r = await fetch(`${API_URL}/api/contratos/${contratoFijacion.id}/fijaciones`, {
         method: "POST",
-        headers: {"Content-Type":"application/json"},
+        headers: authHeaders({"Content-Type":"application/json"}),
         body: JSON.stringify({
           fecha: fijacionForm.fecha,
           cantidad_toneladas: parseFloat(fijacionForm.cantidad_toneladas),
@@ -754,7 +760,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
       // Fetch directo para poder mostrar el motivo exacto si el backend rechaza por tope de toneladas.
       const r = await fetch(`${API_URL}/api/contratos/${selectedContract.id}/fijaciones`, {
         method: "POST",
-        headers: {"Content-Type":"application/json"},
+        headers: authHeaders({"Content-Type":"application/json"}),
         body: JSON.stringify({
           fecha: fijacionForm.fecha,
           cantidad_toneladas: parseFloat(fijacionForm.cantidad_toneladas),
@@ -2032,6 +2038,39 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
                     );
                   })()}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {selectedContract.tipo_contrato === "COMPRA" && (
+            <div style={{marginTop: 16}}>
+              <h4 style={{fontSize: 12, color: "#8890a8", marginBottom: 8}}>Aplicaciones desde Bolsa por Zona</h4>
+              <div style={{maxHeight: 220, overflowY: "auto", border: "1px solid #2a2d3e", borderRadius: 6, background: "rgba(0,0,0,0.1)", padding: 6}}>
+                {selectedContract.aplicaciones && selectedContract.aplicaciones.length > 0 ? (
+                  selectedContract.aplicaciones.map(a => (
+                    <div key={a.id} style={{marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid rgba(255,255,255,0.05)"}}>
+                      <div style={{fontSize: 11, display: "flex", justifyContent: "space-between"}}>
+                        <span>{a.fecha} — <strong>{a.zona}</strong></span>
+                        <span><span className="mono">{parseFloat(a.toneladas).toFixed(3)} tn</span> <span style={{color:"#8890a8"}}>({a.usuario})</span></span>
+                      </div>
+                      {a.camiones && a.camiones.length > 0 && (
+                        <table style={{width: "100%", fontSize: 11, marginTop: 4}}>
+                          <tbody>
+                            {a.camiones.map((c,i) => (
+                              <tr key={i} style={{color: "#8890a8"}}>
+                                <td style={{padding: "2px 4px"}} className="mono">{c.numero_movimiento}</td>
+                                <td style={{padding: "2px 4px"}}>{c.fecha_descarga ? formatFechaAR(c.fecha_descarga) : "—"}</td>
+                                <td style={{padding: "2px 4px"}} className="mono">{Number(c.kg_aplicados).toLocaleString("es-AR",{maximumFractionDigits:0})} kg</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <div style={{color: "#8890a8", fontSize: 11, textAlign: "center", padding: "20px 0"}}>Todavía no se aplicó stock de ninguna zona a este contrato. Se hace desde "Bolsa por Zona" → "Aplicar a contrato".</div>
+                )}
               </div>
             </div>
           )}
@@ -9613,6 +9652,57 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
   const [nuevoUsuario,setNuevoUsuario]=useState({usuario:"",contrasena:"",nombre:"",rol:"OPERADOR"});
   const [editandoUsuario,setEditandoUsuario]=useState(null);
 
+  const [preciosVigentes,setPreciosVigentes]=useState([]);
+  const [cargandoPrecios,setCargandoPrecios]=useState(false);
+  const [edicionPrecio,setEdicionPrecio]=useState({});
+  const [historialAbierto,setHistorialAbierto]=useState(null);
+  const [historialPrecio,setHistorialPrecio]=useState([]);
+
+  const [ubicaciones,setUbicaciones]=useState([]);
+  const cargarUbicaciones = () => api.get("/api/ubicaciones").then(d=>setUbicaciones(d||[])).catch(()=>{});
+  const [nuevaUbicacion,setNuevaUbicacion]=useState({nombre:"",localidad:"",provincia:"",zona:"",sub_zona:""});
+  const [guardandoUbicacion,setGuardandoUbicacion]=useState(false);
+  const crearUbicacion = async () => {
+    if (!nuevaUbicacion.nombre.trim()) { alert("El nombre es obligatorio"); return; }
+    setGuardandoUbicacion(true);
+    try {
+      await api.post("/api/ubicaciones", nuevaUbicacion);
+      setNuevaUbicacion({nombre:"",localidad:"",provincia:"",zona:"",sub_zona:""});
+      cargarUbicaciones();
+    } catch(err) { alert("Error: "+err.message); }
+    finally { setGuardandoUbicacion(false); }
+  };
+
+  const [ubicacionesSinComprador,setUbicacionesSinComprador]=useState([]);
+  const [compradoresLista,setCompradoresLista]=useState([]);
+  const [busquedaSinComprador,setBusquedaSinComprador]=useState("");
+  const [busquedaSinCompradorEjecutada,setBusquedaSinCompradorEjecutada]=useState(false);
+  const [cargandoSinComprador,setCargandoSinComprador]=useState(false);
+  const [asociandoUbicacion,setAsociandoUbicacion]=useState(null);
+  const buscarUbicacionesSinComprador = async () => {
+    const termino = busquedaSinComprador.trim().toLowerCase();
+    if (termino.length < 2) {
+      setUbicacionesSinComprador([]);
+      setBusquedaSinCompradorEjecutada(false);
+      return;
+    }
+    setCargandoSinComprador(true);
+    try {
+      const data = await api.get("/api/ubicaciones/sin-comprador");
+      const resultados = (data || []).filter(u =>
+        [u.nombre, u.localidad, u.zona, u.cuit, u.cuit_planta]
+          .some(valor => String(valor || "").toLowerCase().includes(termino))
+      ).slice(0, 50);
+      setUbicacionesSinComprador(resultados);
+      setBusquedaSinCompradorEjecutada(true);
+    } catch(e) {
+      alert("Error al buscar plantas: " + e.message);
+    } finally {
+      setCargandoSinComprador(false);
+    }
+  };
+  const sinCompradorCount = ubicacionesSinComprador.length;
+
   useEffect(()=>{
     api.get("/api/especies").then(d=>setEspecies(d)).catch(()=>{});
     api.get("/api/campanas").then(d=>setCampanas(d)).catch(()=>{});
@@ -9790,6 +9880,206 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
               <Btn disabled={guardando} onClick={guardarCampana}>{guardando?"Guardando...":"Agregar"}</Btn>
             </div>
           </div>
+        </div>
+      )}
+
+      {tab==="precios"&&(
+        <div>
+          <div className="card" style={{marginBottom:16,padding:"14px 18px"}}>
+            <p style={{fontSize:12,color:"#8890a8",lineHeight:1.5,margin:0}}>
+              Precio de referencia general de cada producto (grano o subproducto), usado para valuar posiciones "a fijar" y stock sin precio de venta cerrado.
+              Al actualizar un precio, el anterior <strong>no se pierde</strong>: queda en el historial con fecha, usuario y valor, y los reportes de fechas pasadas siguen usando el precio que estaba vigente en ese momento.
+            </p>
+          </div>
+          {cargandoPrecios ? <div>Cargando...</div> : (
+            <div className="card">
+              <table><thead><tr><th>Producto</th><th>Tipo</th><th>Precio Vigente</th><th>Desde</th><th>Cargado por</th><th>Actualizar</th><th></th></tr></thead>
+              <tbody>
+                {preciosVigentes.map(p=>(
+                  <React.Fragment key={p.id_especie}>
+                    <tr>
+                      <td style={{fontWeight:500}}>{p.especie_nombre}</td>
+                      <td><Badge label={p.tipo_producto==="SUBPRODUCTO"?"Subproducto":"Grano"} color={p.tipo_producto==="SUBPRODUCTO"?"blue":"gray"}/></td>
+                      <td className="mono">{p.precio!=null?`$ ${Number(p.precio).toLocaleString("es-AR")}`:<span style={{color:"#565d7a"}}>Sin cargar</span>}</td>
+                      <td className="mono" style={{fontSize:12,color:"#8890a8"}}>{p.vigente_desde?new Date(p.vigente_desde).toLocaleDateString("es-AR"):"-"}</td>
+                      <td style={{fontSize:12,color:"#8890a8"}}>{p.usuario||"-"}</td>
+                      <td>
+                        <div style={{display:"flex",gap:6}}>
+                          <input placeholder="Nuevo precio" value={edicionPrecio[p.id_especie]||""} onChange={e=>setEdicionPrecio({...edicionPrecio,[p.id_especie]:e.target.value})} style={{width:110,padding:"5px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}/>
+                          <Btn size="sm" onClick={()=>actualizarPrecio(p.id_especie)}>Cargar</Btn>
+                        </div>
+                      </td>
+                      <td>
+                        <button onClick={()=>verHistorialPrecio(p.id_especie)} style={{background:"none",border:"none",color:"#3498db",cursor:"pointer",fontSize:12}}>
+                          {historialAbierto===p.id_especie?"Ocultar":"Historial"}
+                        </button>
+                      </td>
+                    </tr>
+                    {historialAbierto===p.id_especie && (
+                      <tr>
+                        <td colSpan={7} style={{padding:"8px 16px",background:"#0f1117"}}>
+                          {historialPrecio.length===0 ? (
+                            <span style={{fontSize:12,color:"#565d7a"}}>Sin historial todavía.</span>
+                          ) : (
+                            <table style={{fontSize:12}}><thead><tr><th>Precio</th><th>Vigente desde</th><th>Cargado por</th><th>Fecha de carga</th></tr></thead>
+                            <tbody>
+                              {historialPrecio.map(h=>(
+                                <tr key={h.id}>
+                                  <td className="mono">$ {Number(h.precio).toLocaleString("es-AR")}</td>
+                                  <td className="mono">{new Date(h.vigente_desde).toLocaleDateString("es-AR")}</td>
+                                  <td>{h.usuario}</td>
+                                  <td className="mono" style={{color:"#8890a8"}}>{new Date(h.created_at).toLocaleString("es-AR")}</td>
+                                </tr>
+                              ))}
+                            </tbody></table>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody></table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab==="ubicaciones"&&(
+        <div className="card">
+          <div className="card-header"><span style={{fontWeight:600}}>Ubicaciones y zonas de referencia</span></div>
+          <div style={{padding:"10px 16px",fontSize:12,color:"#8890a8"}}>
+            La "Zona" agrupa varias ubicaciones en una misma bolsa de stock (ej. "Rosario Norte") para poder aplicar stock a contratos sin depender de una planta puntual. La distancia (km) se usa para calcular el precio neto de flete en Posición Consolidada.
+            {sinZonaCount>0 && <div style={{color:"#e74c3c",marginTop:6,fontWeight:600}}>⚠ Hay {sinZonaCount} ubicación(es) nueva(s) sin zona asignada todavía — quedan cargadas igual, pero conviene clasificarlas para que entren en la Bolsa por Zona.</div>}
+          </div>
+          <div style={{display:"flex",gap:8,padding:"0 16px 12px",flexWrap:"wrap",alignItems:"flex-end"}}>
+            <div>
+              <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:4}}>Nombre *</label>
+              <input value={nuevaUbicacion.nombre} onChange={e=>setNuevaUbicacion({...nuevaUbicacion,nombre:e.target.value})} placeholder="Ej: Transcom Alvear" style={{width:160,padding:"6px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}/>
+            </div>
+            <div>
+              <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:4}}>Localidad</label>
+              <input value={nuevaUbicacion.localidad} onChange={e=>setNuevaUbicacion({...nuevaUbicacion,localidad:e.target.value})} style={{width:120,padding:"6px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}/>
+            </div>
+            <div>
+              <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:4}}>Provincia</label>
+              <input value={nuevaUbicacion.provincia} onChange={e=>setNuevaUbicacion({...nuevaUbicacion,provincia:e.target.value})} style={{width:120,padding:"6px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}/>
+            </div>
+            <div>
+              <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:4}}>Zona</label>
+              <input value={nuevaUbicacion.zona} onChange={e=>setNuevaUbicacion({...nuevaUbicacion,zona:e.target.value})} placeholder="Ej: Rosario Norte" style={{width:120,padding:"6px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}/>
+            </div>
+            <div>
+              <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:4}}>Sub-zona</label>
+              <input value={nuevaUbicacion.sub_zona} onChange={e=>setNuevaUbicacion({...nuevaUbicacion,sub_zona:e.target.value})} placeholder="Ej: Timbúes" style={{width:110,padding:"6px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}/>
+            </div>
+            <Btn size="sm" onClick={crearUbicacion} disabled={guardandoUbicacion}>{guardandoUbicacion?"Guardando...":"+ Nueva ubicación"}</Btn>
+          </div>
+          <table><thead><tr><th>Nombre</th><th>Tipo</th><th>Localidad</th><th>Zona</th><th>Sub-zona</th><th>Km a referencia</th></tr></thead>
+          <tbody>
+            {[...ubicaciones].sort((a,b)=>(a.zona?1:0)-(b.zona?1:0)).map(u=>(
+              <tr key={u.id} style={!u.zona?{background:"#2a1515"}:{}}>
+                <td style={{fontWeight:500}}>{u.nombre}{!u.zona && <span style={{marginLeft:6,fontSize:11,color:"#e74c3c"}}>⚠ sin clasificar</span>}</td>
+                <td style={{fontSize:12,color:"#8890a8"}}>{u.tipo}</td>
+                <td style={{fontSize:12,color:"#8890a8"}}>{u.localidad||"—"}</td>
+                <td>
+                  <input defaultValue={u.zona||""} placeholder="Ej: Rosario Norte" style={{width:120,padding:"4px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}
+                    onBlur={async(ev)=>{
+                      const val = ev.target.value.trim();
+                      if (val === (u.zona||"")) return;
+                      try {
+                        await api.put(`/api/ubicaciones/${u.id}`, { zona: val });
+                        cargarUbicaciones();
+                      } catch(err){ alert("Error: "+err.message); }
+                    }}/>
+                </td>
+                <td>
+                  <input defaultValue={u.sub_zona||""} placeholder="Ej: Timbúes" style={{width:110,padding:"4px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}
+                    onBlur={async(ev)=>{
+                      const val = ev.target.value.trim();
+                      if (val === (u.sub_zona||"")) return;
+                      try {
+                        await api.put(`/api/ubicaciones/${u.id}`, { sub_zona: val });
+                        cargarUbicaciones();
+                      } catch(err){ alert("Error: "+err.message); }
+                    }}/>
+                </td>
+                <td>
+                  <input type="number" defaultValue={u.km_a_referencia||""} placeholder="Ej: 180" style={{width:80,padding:"4px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}
+                    onBlur={async(ev)=>{
+                      const val = ev.target.value;
+                      if (val === String(u.km_a_referencia||"")) return;
+                      try {
+                        await api.put(`/api/ubicaciones/${u.id}`, { km_a_referencia: val });
+                        cargarUbicaciones();
+                      } catch(err){ alert("Error: "+err.message); }
+                    }}/>
+                </td>
+              </tr>
+            ))}
+            {ubicaciones.length===0&&<tr><td colSpan={6} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay ubicaciones cargadas</td></tr>}
+          </tbody></table>
+        </div>
+      )}
+
+      {tab==="ubicaciones"&&(
+        <div className="card" style={{marginTop:16}}>
+          <div className="card-header"><span style={{fontWeight:600}}>Buscar plantas sin comprador {busquedaSinCompradorEjecutada && `(${sinCompradorCount} resultados)`}</span></div>
+          <div style={{padding:"12px 16px",borderBottom:"1px solid #1e2133"}}>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <input
+                value={busquedaSinComprador}
+                onChange={e=>{
+                  setBusquedaSinComprador(e.target.value);
+                  setBusquedaSinCompradorEjecutada(false);
+                  setUbicacionesSinComprador([]);
+                  setAsociandoUbicacion(null);
+                }}
+                onKeyDown={e=>{if(e.key==="Enter") buscarUbicacionesSinComprador();}}
+                placeholder="Nombre de planta, localidad, zona o CUIT (mínimo 2 caracteres)"
+                style={{flex:1}}
+              />
+              <Btn onClick={buscarUbicacionesSinComprador} disabled={cargandoSinComprador||busquedaSinComprador.trim().length<2}>
+                {cargandoSinComprador?"Buscando...":"Buscar"}
+              </Btn>
+            </div>
+            <div style={{marginTop:8,fontSize:12,color:"#8890a8"}}>
+              La lista permanece vacía hasta que realices una búsqueda. Se muestran hasta 50 coincidencias.
+            </div>
+          </div>
+          {busquedaSinCompradorEjecutada && (
+            <table><thead><tr><th>Nombre</th><th>Localidad</th><th>Zona</th><th>Asociar a comprador</th></tr></thead>
+            <tbody>
+              {ubicacionesSinComprador.map(u=>(
+                <tr key={u.id}>
+                  <td style={{fontWeight:500}}>{u.nombre}</td>
+                  <td style={{fontSize:12,color:"#8890a8"}}>{u.localidad||"—"}</td>
+                  <td style={{fontSize:12,color:u.zona?"#8890a8":"#e74c3c"}}>{u.zona||"sin clasificar"}</td>
+                  <td>
+                    {asociandoUbicacion === u.id ? (
+                      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                        <select style={{fontSize:12}} defaultValue="" autoFocus onChange={async(ev)=>{
+                          const idComprador = ev.target.value;
+                          if (!idComprador) return;
+                          try {
+                            await api.post(`/api/contrapartes/${idComprador}/ubicaciones`, { id_ubicacion: u.id });
+                            setAsociandoUbicacion(null);
+                            buscarUbicacionesSinComprador();
+                          } catch(err){ alert("Error: "+err.message); }
+                        }}>
+                          <option value="">Seleccionar comprador...</option>
+                          {compradoresLista.map(c=><option key={c.id} value={c.id}>{c.razon_social}</option>)}
+                        </select>
+                        <Btn size="sm" variant="ghost" onClick={()=>setAsociandoUbicacion(null)}>Cancelar</Btn>
+                      </div>
+                    ) : (
+                      <Btn size="sm" variant="secondary" onClick={()=>setAsociandoUbicacion(u.id)}>Asociar comprador</Btn>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {ubicacionesSinComprador.length===0&&<tr><td colSpan={4} style={{textAlign:"center",color:"#8890a8",padding:20}}>No se encontraron plantas sin comprador para esa búsqueda.</td></tr>}
+            </tbody></table>
+          )}
         </div>
       )}
 
@@ -10008,19 +10298,968 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
 };
 
 // ── APP PRINCIPAL ──
+const DocumentosArca = () => {
+  const [documentos,setDocumentos]=useState([]);
+  const [paginacion,setPaginacion]=useState({pagina:1,paginas:1,total:0});
+  const [conciliacion,setConciliacion]=useState({totalCuits:0,vinculadas:0,pendientes:0});
+  const [buscar,setBuscar]=useState("");
+  const [desde,setDesde]=useState("2026-01-01");
+  const [hasta,setHasta]=useState("");
+  const [pagina,setPagina]=useState(1);
+  const [cargando,setCargando]=useState(false);
+  const [detalle,setDetalle]=useState(null);
+  const [error,setError]=useState("");
+
+  const cargar = async (paginaSolicitada=pagina) => {
+    setCargando(true); setError("");
+    try {
+      const params=new URLSearchParams({fuente:"WSFE_EMITIDA",desde,pagina:String(paginaSolicitada),limite:"50"});
+      if(hasta) params.set("hasta",hasta);
+      if(buscar.trim()) params.set("buscar",buscar.trim());
+      const [docs,concil]=await Promise.all([
+        api.get(`/api/arca/documentos?${params.toString()}`),
+        api.get("/api/arca/documentos/conciliacion-contrapartes")
+      ]);
+      setDocumentos(docs.documentos||[]);
+      setPaginacion(docs.paginacion||{pagina:1,paginas:1,total:0});
+      setConciliacion(concil);
+    } catch(e) { setError(e.message||"No se pudieron cargar los documentos ARCA."); }
+    finally { setCargando(false); }
+  };
+  useEffect(()=>{cargar(pagina);},[pagina]);
+
+  const money=value=>Number(value||0).toLocaleString("es-AR",{style:"currency",currency:"ARS"});
+  const tipoNombre=tipo=>({1:"Factura A",2:"Nota de Débito A",3:"Nota de Crédito A",6:"Factura B",7:"Nota de Débito B",8:"Nota de Crédito B",11:"Factura C",12:"Nota de Débito C",13:"Nota de Crédito C",201:"Factura de Crédito MiPyME A",206:"Factura de Crédito MiPyME B"}[Number(tipo)]||`Tipo ${tipo||"-"}`);
+
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18}}>
+      <div><h2 style={{fontSize:20,fontWeight:700,marginBottom:4}}>Documentos ARCA</h2><div style={{fontSize:12,color:"#8890a8"}}>Comprobantes oficiales emitidos por Inversiones del Salado S.A. · Solo consulta</div></div>
+      <Btn onClick={()=>cargar(pagina)} disabled={cargando}>{cargando?"Actualizando...":"Actualizar"}</Btn>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:16}}>
+      {[["Comprobantes",paginacion.total,"#3498db"],["CUIT receptores",conciliacion.totalCuits,"#f5a623"],["Contrapartes vinculadas",conciliacion.vinculadas,"#27ae60"],["Pendientes de alta",conciliacion.pendientes,"#e74c3c"]].map(([label,value,color])=>
+        <div className="card" key={label} style={{padding:"14px 16px"}}><div style={{fontSize:11,color:"#8890a8",textTransform:"uppercase"}}>{label}</div><div style={{fontSize:24,fontWeight:700,color,marginTop:5}}>{value||0}</div></div>
+      )}
+    </div>
+    <div className="card" style={{padding:"12px 14px",marginBottom:14,display:"grid",gridTemplateColumns:"2fr 1fr 1fr auto",gap:10,alignItems:"end"}}>
+      <div><label className="form-label">Buscar CUIT, contraparte o comprobante</label><input value={buscar} onChange={e=>setBuscar(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){setPagina(1);cargar(1);}}} placeholder="Ej: 30506792165"/></div>
+      <div><label className="form-label">Desde</label><input type="date" value={desde} onChange={e=>setDesde(e.target.value)}/></div>
+      <div><label className="form-label">Hasta</label><input type="date" value={hasta} onChange={e=>setHasta(e.target.value)}/></div>
+      <Btn onClick={()=>{setPagina(1);cargar(1);}}>Filtrar</Btn>
+    </div>
+    {error&&<div style={{padding:12,background:"rgba(231,76,60,.12)",color:"#e74c3c",borderRadius:7,marginBottom:12}}>{error}</div>}
+    <div className="card" style={{overflow:"hidden"}}>
+      <table style={{width:"100%",borderCollapse:"collapse"}}>
+        <thead><tr>{["Fecha","Comprobante","Receptor","Contraparte","Importe","Estado",""].map(h=><th key={h} style={{padding:"11px 12px",textAlign:"left",fontSize:10,color:"#8890a8",textTransform:"uppercase",borderBottom:"1px solid #2a2d3e"}}>{h}</th>)}</tr></thead>
+        <tbody>
+          {!cargando&&documentos.length===0&&<tr><td colSpan="7" style={{padding:28,textAlign:"center",color:"#8890a8"}}>No hay comprobantes para estos filtros.</td></tr>}
+          {documentos.map(d=>{const p=d.payload||{};return <tr key={d.id} style={{borderBottom:"1px solid #252837"}}>
+            <td style={{padding:"10px 12px"}}>{d.document_date?String(d.document_date).slice(0,10):"-"}</td>
+            <td style={{padding:"10px 12px"}}><div style={{fontWeight:600}}>{tipoNombre(p.CbteTipo)}</div><div style={{fontSize:11,color:"#8890a8"}}>PV {p.PtoVta} · N° {p.CbteDesde}</div></td>
+            <td style={{padding:"10px 12px",fontFamily:"'IBM Plex Mono',monospace"}}>{p.DocNro||"-"}</td>
+            <td style={{padding:"10px 12px"}}>{d.contraparte_razon_social||<span style={{color:"#e74c3c"}}>Sin alta</span>}</td>
+            <td style={{padding:"10px 12px",fontWeight:600}}>{money(p.ImpTotal)}</td>
+            <td style={{padding:"10px 12px"}}><Badge label={d.contraparte_estado==="VINCULADA"?"Vinculada":"Pendiente alta"} color={d.contraparte_estado==="VINCULADA"?"green":"red"}/></td>
+            <td style={{padding:"10px 12px"}}><Btn variant="secondary" onClick={()=>setDetalle(d)}>Ver</Btn></td>
+          </tr>;})}
+        </tbody>
+      </table>
+      <div style={{padding:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontSize:12,color:"#8890a8"}}>Página {paginacion.pagina||1} de {Math.max(1,paginacion.paginas||1)}</span>
+        <div style={{display:"flex",gap:7}}><Btn variant="secondary" disabled={pagina<=1} onClick={()=>setPagina(v=>Math.max(1,v-1))}>Anterior</Btn><Btn variant="secondary" disabled={pagina>=(paginacion.paginas||1)} onClick={()=>setPagina(v=>v+1)}>Siguiente</Btn></div>
+      </div>
+    </div>
+    {detalle&&<Modal title="Detalle del comprobante ARCA" onClose={()=>setDetalle(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <FF label="Tipo"><div>{tipoNombre(detalle.payload?.CbteTipo)}</div></FF><FF label="Fecha"><div>{String(detalle.document_date||"").slice(0,10)}</div></FF>
+        <FF label="Punto de venta / número"><div>{detalle.payload?.PtoVta} / {detalle.payload?.CbteDesde}</div></FF><FF label="CUIT receptor"><div>{detalle.payload?.DocNro||"-"}</div></FF>
+        <FF label="Importe total"><div>{money(detalle.payload?.ImpTotal)}</div></FF><FF label="Moneda"><div>{detalle.payload?.MonId||"-"} · Cotización {detalle.payload?.MonCotiz||"-"}</div></FF>
+        <FF label="Contraparte"><div>{detalle.contraparte_razon_social||"Pendiente de alta"}</div></FF><FF label="Código de autorización"><div style={{fontFamily:"monospace"}}>{detalle.payload?.CodAutorizacion||"-"}</div></FF>
+      </div><div style={{marginTop:14,fontSize:11,color:"#565d7a"}}>Hash SHA-256: {detalle.payload_hash}</div>
+    </Modal>}
+  </div>;
+};
+
+const RegistroAuditoria = ({r}) => {
+  const [expandido, setExpandido] = useState(false);
+  return (
+    <React.Fragment>
+      <tr style={{borderBottom:"1px solid #1e212e"}}>
+        <td style={{padding:8,whiteSpace:"nowrap"}}>{new Date(r.fecha).toLocaleString("es-AR")}</td>
+        <td style={{padding:8}}>{r.usuario}</td>
+        <td style={{padding:8}}>{r.accion}</td>
+        <td style={{padding:8}}>{r.modulo}</td>
+        <td style={{padding:8}}>{r.registro_id ?? "-"}</td>
+        <td style={{padding:8}}>
+          {(r.datos_antes || r.datos_despues) && (
+            <button onClick={()=>setExpandido(!expandido)} style={{background:"none",border:"none",color:"#3498db",cursor:"pointer",fontSize:12}}>
+              {expandido ? "Ocultar" : "Ver detalle"}
+            </button>
+          )}
+        </td>
+      </tr>
+      {expandido && (
+        <tr>
+          <td colSpan={6} style={{padding:"8px 12px",background:"#0f1117"}}>
+            {r.datos_antes && (
+              <div style={{marginBottom:8}}>
+                <div style={{color:"#8890a8",fontSize:11,marginBottom:4}}>ANTES:</div>
+                <pre style={{whiteSpace:"pre-wrap",fontSize:11,color:"#e8eaf0",margin:0}}>{JSON.stringify(r.datos_antes,null,2)}</pre>
+              </div>
+            )}
+            {r.datos_despues && (
+              <div>
+                <div style={{color:"#8890a8",fontSize:11,marginBottom:4}}>DESPUÉS:</div>
+                <pre style={{whiteSpace:"pre-wrap",fontSize:11,color:"#e8eaf0",margin:0}}>{JSON.stringify(r.datos_despues,null,2)}</pre>
+              </div>
+            )}
+          </td>
+        </tr>
+      )}
+    </React.Fragment>
+  );
+};
+
+const Auditoria = () => {
+  const [registros, setRegistros] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [filtroModulo, setFiltroModulo] = useState("");
+  const [filtroUsuario, setFiltroUsuario] = useState("");
+  const [filtroAccion, setFiltroAccion] = useState("");
+
+  const cargar = async () => {
+    setCargando(true);
+    const params = new URLSearchParams();
+    if (filtroModulo) params.set("modulo", filtroModulo);
+    if (filtroUsuario) params.set("usuario", filtroUsuario);
+    if (filtroAccion) params.set("accion", filtroAccion);
+    const data = await api.get(`/api/auditoria?${params.toString()}`);
+    setRegistros(data || []);
+    setCargando(false);
+  };
+
+  useEffect(() => { cargar(); }, []);
+
+  const inputStyle = {padding:"6px 10px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4};
+
+  return (
+    <div style={{padding:24}}>
+      <h2 style={{marginBottom:4}}>Auditoría</h2>
+      <div style={{color:"#8890a8",fontSize:12,marginBottom:16}}>
+        Historial de cambios del sistema. Es de solo lectura: ningún usuario, incluido el administrador, puede editar o borrar estos registros.
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+        <input placeholder="Buscar por usuario..." value={filtroUsuario} onChange={e=>setFiltroUsuario(e.target.value)} style={inputStyle}/>
+        <select value={filtroModulo} onChange={e=>setFiltroModulo(e.target.value)} style={inputStyle}>
+          <option value="">Todos los módulos</option>
+          <option value="contratos">Contratos</option>
+          <option value="movimientos">Movimientos</option>
+          <option value="liquidaciones">Liquidaciones</option>
+          <option value="usuarios">Usuarios</option>
+          <option value="CONTRAPARTES">Propuestas IA: Contrapartes</option>
+          <option value="CONTRATOS">Propuestas IA: Contratos</option>
+          <option value="MOVIMIENTOS">Propuestas IA: Movimientos</option>
+          <option value="LIQUIDACIONES">Propuestas IA: Liquidaciones</option>
+        </select>
+        <select value={filtroAccion} onChange={e=>setFiltroAccion(e.target.value)} style={inputStyle}>
+          <option value="">Todas las acciones</option>
+          <option value="CREAR">Crear</option>
+          <option value="MODIFICAR">Modificar</option>
+          <option value="ELIMINAR">Eliminar</option>
+          <option value="CAMBIAR_ESTADO">Cambiar estado</option>
+          <option value="CREAR_PROPUESTA">Propuesta creada (Agente IA)</option>
+          <option value="APROBAR_PROPUESTA">Propuesta aprobada</option>
+          <option value="RECHAZAR_PROPUESTA">Propuesta rechazada</option>
+        </select>
+        <Btn onClick={cargar} size="sm">Filtrar</Btn>
+      </div>
+      {cargando ? <div>Cargando...</div> : (
+        <div style={{overflowX:"auto",border:"1px solid #2a2d3e",borderRadius:8}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+            <thead>
+              <tr style={{textAlign:"left",borderBottom:"1px solid #2a2d3e",color:"#8890a8"}}>
+                <th style={{padding:8}}>Fecha</th>
+                <th style={{padding:8}}>Usuario</th>
+                <th style={{padding:8}}>Acción</th>
+                <th style={{padding:8}}>Módulo</th>
+                <th style={{padding:8}}>Registro</th>
+                <th style={{padding:8}}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {registros.map(r => <RegistroAuditoria key={r.id} r={r}/>)}
+              {registros.length === 0 && (
+                <tr><td colSpan={6} style={{padding:16,textAlign:"center",color:"#565d7a"}}>No hay registros para estos filtros.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── CALCULADORA DE CAPACIDAD DE PAGO (reutilizable -- la usa Produccion/Maquila) ──
+const CalculadoraCapacidadPago = () => {
+  const [especies, setEspecies] = useState([]);
+  const [calcEspecie, setCalcEspecie] = useState("");
+  const [calcCostoMolienda, setCalcCostoMolienda] = useState("");
+  const [calcResultado, setCalcResultado] = useState(null);
+  const [calculando, setCalculando] = useState(false);
+
+  useEffect(()=>{ api.get("/api/especies").then(d=>setEspecies(d||[])); },[]);
+  const especiesGrano = especies.filter(e=>e.tipo_producto!=="SUBPRODUCTO");
+
+  const calcularCapacidadPago = async () => {
+    if (!calcEspecie) { alert("Elegí el grano"); return; }
+    setCalculando(true);
+    try {
+      const r = await api.get(`/api/posicion/capacidad-pago?id_especie=${calcEspecie}&costo_molienda=${calcCostoMolienda||0}`);
+      setCalcResultado(r);
+    } catch(e) { alert("Error: " + (e.response?.data?.error || e.message)); }
+    finally { setCalculando(false); }
+  };
+
+  return (
+    <div className="card" style={{padding:"16px 20px",marginBottom:20}}>
+      <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>Calculadora de Capacidad de Pago</div>
+      <p style={{color:"#8890a8",fontSize:12,marginBottom:12}}>
+        Cuánto podés pagar como máximo por el grano para que, convertido en subproductos y descontado el costo de molienda, siga siendo negocio. Por encima de este precio para ese destino, perdés plata; por debajo, ganás.
+      </p>
+      <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"}}>
+        <FF label="Grano">
+          <select value={calcEspecie} onChange={e=>{setCalcEspecie(e.target.value);setCalcResultado(null);}}>
+            <option value="">Seleccionar...</option>
+            {especiesGrano.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+          </select>
+        </FF>
+        <FF label="Costo de molienda ($/tn)"><input type="number" value={calcCostoMolienda} onChange={e=>setCalcCostoMolienda(e.target.value)} placeholder="Ej: 65000"/></FF>
+        <Btn size="sm" disabled={calculando} onClick={calcularCapacidadPago}>{calculando?"Calculando...":"Calcular"}</Btn>
+      </div>
+      {calcResultado && (
+        <div style={{marginTop:14,paddingTop:14,borderTop:"1px solid #2a2d3e"}}>
+          <table style={{fontSize:13}}>
+            <thead><tr><th>Subproducto</th><th>Rendimiento</th><th>Precio de referencia</th><th>Aporte por tn de grano</th></tr></thead>
+            <tbody>
+              {calcResultado.detalle.map((d,i)=>(
+                <tr key={i}>
+                  <td>{d.especie_nombre}</td>
+                  <td className="mono">{d.rendimiento_pct}%</td>
+                  <td className="mono">{d.precio_referencia!=null?`$ ${Number(d.precio_referencia).toLocaleString("es-AR")}`:<span style={{color:"#e74c3c"}}>Sin cargar</span>}</td>
+                  <td className="mono">{d.aporte_por_ton!=null?`$ ${Number(d.aporte_por_ton).toLocaleString("es-AR")}`:"—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {calcResultado.falta_algun_precio && (
+            <div style={{color:"#e74c3c",fontSize:12,marginTop:8}}>⚠ Falta cargar el precio de referencia de algún subproducto (Configuración → Precios de Referencia) — el cálculo está incompleto.</div>
+          )}
+          <div style={{marginTop:12,display:"flex",gap:24}}>
+            <div>
+              <div style={{fontSize:11,color:"#8890a8"}}>Ingreso teórico por tn</div>
+              <div style={{fontSize:18,fontWeight:700}}>$ {Number(calcResultado.ingreso_teorico_por_ton).toLocaleString("es-AR")}</div>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:"#8890a8"}}>Capacidad de pago por tn</div>
+              <div style={{fontSize:22,fontWeight:700,color:"#f5a623"}}>$ {Number(calcResultado.capacidad_pago_por_ton).toLocaleString("es-AR")}</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── COMPONENTE CERTIFICADOS 1116 (carga manual, ARCA no los lista automatico cuando los emite un corredor) ──
+const MAX_CTGS_1116 = 20;
+const Certificados1116 = () => {
+  const [lista, setLista] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [expandido, setExpandido] = useState(null);
+  const [form, setForm] = useState({
+    tipo_formulario: "A", numero_certificado: "", coe: "", cuit_productor: "", nombre_productor: "",
+    kilos_netos: "", fecha_emision: "", direccion: "", observaciones: ""
+  });
+  const [ctgsForm, setCtgsForm] = useState([""]);
+  const [guardando, setGuardando] = useState(false);
+
+  const cargar = async () => {
+    setCargando(true);
+    const res = await api.get("/api/certificados-1116");
+    setLista(res || []);
+    setCargando(false);
+  };
+  useEffect(()=>{ cargar(); },[]);
+
+  const setCtg = (i, val) => {
+    const copia = [...ctgsForm];
+    copia[i] = val;
+    setCtgsForm(copia);
+  };
+  const agregarCtg = () => {
+    if (ctgsForm.length >= MAX_CTGS_1116) return;
+    setCtgsForm([...ctgsForm, ""]);
+  };
+  const quitarCtg = (i) => {
+    if (ctgsForm.length === 1) { setCtgsForm([""]); return; }
+    setCtgsForm(ctgsForm.filter((_,idx)=>idx!==i));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.coe) { alert("El C.O.E. es obligatorio"); return; }
+    setGuardando(true);
+    try {
+      const r = await api.post("/api/certificados-1116", {
+        ...form,
+        kilos_netos: form.kilos_netos ? parseFloat(form.kilos_netos) : null,
+        ctgs: ctgsForm.map(c=>c.trim()).filter(Boolean)
+      });
+      if (r && r.error) { alert("Error: " + r.error); return; }
+      setForm({ tipo_formulario: "A", numero_certificado: "", coe: "", cuit_productor: "", nombre_productor: "", kilos_netos: "", fecha_emision: "", direccion: "", observaciones: "" });
+      setCtgsForm([""]);
+      cargar();
+    } catch(err) { alert("Error: " + err.message); }
+    finally { setGuardando(false); }
+  };
+
+  const eliminar = async (id) => {
+    if (!confirm("¿Eliminar este certificado?")) return;
+    await api.delete(`/api/certificados-1116/${id}`);
+    cargar();
+  };
+
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:20}}>
+        <h2 style={{fontSize:18,fontWeight:700}}>Certificados 1116</h2>
+        <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>
+          Carga manual a partir del PDF real (ARCA no permite listar estos certificados por API cuando los emite un corredor). El dato clave es el C.O.E. Un mismo certificado puede consolidar hasta {MAX_CTGS_1116} cartas de porte/CTG.
+        </p>
+      </div>
+
+      <div className="card" style={{marginBottom:20}}>
+        <form onSubmit={handleSubmit} style={{display:"grid",gridTemplateColumns:"repeat(3, 1fr)",gap:10}}>
+          <FF label="Tipo (A/B/C)">
+            <select value={form.tipo_formulario} onChange={e=>setForm({...form,tipo_formulario:e.target.value})}>
+              <option value="A">A — Depósito</option>
+              <option value="B">B — Venta</option>
+              <option value="C">C — Consignación</option>
+            </select>
+          </FF>
+          <FF label="C.O.E. *"><input required value={form.coe} onChange={e=>setForm({...form,coe:e.target.value})} placeholder="330229775135"/></FF>
+          <FF label="N° Certificado"><input value={form.numero_certificado} onChange={e=>setForm({...form,numero_certificado:e.target.value})}/></FF>
+          <FF label="CUIT Productor"><input value={form.cuit_productor} onChange={e=>setForm({...form,cuit_productor:e.target.value})}/></FF>
+          <FF label="Nombre Productor"><input value={form.nombre_productor} onChange={e=>setForm({...form,nombre_productor:e.target.value})}/></FF>
+          <FF label="Kilos Netos"><input type="number" step="0.001" value={form.kilos_netos} onChange={e=>setForm({...form,kilos_netos:e.target.value})}/></FF>
+          <FF label="Fecha Emisión"><input type="date" value={form.fecha_emision} onChange={e=>setForm({...form,fecha_emision:e.target.value})}/></FF>
+          <FF label="Observaciones"><input value={form.observaciones} onChange={e=>setForm({...form,observaciones:e.target.value})}/></FF>
+
+          <div style={{gridColumn:"span 3"}}>
+            <label style={{fontSize:11,color:"#8890a8",display:"block",marginBottom:6}}>CTG asociados (hasta {MAX_CTGS_1116})</label>
+            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+              {ctgsForm.map((v,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:4}}>
+                  <input style={{width:150}} value={v} placeholder={`CTG #${i+1}`} onChange={e=>setCtg(i,e.target.value)}/>
+                  <button type="button" onClick={()=>quitarCtg(i)} style={{background:"none",border:"none",color:"#e74c3c",cursor:"pointer",fontSize:13}}>✕</button>
+                </div>
+              ))}
+              {ctgsForm.length < MAX_CTGS_1116 && (
+                <Btn type="button" variant="secondary" size="sm" onClick={agregarCtg}>+ Agregar CTG</Btn>
+              )}
+            </div>
+          </div>
+
+          <div style={{gridColumn:"span 3",display:"flex",justifyContent:"flex-end"}}>
+            <Btn type="submit" variant="success" disabled={guardando}>{guardando?"Guardando...":"Registrar Certificado"}</Btn>
+          </div>
+        </form>
+      </div>
+
+      {cargando ? <div>Cargando...</div> : lista.length===0 ? (
+        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay certificados 1116 cargados todavía.</div>
+      ) : (
+        <div className="card">
+          <table>
+            <thead><tr><th>Tipo</th><th>C.O.E.</th><th>N° Cert.</th><th>Productor</th><th>Especie</th><th>Kilos</th><th>Fecha</th><th>CTGs</th><th></th></tr></thead>
+            <tbody>
+              {lista.map(c=>{
+                const ctgs = c.ctgs || [];
+                const vinculados = ctgs.filter(x=>x.id_movimiento).length;
+                return (
+                  <React.Fragment key={c.id}>
+                    <tr>
+                      <td><Badge label={c.tipo_formulario} color="purple"/></td>
+                      <td className="mono" style={{fontSize:11}}>{c.coe}</td>
+                      <td>{c.numero_certificado || "—"}</td>
+                      <td>{c.nombre_productor || c.productor_nombre_cp || c.cuit_productor || "—"}</td>
+                      <td>{c.especie_nombre || "—"}</td>
+                      <td className="mono">{c.kilos_netos ? Number(c.kilos_netos).toLocaleString("es-AR") : "—"}</td>
+                      <td style={{fontSize:12,color:"#8890a8"}}>{c.fecha_emision ? formatFechaAR(c.fecha_emision) : "—"}</td>
+                      <td>
+                        {ctgs.length===0 ? <span style={{color:"#8890a8",fontSize:11}}>—</span> : (
+                          <span style={{cursor:"pointer",textDecoration:"underline",fontSize:12}} onClick={()=>setExpandido(expandido===c.id?null:c.id)}>
+                            {ctgs.length} CTG ({vinculados} vinculado{vinculados!==1?"s":""})
+                          </span>
+                        )}
+                      </td>
+                      <td><Btn variant="danger" size="sm" onClick={()=>eliminar(c.id)}>✕</Btn></td>
+                    </tr>
+                    {expandido===c.id && ctgs.length>0 && (
+                      <tr>
+                        <td colSpan={9} style={{background:"rgba(255,255,255,0.02)",padding:10}}>
+                          <table style={{width:"100%",fontSize:11}}>
+                            <thead><tr><th>CTG</th><th>Movimiento</th></tr></thead>
+                            <tbody>
+                              {ctgs.map((x,i)=>(
+                                <tr key={i}>
+                                  <td className="mono">{x.nro_ctg}</td>
+                                  <td>{x.numero_movimiento ? <Badge label={x.numero_movimiento} color="blue"/> : <span style={{color:"#e74c3c"}}>Sin vincular</span>}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── COMPONENTE INDICADORES (KPIs) ──
+const Indicadores = () => {
+  const [tab, setTab] = useState("margen");
+  const [margenes, setMargenes] = useState(null);
+  const [saldos, setSaldos] = useState(null);
+  const [rotacion, setRotacion] = useState(null);
+  const [cargando, setCargando] = useState(true);
+
+  const cargar = async () => {
+    setCargando(true);
+    const [m, s, r] = await Promise.all([
+      api.get("/api/kpis/margen-clientes"),
+      api.get("/api/kpis/antiguedad-saldos"),
+      api.get("/api/kpis/rotacion-stock")
+    ]);
+    setMargenes(m||[]);
+    setSaldos(s||[]);
+    setRotacion(r||[]);
+    setCargando(false);
+  };
+
+  useEffect(()=>{ cargar(); },[]);
+
+  const fmtMoney = (v) => `$ ${Number(v).toLocaleString("es-AR",{maximumFractionDigits:0})}`;
+  const fmtTn = (v) => `${Number(v).toLocaleString("es-AR",{minimumFractionDigits:3,maximumFractionDigits:3})} tn`;
+
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <h2 style={{fontSize:18,fontWeight:700}}>Indicadores</h2>
+          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Margen por cliente, antigüedad de saldos y rotación de stock.</p>
+        </div>
+        <Btn variant="secondary" size="sm" onClick={cargar}>↻ Actualizar</Btn>
+      </div>
+
+      <div className="tab-bar" style={{marginBottom:20}}>
+        <button className={`tab ${tab==="margen"?"active":""}`} onClick={()=>setTab("margen")}>Margen por Cliente</button>
+        <button className={`tab ${tab==="saldos"?"active":""}`} onClick={()=>setTab("saldos")}>Antigüedad de Saldos</button>
+        <button className={`tab ${tab==="rotacion"?"active":""}`} onClick={()=>setTab("rotacion")}>Rotación de Stock</button>
+      </div>
+
+      {cargando ? <div>Cargando...</div> : (
+        <React.Fragment>
+          {tab==="margen" && (
+            margenes.length===0 ? <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay liquidaciones de venta todavía.</div> : (
+              <div className="card">
+                <div style={{padding:"10px 16px",fontSize:12,color:"#8890a8"}}>
+                  El margen usa el precio de compra del contrato vinculado a cada movimiento cuando existe; si no, esas toneladas quedan aparte (sin costo de referencia) para no inventar un número.
+                </div>
+                <table>
+                  <thead><tr><th>Cliente</th><th>Toneladas</th><th>Ingreso</th><th>Costo</th><th>Margen bruto</th><th>Sin costo de ref.</th></tr></thead>
+                  <tbody>
+                    {margenes.map((g,i)=>(
+                      <tr key={i}>
+                        <td style={{fontWeight:600}}>{g.cliente}</td>
+                        <td className="mono">{fmtTn(g.toneladas)}</td>
+                        <td className="mono">{fmtMoney(g.ingreso_total)}</td>
+                        <td className="mono">{fmtMoney(g.costo_total)}</td>
+                        <td className="mono" style={{fontWeight:700,color:g.margen_bruto>=0?"#27ae60":"#e74c3c"}}>{fmtMoney(g.margen_bruto)}</td>
+                        <td className="mono" style={{color:"#8890a8"}}>{g.toneladas_sin_costo_de_referencia>0?fmtTn(g.toneladas_sin_costo_de_referencia):"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+
+          {tab==="saldos" && (
+            saldos.length===0 ? <div style={{padding:40,textAlign:"center",color:"#27ae60",fontWeight:600}}>✓ No hay saldos abiertos</div> : (
+              <div className="card">
+                <table>
+                  <thead><tr><th>Contraparte</th><th>0-30 días</th><th>31-60 días</th><th>61-90 días</th><th>+90 días</th><th>Total</th></tr></thead>
+                  <tbody>
+                    {saldos.map((g,i)=>(
+                      <tr key={i}>
+                        <td style={{fontWeight:600}}>{g.contraparte}</td>
+                        <td className="mono">{fmtMoney(g.d0_30)}</td>
+                        <td className="mono">{fmtMoney(g.d31_60)}</td>
+                        <td className="mono" style={{color:g.d61_90!==0?"#f5a623":"inherit"}}>{fmtMoney(g.d61_90)}</td>
+                        <td className="mono" style={{color:g.d90_mas!==0?"#e74c3c":"inherit"}}>{fmtMoney(g.d90_mas)}</td>
+                        <td className="mono" style={{fontWeight:700}}>{fmtMoney(g.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+
+          {tab==="rotacion" && (
+            rotacion.length===0 ? <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay stock cargado todavía.</div> : (
+              <div className="card">
+                <table>
+                  <thead><tr><th>Producto</th><th>Ubicación</th><th>Stock actual</th><th>Entraron (30d)</th><th>Salieron (30d)</th></tr></thead>
+                  <tbody>
+                    {rotacion.map((g,i)=>(
+                      <tr key={i}>
+                        <td style={{fontWeight:600}}>{g.especie_nombre}</td>
+                        <td>{g.ubicacion_nombre}</td>
+                        <td className="mono">{fmtTn(g.stock_actual)}</td>
+                        <td className="mono" style={{color:"#27ae60"}}>{fmtTn(g.entraron_30d)}</td>
+                        <td className="mono" style={{color:"#e74c3c"}}>{fmtTn(g.salieron_30d)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+        </React.Fragment>
+      )}
+    </div>
+  );
+};
+
+// ── COMPONENTE BOLSA POR ZONA ──
+// Descargas sin contrato entran a la bolsa de su zona (via el motor de
+// stock); desde aca se "saca" de esa bolsa para completar contratos de
+// compra, sin tener que vincular camion por camion.
+const BolsaPorZona = ({modulo}) => {
+  const [bolsas, setBolsas] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [contratos, setContratos] = useState([]);
+  const [aplicando, setAplicando] = useState(null); // clave de la bolsa siendo aplicada
+  const [contratoSel, setContratoSel] = useState("");
+  const [toneladasSel, setToneladasSel] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [camionesDisponibles, setCamionesDisponibles] = useState([]);
+  const [cargandoCamiones, setCargandoCamiones] = useState(false);
+
+  const [retirando, setRetirando] = useState(null); // clave de la bolsa con retiro abierto
+  const [contrapartes, setContrapartes] = useState([]);
+  const [productorSel, setProductorSel] = useState("");
+  const [toneladasRetiro, setToneladasRetiro] = useState("");
+  const [numero1116rt, setNumero1116rt] = useState("");
+
+  const cargar = async () => {
+    setCargando(true);
+    const [b, c, cp] = await Promise.all([
+      api.get("/api/stock/por-zona"),
+      api.get("/api/contratos"),
+      api.get("/api/contrapartes")
+    ]);
+    setBolsas(b||[]);
+    setContratos((c||[]).filter(x=>x.tipo_contrato==="COMPRA" && x.modalidad===modulo && x.estado!=="CUMPLIDO" && x.activo!==false));
+    setContrapartes((cp||[]).filter(x=>x.tipo_contraparte==="PRODUCTOR"||x.tipo_contraparte==="AMBOS"));
+    setCargando(false);
+  };
+
+  useEffect(()=>{ cargar(); },[modulo]);
+
+  const fmtTn = (v) => `${Number(v).toLocaleString("es-AR",{minimumFractionDigits:3,maximumFractionDigits:3})} tn`;
+
+  const abrirAplicar = async (bolsa) => {
+    const clave = `${bolsa.zona}|${bolsa.id_especie}|${bolsa.id_campana}`;
+    setAplicando(clave);
+    setContratoSel("");
+    setToneladasSel("");
+    setCamionesDisponibles([]);
+    setCargandoCamiones(true);
+    try {
+      const camiones = await api.get(`/api/stock/por-zona/${encodeURIComponent(bolsa.zona)}/camiones?id_especie=${bolsa.id_especie}&id_campana=${bolsa.id_campana}`);
+      setCamionesDisponibles(camiones || []);
+    } catch(e) { /* si falla, se sigue pudiendo aplicar igual -- esto es solo la vista previa */ }
+    finally { setCargandoCamiones(false); }
+  };
+
+  const aplicar = async (bolsa) => {
+    if (!contratoSel || !toneladasSel) { alert("Elegí el contrato y las toneladas"); return; }
+    setGuardando(true);
+    try {
+      const r = await api.post(`/api/contratos/${contratoSel}/aplicar-stock-zona`, {
+        zona: bolsa.zona, toneladas: parseFloat(toneladasSel)
+      });
+      if (r && r.aplicacion) {
+        const detalleCamiones = (r.camiones||[]).map(c=>`${c.numero_movimiento}: ${(c.kg/1000).toFixed(3)}tn`).join("\n");
+        alert(`✓ Aplicadas ${r.aplicacion.toneladas}tn al contrato, tomadas de ${(r.camiones||[]).length} camión(es):\n${detalleCamiones}`);
+        setAplicando(null);
+        cargar();
+      } else {
+        alert("Error: " + (r?.error || "no se pudo aplicar"));
+      }
+    } catch(e) { alert("Error: " + (e.response?.data?.error || e.message)); }
+    finally { setGuardando(false); }
+  };
+
+  const contratosDeEspecie = (idEspecie) => contratos.filter(c=>c.id_especie===idEspecie);
+
+  const abrirRetiro = (bolsa) => {
+    const clave = `${bolsa.zona}|${bolsa.id_especie}|${bolsa.id_campana}`;
+    setRetirando(clave);
+    setProductorSel("");
+    setToneladasRetiro("");
+    setNumero1116rt("");
+  };
+
+  const confirmarRetiro = async (bolsa) => {
+    if (!productorSel || !toneladasRetiro) { alert("Elegí el productor y las toneladas"); return; }
+    setGuardando(true);
+    try {
+      const r = await api.post("/api/retiros-productor", {
+        id_contraparte: parseInt(productorSel), zona: bolsa.zona,
+        id_especie: bolsa.id_especie, id_campana: bolsa.id_campana,
+        toneladas: parseFloat(toneladasRetiro), numero_1116rt: numero1116rt || null
+      });
+      if (r && r.retiro) {
+        alert(`✓ Retiro registrado: ${r.retiro.toneladas}tn`);
+        setRetirando(null);
+        cargar();
+      } else {
+        alert("Error: " + (r?.error || "no se pudo registrar"));
+      }
+    } catch(e) { alert("Error: " + (e.response?.data?.error || e.message)); }
+    finally { setGuardando(false); }
+  };
+
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <h2 style={{fontSize:18,fontWeight:700}}>Bolsa por Zona</h2>
+          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>
+            Lo que entra sin contrato se junta acá, agrupado por zona de referencia. Desde acá se aplica a los contratos de compra hasta completarlos.
+          </p>
+        </div>
+        <Btn variant="secondary" size="sm" onClick={cargar}>↻ Actualizar</Btn>
+      </div>
+
+      {cargando ? <div>Cargando...</div> : bolsas.length===0 ? (
+        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay stock en ninguna zona todavía.</div>
+      ) : (
+        <div className="card">
+          <table>
+            <thead><tr><th>Zona</th><th>Producto</th><th>Toneladas</th><th>Costo promedio</th><th colSpan={2}></th></tr></thead>
+            <tbody>
+              {bolsas.map((b,i)=>{
+                const clave = `${b.zona}|${b.id_especie}|${b.id_campana}`;
+                return (
+                  <React.Fragment key={i}>
+                    <tr>
+                      <td style={{fontWeight:600}}>{b.zona}</td>
+                      <td>{b.especie_nombre} <span style={{fontSize:11,color:"#8890a8"}}>({b.campana_desc})</span></td>
+                      <td className="mono">{fmtTn(b.toneladas_totales)}</td>
+                      <td className="mono">$ {Number(b.costo_promedio_ponderado).toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
+                      <td><Btn size="sm" variant="secondary" onClick={()=>abrirAplicar(b)}>Aplicar a contrato</Btn></td>
+                      <td><Btn size="sm" variant="secondary" onClick={()=>abrirRetiro(b)}>Retiro de Productor</Btn></td>
+                    </tr>
+                    {aplicando===clave && (
+                      <tr>
+                        <td colSpan={6} style={{padding:"10px 16px",background:"#0f1117"}}>
+                          <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"}}>
+                            <FF label="Contrato de compra">
+                              <select value={contratoSel} onChange={e=>setContratoSel(e.target.value)}>
+                                <option value="">Seleccionar...</option>
+                                {contratosDeEspecie(b.id_especie).map(c=>(
+                                  <option key={c.id} value={c.id}>{c.numero_contrato} — faltan {(parseFloat(c.cantidad_toneladas_pactadas)-parseFloat(c.cantidad_toneladas_asignadas||0)).toFixed(3)}tn</option>
+                                ))}
+                              </select>
+                            </FF>
+                            <FF label="Toneladas a aplicar"><input type="number" value={toneladasSel} onChange={e=>setToneladasSel(e.target.value)} placeholder={`máx ${b.toneladas_totales}`}/></FF>
+                            <Btn size="sm" disabled={guardando} onClick={()=>aplicar(b)}>{guardando?"Aplicando...":"Confirmar"}</Btn>
+                            <Btn size="sm" variant="ghost" onClick={()=>setAplicando(null)}>Cancelar</Btn>
+                          </div>
+                          <div style={{marginTop:10}}>
+                            <div style={{fontSize:11,color:"#8890a8",marginBottom:4}}>Camiones en esta bolsa (se toman enteros por orden de llegada; el último se parte si hace falta):</div>
+                            {cargandoCamiones ? <div style={{fontSize:12,color:"#8890a8"}}>Cargando...</div> : camionesDisponibles.length===0 ? (
+                              <div style={{fontSize:12,color:"#8890a8"}}>No hay camiones descargados disponibles en esta bolsa.</div>
+                            ) : (
+                              <table style={{width:"100%",fontSize:11}}>
+                                <thead><tr><th>Movimiento</th><th>Fecha descarga</th><th>Kg disponibles</th><th>Ubicación</th></tr></thead>
+                                <tbody>
+                                  {camionesDisponibles.map(c=>(
+                                    <tr key={c.id}>
+                                      <td className="mono">{c.numero_movimiento}</td>
+                                      <td>{c.fecha_descarga ? formatFechaAR(c.fecha_descarga) : "—"}</td>
+                                      <td className="mono">{Number(c.kg_disponible).toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
+                                      <td>{c.ubicacion_destino_nombre}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {retirando===clave && (
+                      <tr>
+                        <td colSpan={6} style={{padding:"10px 16px",background:"#0f1117"}}>
+                          <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"}}>
+                            <FF label="Productor">
+                              <select value={productorSel} onChange={e=>setProductorSel(e.target.value)}>
+                                <option value="">Seleccionar...</option>
+                                {contrapartes.map(c=><option key={c.id} value={c.id}>{c.razon_social}</option>)}
+                              </select>
+                            </FF>
+                            <FF label="Toneladas a retirar"><input type="number" value={toneladasRetiro} onChange={e=>setToneladasRetiro(e.target.value)} placeholder={`máx ${b.toneladas_totales}`}/></FF>
+                            <FF label="N° 1116RT (si ya lo tramitaste)"><input value={numero1116rt} onChange={e=>setNumero1116rt(e.target.value)} placeholder="Opcional"/></FF>
+                            <Btn size="sm" disabled={guardando} onClick={()=>confirmarRetiro(b)}>{guardando?"Guardando...":"Confirmar retiro"}</Btn>
+                            <Btn size="sm" variant="ghost" onClick={()=>setRetirando(null)}>Cancelar</Btn>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── COMPONENTE PRODUCCION / MAQUILA ──
+const OrdenesProduccion = ({modulo, usuario}) => {
+  const [ordenes, setOrdenes] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [contrapartes, setContrapartes] = useState([]);
+  const [especies, setEspecies] = useState([]);
+  const [ubicacionesPropias, setUbicacionesPropias] = useState([]);
+  const [campanas, setCampanas] = useState([]);
+  const [form, setForm] = useState({ id_contraparte:"", id_especie:"", id_campana:"", cantidad_toneladas_pactadas:"", id_ubicacion_origen:"", costo_servicio_produccion:"", observaciones:"" });
+  const [guardando, setGuardando] = useState(false);
+
+  const [detalleAbierto, setDetalleAbierto] = useState(null);
+  const [salidas, setSalidas] = useState({});
+  const [nuevaSalida, setNuevaSalida] = useState({ id_especie:"", cantidad_kg:"", id_ubicacion_destino:"" });
+
+  const cargar = async () => {
+    setCargando(true);
+    const data = await api.get("/api/contratos");
+    setOrdenes((data||[]).filter(c => c.tipo_contrato === "PRODUCCION" && c.modalidad === modulo));
+    setCargando(false);
+  };
+
+  useEffect(()=>{
+    cargar();
+    api.get("/api/contrapartes").then(d=>setContrapartes(d||[]));
+    api.get("/api/especies").then(d=>setEspecies(d||[]));
+    api.get("/api/campanas").then(d=>setCampanas(d||[]));
+    api.get("/api/ubicaciones").then(d=>setUbicacionesPropias((d||[]).filter(u=>u.tipo==="PLANTA_PROPIA")));
+  },[modulo]);
+
+  const especiesGrano = especies.filter(e=>e.tipo_producto!=="SUBPRODUCTO");
+  const especiesSubproducto = especies.filter(e=>e.tipo_producto==="SUBPRODUCTO");
+
+  const crearOrden = async () => {
+    if(!form.id_contraparte||!form.id_especie||!form.id_campana||!form.cantidad_toneladas_pactadas){
+      alert("Completá procesador, especie, campaña y toneladas"); return;
+    }
+    setGuardando(true);
+    try {
+      await api.post("/api/contratos", {
+        tipo_contrato:"PRODUCCION", modalidad: modulo,
+        fecha_contrato: new Date().toISOString().split("T")[0],
+        id_contraparte: parseInt(form.id_contraparte),
+        id_especie: parseInt(form.id_especie),
+        id_campana: parseInt(form.id_campana),
+        cantidad_toneladas_pactadas: parseFloat(form.cantidad_toneladas_pactadas),
+        tipo_precio: "FIJO", precio_pactado: 0, moneda: "ARS", tipo_entrega:"A_RETIRAR",
+        id_ubicacion_origen: form.id_ubicacion_origen || null,
+        costo_servicio_produccion: form.costo_servicio_produccion ? parseFloat(form.costo_servicio_produccion) : 0,
+        observaciones: form.observaciones || null
+      });
+      alert("✓ Orden de producción creada");
+      setShowForm(false);
+      setForm({ id_contraparte:"", id_especie:"", id_campana:"", cantidad_toneladas_pactadas:"", id_ubicacion_origen:"", costo_servicio_produccion:"", observaciones:"" });
+      cargar();
+    } catch(e){ alert("Error: "+e.message); }
+    finally{ setGuardando(false); }
+  };
+
+  const cargarSalidas = async (idOrden) => {
+    const data = await api.get(`/api/contratos/${idOrden}/salidas`);
+    setSalidas(prev=>({...prev, [idOrden]: data||[]}));
+  };
+
+  const agregarSalida = async (idOrden) => {
+    if(!nuevaSalida.id_especie||!nuevaSalida.cantidad_kg){ alert("Completá producto y kilos"); return; }
+    try {
+      await api.post(`/api/contratos/${idOrden}/salidas`, {
+        id_especie: parseInt(nuevaSalida.id_especie),
+        cantidad_kg: parseFloat(nuevaSalida.cantidad_kg),
+        id_ubicacion_destino: nuevaSalida.id_ubicacion_destino || null
+      });
+      setNuevaSalida({ id_especie:"", cantidad_kg:"", id_ubicacion_destino:"" });
+      cargarSalidas(idOrden);
+    } catch(e){ alert("Error: "+e.message); }
+  };
+
+  const cerrarOrden = async (idOrden) => {
+    if(!confirm("¿Cerrar la orden? Se va a repartir el costo entre las salidas cargadas y sumarse al Stock. No se puede deshacer.")) return;
+    try {
+      const r = await api.post(`/api/contratos/${idOrden}/cerrar`, {});
+      const metodo = r.reparto_por === "valor_de_mercado" ? "por valor de mercado de cada producto" : "por peso (faltó cargar algún precio de referencia, revisá Configuración → Precios)";
+      alert(`✓ Orden cerrada. Costo total repartido ${metodo}: $ ${Number(r.costo_total_pool).toLocaleString("es-AR")}`);
+      cargar();
+      cargarSalidas(idOrden);
+    } catch(e){ alert("Error: "+e.message); }
+  };
+
+  return (
+    <div className="fade-in">
+      <div style={{marginBottom:20,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <h2 style={{fontSize:18,fontWeight:700}}>Producción (Maquila)</h2>
+          <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>Grano que mandás a moler/extraer a un tercero, y lo que te devuelve (aceite, expeller, afrechillo...).</p>
+        </div>
+        <Btn onClick={()=>setShowForm(true)}>+ Nueva Orden</Btn>
+      </div>
+
+      <CalculadoraCapacidadPago/>
+
+      {showForm && (
+        <Modal title="Nueva Orden de Producción" onClose={()=>setShowForm(false)} footer={
+          <Btn disabled={guardando} onClick={crearOrden}>{guardando?"Guardando...":"Crear Orden"}</Btn>
+        }>
+          <FF label="Procesador *">
+            <select value={form.id_contraparte} onChange={e=>setForm({...form,id_contraparte:e.target.value})}>
+              <option value="">Seleccionar...</option>
+              {contrapartes.map(c=><option key={c.id} value={c.id}>{c.razon_social}</option>)}
+            </select>
+          </FF>
+          <FF label="Grano que mandás *">
+            <select value={form.id_especie} onChange={e=>setForm({...form,id_especie:e.target.value})}>
+              <option value="">Seleccionar...</option>
+              {especiesGrano.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+            </select>
+          </FF>
+          <FF label="Campaña *">
+            <select value={form.id_campana} onChange={e=>setForm({...form,id_campana:e.target.value})}>
+              <option value="">Seleccionar...</option>
+              {campanas.map(c=><option key={c.id} value={c.id}>{c.descripcion}</option>)}
+            </select>
+          </FF>
+          <FF label="Toneladas que mandás *"><input type="number" value={form.cantidad_toneladas_pactadas} onChange={e=>setForm({...form,cantidad_toneladas_pactadas:e.target.value})}/></FF>
+          <FF label="¿Sale de un depósito propio?">
+            <select value={form.id_ubicacion_origen} onChange={e=>setForm({...form,id_ubicacion_origen:e.target.value})}>
+              <option value="">No descontar de Stock</option>
+              {ubicacionesPropias.map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
+            </select>
+          </FF>
+          <FF label="Costo del servicio de transformación (si te cobran)"><input type="number" value={form.costo_servicio_produccion} onChange={e=>setForm({...form,costo_servicio_produccion:e.target.value})}/></FF>
+          <FF label="Observaciones"><input value={form.observaciones} onChange={e=>setForm({...form,observaciones:e.target.value})}/></FF>
+        </Modal>
+      )}
+
+      {cargando ? <div>Cargando...</div> : ordenes.length===0 ? (
+        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay órdenes de producción todavía.</div>
+      ) : (
+        ordenes.map(o=>(
+          <div key={o.id} className="card" style={{marginBottom:14}}>
+            <div className="card-header">
+              <div>
+                <span style={{fontWeight:700}}>{o.numero_contrato}</span>
+                <span style={{color:"#8890a8",fontSize:12,marginLeft:12}}>{o.cantidad_toneladas_pactadas} tn enviadas</span>
+              </div>
+              <Badge label={o.estado} color={o.estado==="CUMPLIDO"?"green":"orange"}/>
+            </div>
+            <div style={{padding:"12px 16px"}}>
+              <Btn variant="secondary" size="sm" onClick={()=>{ if(detalleAbierto===o.id){setDetalleAbierto(null);} else {setDetalleAbierto(o.id); cargarSalidas(o.id);} }}>
+                {detalleAbierto===o.id?"Ocultar salidas":"Ver / cargar salidas"}
+              </Btn>
+              {detalleAbierto===o.id && (
+                <div style={{marginTop:12}}>
+                  <table>
+                    <thead><tr><th>Producto</th><th>Kilos</th><th>Destino</th></tr></thead>
+                    <tbody>
+                      {(salidas[o.id]||[]).map(s=>(
+                        <tr key={s.id}><td>{s.especie_nombre}</td><td className="mono">{Number(s.cantidad_kg).toLocaleString("es-AR")}</td><td>{s.ubicacion_nombre||"—"}</td></tr>
+                      ))}
+                      {(salidas[o.id]||[]).length===0 && <tr><td colSpan={3} style={{textAlign:"center",color:"#565d7a",padding:12}}>Sin salidas cargadas</td></tr>}
+                    </tbody>
+                  </table>
+                  {o.estado!=="CUMPLIDO" && (
+                    <div style={{display:"flex",gap:8,marginTop:12,alignItems:"end",flexWrap:"wrap"}}>
+                      <FF label="Producto">
+                        <select value={nuevaSalida.id_especie} onChange={e=>setNuevaSalida({...nuevaSalida,id_especie:e.target.value})}>
+                          <option value="">Seleccionar...</option>
+                          {especiesSubproducto.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+                        </select>
+                      </FF>
+                      <FF label="Kilos"><input type="number" value={nuevaSalida.cantidad_kg} onChange={e=>setNuevaSalida({...nuevaSalida,cantidad_kg:e.target.value})}/></FF>
+                      <FF label="¿A qué depósito propio?">
+                        <select value={nuevaSalida.id_ubicacion_destino} onChange={e=>setNuevaSalida({...nuevaSalida,id_ubicacion_destino:e.target.value})}>
+                          <option value="">Seleccionar...</option>
+                          {ubicacionesPropias.map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
+                        </select>
+                      </FF>
+                      <Btn size="sm" onClick={()=>agregarSalida(o.id)}>+ Agregar</Btn>
+                      <Btn size="sm" variant="secondary" onClick={()=>cerrarOrden(o.id)}>Cerrar orden y repartir costo</Btn>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+};
+
 const MENU_FORMAL = [
   {id:"dashboard",label:"Dashboard",icon:"⊞"},
+  {id:"documentos_arca",label:"Documentos ARCA",icon:"📄"},
   {id:"contrapartes",label:"Contrapartes",icon:"👤"},
   {id:"contratos",label:"Contratos",icon:"📋"},
   {id:"movimientos",label:"Movimientos",icon:"🚛"},
+  {id:"produccion",label:"Producción (Maquila)",icon:"🏭"},
+  {id:"bolsa_zona",label:"Bolsa por Zona",icon:"🗂"},
   {id:"liquidaciones",label:"Liquidaciones",icon:"📊"},
+  {id:"certificados_1116",label:"Certificados 1116",icon:"📜"},
   {id:"cc",label:"Cuenta Corriente",icon:"💰"},
   {id:"stock",label:"Stock",icon:"🌾"},
   {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚"},
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
+  {id:"indicadores",label:"Indicadores",icon:"📈"},
   {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
+  {id:"auditoria",label:"Auditoría",icon:"🕵"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
 ];
 
@@ -10029,15 +11268,20 @@ const MENU_INFORMAL = [
   {id:"contrapartes",label:"Contrapartes",icon:"👤"},
   {id:"contratos",label:"Contratos",icon:"📋"},
   {id:"movimientos",label:"Movimientos",icon:"🚛"},
+  {id:"produccion",label:"Producción (Maquila)",icon:"🏭"},
+  {id:"bolsa_zona",label:"Bolsa por Zona",icon:"🗂"},
   {id:"liquidaciones",label:"Liquidaciones",icon:"📊"},
+  {id:"certificados_1116",label:"Certificados 1116",icon:"📜"},
   {id:"cc",label:"Cuenta Corriente",icon:"💰"},
   {id:"stock",label:"Stock",icon:"🌾"},
   {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚"},
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
   {id:"posicion_abierta",label:"Posición Abierta",icon:"📌"},
+  {id:"indicadores",label:"Indicadores",icon:"📈"},
   {id:"importador_excel",label:"Importar Excel",icon:"📥"},
   {id:"reportes_ia",label:"Reportes IA 🤖",icon:"📊"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
+  {id:"auditoria",label:"Auditoría",icon:"🕵"},
   {id:"configuracion",label:"Configuración",icon:"⚙"},
 ];
 
@@ -10076,7 +11320,8 @@ function Login({onLogin}) {
         return;
       }
       const data = await r.json();
-      onLogin(data);
+      sessionStorage.setItem("granosys_access_token", data.token);
+      onLogin(data.user);
     } catch (e) {
       setErr("Error de conexión con el servidor");
     }
@@ -11185,7 +12430,7 @@ const NuevaUbicacionRapida = ({ idContraparte }) => {
     try {
       const r = await fetch(`${API_URL}/api/contrapartes/${idContraparte}/ubicaciones`, {
         method: "POST",
-        headers: {"Content-Type":"application/json"},
+        headers: authHeaders({"Content-Type":"application/json"}),
         body: JSON.stringify({ nombre, localidad, provincia, direccion, nro_planta: nroPlanta })
       });
       const body = await r.json().catch(()=>null);
@@ -11281,7 +12526,7 @@ function App() {
   }
 
   const handleAccesoOculto = () => {
-    if(codigoOculto==="invdelsal"){
+    if(usuario.rol==="ADMIN"){
       setInformalUnlocked(true);
       setModulo("INFORMAL");
       setSec("dashboard");
@@ -11289,7 +12534,7 @@ function App() {
       setCodigoOculto("");
     } else {
       setCodigoOculto("");
-      alert("Clave incorrecta");
+      alert("El acceso al circuito informal requiere rol ADMIN.");
     }
   };
 
@@ -11321,18 +12566,24 @@ function App() {
     }
     switch(sec){
       case "dashboard": return <Dashboard {...p}/>;
+      case "documentos_arca": return <DocumentosArca {...p}/>;
       case "contrapartes": return <Contrapartes {...p}/>;
       case "contratos": return <Contratos {...p}/>;
       case "movimientos": return <Movimientos {...p}/>;
+      case "produccion": return <OrdenesProduccion {...p}/>;
+      case "bolsa_zona": return <BolsaPorZona {...p}/>;
       case "liquidaciones": return <Liquidaciones {...p}/>;
+      case "certificados_1116": return <Certificados1116/>;
       case "cc": return <CuentaCorriente {...p}/>;
       case "stock": return <Stock {...p}/>;
       case "rep_fletes": return <ReporteFletes {...p}/>;
       case "rep_calidades": return <ReporteCalidades {...p}/>;
       case "posicion_abierta": return <PosicionAbierta {...p}/>;
+      case "indicadores": return <Indicadores/>;
       case "importador_excel": return <ImportadorExcel {...p} setSec={setSec}/>;
       case "reportes_ia": return <ReportesIA {...p}/>;
       case "agente_ia": return <AgenteIA {...p}/>;
+      case "auditoria": return <Auditoria/>;
       case "configuracion": return <Configuracion usuario={usuario} defaultTab={configDefaultTab} setDefaultTab={setConfigDefaultTab}/>;
       default: return <Dashboard {...p}/>;
     }
@@ -11457,6 +12708,8 @@ function App() {
               )}
               <button
                 onClick={() => {
+                  api.post("/api/usuarios/logout", {});
+                  sessionStorage.removeItem("granosys_access_token");
                   setLogueado(false);
                   setUsuario("");
                 }}
