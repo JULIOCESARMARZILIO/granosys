@@ -388,6 +388,62 @@ async function diagnosticarAutorizaciones() {
   };
 }
 
+function parsearPersonaPadronA13(xml) {
+  const personaReturn = tag(xml, 'personaReturn');
+  const personaXml = tag(personaReturn || xml, 'persona');
+  if (!personaXml) throw new Error('Padrón A13 no devolvió datos de la persona consultada.');
+
+  const domicilios = tags(personaXml, 'domicilio').map(domicilioXml => ({
+    tipoDomicilio: tag(domicilioXml, 'tipoDomicilio'),
+    direccion: tag(domicilioXml, 'direccion'),
+    localidad: tag(domicilioXml, 'localidad'),
+    codigoPostal: tag(domicilioXml, 'codigoPostal') || tag(domicilioXml, 'codPostal'),
+    idProvincia: tag(domicilioXml, 'idProvincia'),
+    descripcionProvincia: tag(domicilioXml, 'descripcionProvincia')
+  }));
+  const domicilioFiscal = domicilios.find(item => item.tipoDomicilio === 'FISCAL') || domicilios[0] || {};
+  const nombre = tag(personaXml, 'nombre');
+  const apellido = tag(personaXml, 'apellido');
+  const razonSocial = tag(personaXml, 'razonSocial') || [apellido, nombre].filter(Boolean).join(' ');
+
+  return {
+    datosGenerales: {
+      idPersona: tag(personaXml, 'idPersona'),
+      tipoPersona: tag(personaXml, 'tipoPersona'),
+      tipoClave: tag(personaXml, 'tipoClave'),
+      estadoClave: tag(personaXml, 'estadoClave'),
+      nombre,
+      apellido,
+      razonSocial,
+      domicilioFiscal
+    },
+    persona: {
+      idPersona: tag(personaXml, 'idPersona'),
+      tipoPersona: tag(personaXml, 'tipoPersona'),
+      estadoClave: tag(personaXml, 'estadoClave'),
+      nombre,
+      apellido,
+      razonSocial,
+      formaJuridica: tag(personaXml, 'formaJuridica'),
+      idActividadPrincipal: tag(personaXml, 'idActividadPrincipal'),
+      descripcionActividadPrincipal: tag(personaXml, 'descripcionActividadPrincipal'),
+      domicilios
+    }
+  };
+}
+
+async function consultarPadronA13(cuitConsultar) {
+  const config = getConfig();
+  const cuit = String(cuitConsultar || '').replace(/\D/g, '');
+  if (cuit.length !== 11) throw new Error('El CUIT consultado debe tener 11 dígitos.');
+  const ticket = await getTicket('ws_sr_padron_a13');
+  const url = config.production
+    ? 'https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA13'
+    : 'https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA13';
+  const envelope = `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:a13="http://a13.soap.ws.server.puc.sr/"><soapenv:Header/><soapenv:Body><a13:getPersona><token>${xmlEscape(ticket.token)}</token><sign>${xmlEscape(ticket.sign)}</sign><cuitRepresentada>${config.cuit}</cuitRepresentada><idPersona>${cuit}</idPersona></a13:getPersona></soapenv:Body></soapenv:Envelope>`;
+  return parsearPersonaPadronA13(await soapPost(url, '', envelope));
+}
+
 function fechaWsfe(value) {
   const digits = String(value || '').replace(/\D/g, '');
   if (digits.length !== 8) return null;
@@ -1269,6 +1325,7 @@ module.exports = {
   wslpgDummy,
   diagnosticarWslpg,
   diagnosticarAutorizaciones,
+  consultarPadronA13,
   iniciarSyncFacturasEmitidas,
   iniciarSyncWslpg,
   importarWslpgPorCoe,
@@ -1289,6 +1346,7 @@ module.exports = {
     wslpgBusinessError,
     detalleFiscalWsfe,
     signoComprobanteWsfe,
+    parsearPersonaPadronA13,
     getConfig,
     validateCredentials
   }
