@@ -427,6 +427,45 @@ async function initDB() {
       );
       CREATE INDEX IF NOT EXISTS idx_aplic_stock_mov_movimiento ON aplicacion_stock_movimientos(id_movimiento);
 
+      -- Certificados 1116 (A/B/C), carga manual a partir del PDF real (ARCA
+      -- no permite listarlos por API cuando los emite un corredor).
+      -- No se reutiliza retiros_productor: eso es un concepto de negocio
+      -- distinto (retiro de la bolsa por zona), esto es el documento fiscal
+      -- en si, que puede o no terminar asociado a un movimiento puntual.
+      CREATE TABLE IF NOT EXISTS certificados_1116 (
+        id SERIAL PRIMARY KEY,
+        tipo_formulario VARCHAR(5) NOT NULL,
+        numero_certificado VARCHAR(30),
+        coe VARCHAR(30),
+        cuit_productor VARCHAR(13),
+        nombre_productor VARCHAR(200),
+        id_especie INTEGER REFERENCES especies(id),
+        id_campana INTEGER REFERENCES campanas(id),
+        kilos_netos DECIMAL(12,3),
+        fecha_emision DATE,
+        nro_ctg_asociado VARCHAR(30),
+        id_movimiento INTEGER REFERENCES movimientos(id),
+        id_retiro_productor INTEGER REFERENCES retiros_productor(id),
+        direccion VARCHAR(30),
+        origen_carga VARCHAR(20) DEFAULT 'MANUAL',
+        datos_raw JSONB,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_certificados_1116_numero ON certificados_1116(numero_certificado) WHERE numero_certificado IS NOT NULL;
+
+      -- Un certificado 1116 puede cubrir varios camiones/CTG (ej. un
+      -- productor entrega en varias tandas y se consolida en un solo
+      -- certificado de deposito). id_movimiento queda null si ese CTG
+      -- puntual todavia no tiene un movimiento cargado en el sistema.
+      CREATE TABLE IF NOT EXISTS certificado_1116_ctgs (
+        id SERIAL PRIMARY KEY,
+        id_certificado_1116 INTEGER NOT NULL REFERENCES certificados_1116(id) ON DELETE CASCADE,
+        nro_ctg VARCHAR(30) NOT NULL,
+        id_movimiento INTEGER REFERENCES movimientos(id),
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(id_certificado_1116, nro_ctg)
+      );
+
       CREATE TABLE IF NOT EXISTS mermas_humedad (
         id SERIAL PRIMARY KEY,
         id_especie INTEGER REFERENCES especies(id),

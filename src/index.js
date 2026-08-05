@@ -34,6 +34,7 @@ app.use('/api/posicion',     require('./routes/posicion'));
 app.use('/api/kpis',         require('./routes/kpis'));
 app.use('/api/regularizacion', require('./routes/regularizacion'));
 app.use('/api/retiros-productor', require('./routes/retiros'));
+app.use('/api/certificados-1116', require('./routes/certificados1116'));
 
 // Frontend - VA AL FINAL
 app.get('/mobile', (req, res) => {
