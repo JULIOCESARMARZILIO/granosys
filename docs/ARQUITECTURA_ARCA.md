@@ -34,6 +34,26 @@
 - Implementada sincronización consultiva WSLPG por punto de emisión para LPG, LSG, ajustes incluidos y certificaciones electrónicas.
 - Pendiente: identificar todos los puntos de emisión WSLPG utilizados, sincronizador WSCPE, importación Portal IVA y flujo de aprobación reforzado.
 
+## Control fiscal de IVA Ventas
+
+- El XML oficial de WSFE es la evidencia primaria y se conserva sin alteraciones junto con su hash SHA-256.
+- El resumen consultivo normaliza total, neto gravado, IVA, operaciones exentas, conceptos no gravados y otros tributos.
+- El IVA se desglosa por codigo de alicuota y los tributos por codigo y descripcion.
+- Las notas de credito se exponen con signo negativo para obtener el movimiento fiscal neto del periodo.
+- Se controla que total = no gravado + neto gravado + exento + tributos + IVA, con tolerancia de dos centavos.
+- El resultado no presenta IVA Simple, no reemplaza el Libro IVA Digital, no genera asientos y exige revision humana.
+- IVA Compras, retenciones y percepciones sufridas quedan fuera de este primer alcance hasta incorporar su fuente oficial.
+
+## Conciliacion con cuenta corriente
+
+- `arca_cc_reconciliations` registra la decision humana sin modificar el documento oficial.
+- La deteccion busca contraparte por CUIT y posibles movimientos por importe, modalidad y cercania de fecha.
+- Vincular un movimiento existente evita duplicar deudas originadas previamente por liquidaciones.
+- Crear un movimiento requiere ADMIN, confirmacion explicita, transaccion e idempotencia por documento ARCA.
+- Facturas y notas de debito crean debe; notas de credito crean haber.
+- Solo se permiten movimientos FORMAL en pesos en esta etapa. Moneda extranjera exige revision manual.
+- Rechazar conserva evidencia, usuario, fecha, importe y hash; no borra ni altera el comprobante.
+
 ## Restricciones conocidas de consulta
 
 - WSLPG recupera por punto de emisión y número de orden los documentos emitidos por la CUIT representada.
