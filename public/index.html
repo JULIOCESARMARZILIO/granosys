@@ -9662,6 +9662,21 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
   const cargarUbicaciones = () => api.get("/api/ubicaciones").then(d=>setUbicaciones(d||[])).catch(()=>{});
   const [nuevaUbicacion,setNuevaUbicacion]=useState({nombre:"",localidad:"",provincia:"",zona:"",sub_zona:""});
   const [guardandoUbicacion,setGuardandoUbicacion]=useState(false);
+  const [asignandoZonaGeneral,setAsignandoZonaGeneral]=useState(false);
+  const sinZonaCount = ubicaciones.filter(u=>!u.zona).length;
+  const asignarZonaGeneralATodas = async () => {
+    const sinZona = ubicaciones.filter(u=>!u.zona);
+    if (sinZona.length===0) return;
+    if (!window.confirm(`Asignar zona "General" a las ${sinZona.length} ubicación(es) sin zona?`)) return;
+    setAsignandoZonaGeneral(true);
+    try {
+      for (const u of sinZona) {
+        await api.put(`/api/ubicaciones/${u.id}`, { zona: "General" });
+      }
+      await cargarUbicaciones();
+    } catch(err) { alert("Error: "+err.message); }
+    finally { setAsignandoZonaGeneral(false); }
+  };
   const crearUbicacion = async () => {
     if (!nuevaUbicacion.nombre.trim()) { alert("El nombre es obligatorio"); return; }
     setGuardandoUbicacion(true);
@@ -9949,7 +9964,14 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
           <div className="card-header"><span style={{fontWeight:600}}>Ubicaciones y zonas de referencia</span></div>
           <div style={{padding:"10px 16px",fontSize:12,color:"#8890a8"}}>
             La "Zona" agrupa varias ubicaciones en una misma bolsa de stock (ej. "Rosario Norte") para poder aplicar stock a contratos sin depender de una planta puntual. La distancia (km) se usa para calcular el precio neto de flete en Posición Consolidada.
-            {sinZonaCount>0 && <div style={{color:"#e74c3c",marginTop:6,fontWeight:600}}>⚠ Hay {sinZonaCount} ubicación(es) nueva(s) sin zona asignada todavía — quedan cargadas igual, pero conviene clasificarlas para que entren en la Bolsa por Zona.</div>}
+            {sinZonaCount>0 && (
+              <div style={{color:"#e74c3c",marginTop:6,fontWeight:600,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <span>⚠ Hay {sinZonaCount} ubicación(es) nueva(s) sin zona asignada todavía — quedan cargadas igual, pero conviene clasificarlas para que entren en la Bolsa por Zona.</span>
+                <Btn size="sm" variant="secondary" disabled={asignandoZonaGeneral} onClick={asignarZonaGeneralATodas}>
+                  {asignandoZonaGeneral?"Asignando...":`Asignar "General" a las ${sinZonaCount}`}
+                </Btn>
+              </div>
+            )}
           </div>
           <div style={{display:"flex",gap:8,padding:"0 16px 12px",flexWrap:"wrap",alignItems:"flex-end"}}>
             <div>
