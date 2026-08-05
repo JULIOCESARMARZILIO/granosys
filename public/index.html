@@ -11055,7 +11055,7 @@ const BolsaPorZona = ({modulo}) => {
     setCargando(true);
     const [b, c, cp] = await Promise.all([
       api.get("/api/stock/por-zona"),
-      api.get("/api/contratos"),
+      api.get("/api/contratos?vista=todos"),
       api.get("/api/contrapartes")
     ]);
     setBolsas(b||[]);
@@ -11248,7 +11248,7 @@ const OrdenesProduccion = ({modulo, usuario}) => {
 
   const cargar = async () => {
     setCargando(true);
-    const data = await api.get("/api/contratos");
+    const data = await api.get("/api/contratos?vista=todos");
     setOrdenes((data||[]).filter(c => c.tipo_contrato === "PRODUCCION" && c.modalidad === modulo));
     setCargando(false);
   };
