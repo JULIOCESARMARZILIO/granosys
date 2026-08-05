@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile);
 const ticketCache = new Map();
 let ticketTableReady = false;
 let syncTablesReady = false;
+let reconciliationTableReady = false;
 
 function ticketEncryptionKey(config) {
   return crypto.createHash('sha256')
@@ -82,6 +83,30 @@ async function ensureSyncTables() {
       ON arca_official_documents(fuente, document_date DESC);
   `);
   syncTablesReady = true;
+}
+
+async function ensureReconciliationTable() {
+  if (reconciliationTableReady) return;
+  await ensureSyncTables();
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS arca_cc_reconciliations (
+      id BIGSERIAL PRIMARY KEY,
+      document_id BIGINT NOT NULL UNIQUE REFERENCES arca_official_documents(id) ON DELETE RESTRICT,
+      contraparte_id INTEGER NOT NULL REFERENCES contrapartes(id) ON DELETE RESTRICT,
+      cc_movimiento_id INTEGER REFERENCES cc_contrapartes(id) ON DELETE RESTRICT,
+      estado VARCHAR(20) NOT NULL CHECK (estado IN ('VINCULADO','CREADO','RECHAZADO')),
+      decision VARCHAR(30) NOT NULL,
+      importe NUMERIC(14,4) NOT NULL,
+      payload_hash VARCHAR(64) NOT NULL,
+      observacion VARCHAR(500),
+      decidido_por INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE RESTRICT,
+      decidido_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_arca_cc_reconciliation_estado
+      ON arca_cc_reconciliations(estado, decidido_at DESC);
+  `);
+  reconciliationTableReady = true;
 }
 
 async function loadPersistedTicket(cacheKey, config) {
@@ -1025,6 +1050,193 @@ async function resumirIvaVentas({ desde = null, hasta = null } = {}) {
   };
 }
 
+async function listarConciliacionesCuentaCorriente({
+  desde = null,
+  hasta = null,
+  estado = 'PENDIENTE',
+  limite = 200
+} = {}) {
+  await ensureReconciliationTable();
+  const safeLimit = Math.max(1, Math.min(500, Number(limite) || 200));
+  const conditions = ["d.fuente='WSFE_EMITIDA'"];
+  const params = [];
+  if (desde) {
+    params.push(desde);
+    conditions.push(`d.document_date >= $${params.length}`);
+  }
+  if (hasta) {
+    params.push(hasta);
+    conditions.push(`d.document_date <= $${params.length}`);
+  }
+  if (estado === 'PENDIENTE') conditions.push('r.id IS NULL');
+  if (estado === 'RESUELTO') conditions.push('r.id IS NOT NULL');
+  params.push(safeLimit);
+  const { rows } = await pool.query(`
+    SELECT d.id AS document_id, d.external_key, d.document_date, d.payload_hash,
+           d.payload->>'CbteTipo' AS cbte_tipo,
+           d.payload->>'PtoVta' AS punto_venta,
+           d.payload->>'CbteDesde' AS numero,
+           d.payload->>'DocNro' AS receptor_cuit,
+           COALESCE(NULLIF(d.payload->>'ImpTotal','')::numeric,0) AS importe,
+           d.payload->>'MonId' AS moneda,
+           cp.id AS contraparte_id, cp.razon_social AS contraparte,
+           r.id AS conciliacion_id, r.estado, r.decision, r.cc_movimiento_id,
+           r.observacion, r.decidido_por, r.decidido_at,
+           candidato.id AS candidato_cc_id, candidato.fecha AS candidato_fecha,
+           candidato.tipo_movimiento AS candidato_tipo,
+           candidato.concepto AS candidato_concepto,
+           ABS(candidato.debe-candidato.haber) AS candidato_importe
+    FROM arca_official_documents d
+    LEFT JOIN LATERAL (
+      SELECT c.id, c.razon_social
+      FROM contrapartes c
+      WHERE c.activo=TRUE
+        AND regexp_replace(COALESCE(c.cuit,''), '[^0-9]', '', 'g')
+          = regexp_replace(COALESCE(d.payload->>'DocNro',''), '[^0-9]', '', 'g')
+      ORDER BY c.id
+      LIMIT 1
+    ) cp ON TRUE
+    LEFT JOIN arca_cc_reconciliations r ON r.document_id=d.id
+    LEFT JOIN LATERAL (
+      SELECT cc.id, cc.fecha, cc.tipo_movimiento, cc.concepto, cc.debe, cc.haber
+      FROM cc_contrapartes cc
+      WHERE cp.id IS NOT NULL
+        AND cc.id_contraparte=cp.id
+        AND cc.modalidad='FORMAL'
+        AND ABS(ABS(cc.debe-cc.haber)-COALESCE(NULLIF(d.payload->>'ImpTotal','')::numeric,0)) <= 0.02
+        AND ABS(cc.fecha-d.document_date) <= 31
+      ORDER BY ABS(cc.fecha-d.document_date), cc.id
+      LIMIT 1
+    ) candidato ON TRUE
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY d.document_date DESC, d.id DESC
+    LIMIT $${params.length}
+  `, params);
+  return {
+    estado,
+    total: rows.length,
+    pendientesSinContraparte: rows.filter(row => !row.contraparte_id).length,
+    posiblesDuplicados: rows.filter(row => row.candidato_cc_id).length,
+    conciliaciones: rows.map(row => ({
+      ...row,
+      recomendacion: !row.contraparte_id
+        ? 'ALTA_CONTRAPARTE_REQUERIDA'
+        : row.candidato_cc_id
+          ? 'VINCULAR_EXISTENTE'
+          : 'REVISAR_CREACION'
+    }))
+  };
+}
+
+async function decidirConciliacionCuentaCorriente({
+  documentId,
+  decision,
+  ccMovimientoId = null,
+  observacion = '',
+  userId
+}) {
+  await ensureReconciliationTable();
+  if (!userId) throw new Error('La decisiÃ³n requiere un usuario autenticado.');
+  const allowed = new Set(['VINCULAR_EXISTENTE', 'CREAR_MOVIMIENTO', 'RECHAZAR']);
+  if (!allowed.has(decision)) throw new Error('DecisiÃ³n de conciliaciÃ³n invÃ¡lida.');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: documents } = await client.query(`
+      SELECT d.*, cp.id AS contraparte_id
+      FROM arca_official_documents d
+      LEFT JOIN LATERAL (
+        SELECT c.id
+        FROM contrapartes c
+        WHERE c.activo=TRUE
+          AND regexp_replace(COALESCE(c.cuit,''), '[^0-9]', '', 'g')
+            = regexp_replace(COALESCE(d.payload->>'DocNro',''), '[^0-9]', '', 'g')
+        ORDER BY c.id LIMIT 1
+      ) cp ON TRUE
+      WHERE d.id=$1 AND d.fuente='WSFE_EMITIDA'
+      FOR UPDATE OF d
+    `, [documentId]);
+    const document = documents[0];
+    if (!document) throw new Error('Documento ARCA emitido no encontrado.');
+    if (!document.contraparte_id) throw new Error('Debe dar de alta o vincular la contraparte antes de conciliar.');
+    const existing = await client.query(
+      'SELECT id FROM arca_cc_reconciliations WHERE document_id=$1',
+      [documentId]
+    );
+    if (existing.rows[0]) throw new Error('El documento ARCA ya fue conciliado.');
+
+    const payload = document.payload || {};
+    const fiscal = detalleFiscalWsfe(payload);
+    const importe = fiscal.ImpTotal;
+    if (importe <= 0) throw new Error('El documento no tiene un importe total vÃ¡lido.');
+    let movimientoId = null;
+    let estado = 'RECHAZADO';
+
+    if (decision === 'VINCULAR_EXISTENTE') {
+      if (!ccMovimientoId) throw new Error('Debe indicar el movimiento existente.');
+      const { rows } = await client.query(`
+        SELECT id
+        FROM cc_contrapartes
+        WHERE id=$1 AND id_contraparte=$2 AND modalidad='FORMAL'
+          AND ABS(ABS(debe-haber)-$3::numeric) <= 0.02
+        FOR UPDATE
+      `, [ccMovimientoId, document.contraparte_id, importe]);
+      if (!rows[0]) throw new Error('El movimiento no corresponde a la contraparte o al importe del comprobante.');
+      movimientoId = rows[0].id;
+      estado = 'VINCULADO';
+    }
+
+    if (decision === 'CREAR_MOVIMIENTO') {
+      if (payload.MonId && payload.MonId !== 'PES') {
+        throw new Error('Los comprobantes en moneda extranjera requieren conciliaciÃ³n manual con cotizaciÃ³n.');
+      }
+      const signo = signoComprobanteWsfe(payload.CbteTipo);
+      const debe = signo > 0 ? importe : 0;
+      const haber = signo < 0 ? importe : 0;
+      const { rows } = await client.query(`
+        INSERT INTO cc_contrapartes
+          (id_contraparte, fecha, tipo_movimiento, concepto, debe, haber,
+           saldo_acumulado, modalidad, estado)
+        VALUES ($1,$2,'DOCUMENTO_ARCA',$3,$4,$5,NULL,'FORMAL','ABIERTO')
+        RETURNING id
+      `, [
+        document.contraparte_id,
+        document.document_date,
+        `ARCA ${payload.PtoVta || '-'}-${payload.CbteDesde || '-'} Â· ${document.payload_hash.slice(0, 12)}`,
+        debe,
+        haber
+      ]);
+      movimientoId = rows[0].id;
+      estado = 'CREADO';
+    }
+
+    const { rows: reconciliations } = await client.query(`
+      INSERT INTO arca_cc_reconciliations
+        (document_id, contraparte_id, cc_movimiento_id, estado, decision,
+         importe, payload_hash, observacion, decidido_por)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      RETURNING *
+    `, [
+      document.id,
+      document.contraparte_id,
+      movimientoId,
+      estado,
+      decision,
+      importe,
+      document.payload_hash,
+      String(observacion || '').slice(0, 500) || null,
+      userId
+    ]);
+    await client.query('COMMIT');
+    return reconciliations[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function obtenerSyncJob(id) {
   await ensureSyncTables();
   const { rows } = await pool.query(
@@ -1065,6 +1277,8 @@ module.exports = {
   listarDocumentosOficiales,
   resumirConciliacionContrapartes,
   resumirIvaVentas,
+  listarConciliacionesCuentaCorriente,
+  decidirConciliacionCuentaCorriente,
   diagnosticarCredenciales,
   _internal: {
     xmlEscape,
