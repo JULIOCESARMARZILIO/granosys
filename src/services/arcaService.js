@@ -179,7 +179,7 @@ async function consultarPadronA13(cuitConsultar) {
   }
 
   try {
-    const afip = new Afip({ CUIT: parseInt(creds.cuit), cert: creds.cert, key: creds.key, production: getArcaMode() === 'PRODUCTION' });
+    return await arcaOfficialClient.consultarPadronA13(cuitLimpio);
     // El cliente específico obtiene el token/sign de WSAA y ejecuta el
     // método oficial `getPersona`. El WebService genérico no agrega esas
     // credenciales y `getPersona_v13` no existe en Padrón Alcance 13.
