@@ -2805,6 +2805,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     provincia_destino: "",
     nro_planta_destino: "",
     direccion_destino: "",
+    id_ubicacion_destino: null,
     transportista_nombre: "",
     chofer_nombre: "",
     patente_chasis: "",
@@ -2911,6 +2912,10 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   };
 
   const handleGuardarCambios = async () => {
+    if (!movForm.id_ubicacion_destino) {
+      alert("Falta elegir el Destino (planta) — es obligatorio para que el camión quede ubicado en su zona.");
+      return;
+    }
     try {
       const payload = {
         ...movForm,
@@ -3099,6 +3104,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         provincia_destino: m.provincia_destino || "",
         nro_planta_destino: m.nro_planta_destino || "",
         direccion_destino: m.direccion_destino || "",
+        id_ubicacion_destino: m.id_ubicacion_destino || null,
         transportista_nombre: m.transportista_nombre || m.transportista || "",
         chofer_nombre: m.chofer_nombre || m.chofer || "",
         patente_chasis: m.patente_chasis || "",
@@ -3149,6 +3155,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         provincia_destino: "",
         nro_planta_destino: "",
         direccion_destino: "",
+        id_ubicacion_destino: null,
         transportista_nombre: "",
         chofer_nombre: "",
         patente_chasis: "",
@@ -5166,9 +5173,12 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                       if (!idSel) return;
                       const cp = contrapartes.find(c => String(c.id) === idSel);
                       // En Formal el destinatario oficial lo trae la CPE (sección A); acá solo se completa en Informal.
-                      if (modulo === "INFORMAL") {
-                        setMovForm({...movForm, destinatario_cuit: cp?.cuit || "", destinatario_nombre: cp?.razon_social || ""});
-                      }
+                      // El destino (planta) elegido queda ligado al comprador anterior, asi que se limpia al cambiar.
+                      setMovForm({
+                        ...movForm,
+                        ...(modulo === "INFORMAL" ? { destinatario_cuit: cp?.cuit || "", destinatario_nombre: cp?.razon_social || "" } : {}),
+                        id_ubicacion_destino: null
+                      });
                       cargarUbicacionesDestinatario(idSel);
                     }}
                   >
@@ -5178,11 +5188,11 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                     ))}
                   </select>
                 </FF>
-                <FF label="Destino (planta)">
+                <FF label="Destino (planta) *">
                   <div style={{display:"flex",gap:6}}>
                     <select
                       style={{flex:1}}
-                      value=""
+                      value={movForm.id_ubicacion_destino || ""}
                       disabled={!idContraparteDestinatario}
                       onChange={e => {
                         const val = e.target.value;
@@ -5194,6 +5204,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                         if (!ub) return;
                         setMovForm({
                           ...movForm,
+                          id_ubicacion_destino: ub.id,
                           destino_nombre: ub.nombre || "",
                           localidad_destino: ub.localidad || "",
                           provincia_destino: ub.provincia || "",
@@ -10218,6 +10229,7 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
   const tabs = [
     {id:"especies",label:"Especies / Productos"},
     {id:"campanas",label:"Campañas"},
+    {id:"ubicaciones",label:"Ubicaciones"},
     {id:"arca",label:"Conexión ARCA"}
   ];
   if (usuario && usuario.rol === 'ADMIN') {
