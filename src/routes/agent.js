@@ -499,6 +499,7 @@ Responde de forma concisa, clara, estructurada y en español.`;
 
     let contents = [...formattedHistory];
     let lastProposal = null;
+    let lastData = null; // ultimo resultado tabular (de una herramienta get_*), para exportar a Excel del lado del cliente
     const MAX_TOOL_TURNS = 5;
 
     for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
@@ -509,7 +510,7 @@ Responde de forma concisa, clara, estructurada y en español.`;
       // Si no hay function call, es la respuesta final en texto
       if (!part?.functionCall) {
         const replyText = part?.text || 'No pude procesar la respuesta.';
-        return res.json({ text: replyText, proposal: lastProposal });
+        return res.json({ text: replyText, proposal: lastProposal, data: lastData });
       }
 
       const call = part.functionCall;
@@ -645,6 +646,11 @@ Responde de forma concisa, clara, estructurada y en español.`;
           accion: 'CREAR_PROPUESTA', modulo, registro_id: toolResult.proposal.id,
           datos_despues: { tipo_accion: actionType, datos_propuesta: args }
         });
+      } else if (Array.isArray(toolResult)) {
+        // Se guarda para poder exportarlo a Excel del lado del cliente,
+        // aunque el modelo despues siga encadenando mas herramientas -- se
+        // queda con la ultima consulta de datos (get_*) que se hizo.
+        lastData = toolResult;
       }
 
       // Encadenar el resultado de la herramienta y darle otra vuelta al modelo
@@ -663,7 +669,7 @@ Responde de forma concisa, clara, estructurada y en español.`;
       ];
     }
 
-    res.json({ text: 'El agente encadenó demasiadas consultas sin poder responder. Probá reformular la pregunta.', proposal: lastProposal });
+    res.json({ text: 'El agente encadenó demasiadas consultas sin poder responder. Probá reformular la pregunta.', proposal: lastProposal, data: lastData });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

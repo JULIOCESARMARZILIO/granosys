@@ -12051,7 +12051,7 @@ const AgenteIA = ({ modulo, usuario }) => {
       if (!res) {
         setMessages(prev => [...prev, { role: 'assistant', text: '❌ No se pudo conectar con el agente. Intentá de nuevo en un momento.' }]);
       } else {
-        setMessages(prev => [...prev, { role: 'assistant', text: res.text }]);
+        setMessages(prev => [...prev, { role: 'assistant', text: res.text, data: (res.data && res.data.length > 0) ? res.data : null }]);
         if (res.proposal) {
           loadProposals();
         }
@@ -12061,6 +12061,25 @@ const AgenteIA = ({ modulo, usuario }) => {
     } finally {
       setThinking(false);
     }
+  };
+
+  // Exporta a Excel el resultado tabular (crudo, sin markdown) de la
+  // ultima consulta que el agente haya hecho para armar ese mensaje.
+  const exportarAExcel = (data) => {
+    if (!data || data.length === 0) return;
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Agente IA");
+    const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbout], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `agente_ia_${new Date().toISOString().slice(0,10)}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const handleApprove = async (id) => {
@@ -12140,6 +12159,11 @@ const AgenteIA = ({ modulo, usuario }) => {
                 boxShadow: '0 2px 5px rgba(0,0,0,0.15)'
               }}>
                 {m.text}
+                {m.data && m.data.length > 0 && (
+                  <div style={{marginTop:8}}>
+                    <Btn size="sm" variant="secondary" onClick={()=>exportarAExcel(m.data)}>📥 Exportar a Excel ({m.data.length})</Btn>
+                  </div>
+                )}
               </div>
             </div>
           ))}
