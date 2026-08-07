@@ -4,33 +4,45 @@ const { pool } = require('../db');
 
 router.get('/contrapartes/:id', async (req, res) => {
   try {
+    const { modalidad } = req.query;
+    const params = [req.params.id];
+    let where = 'cc.id_contraparte = $1';
+    if (modalidad) { params.push(modalidad); where += ` AND cc.modalidad = $${params.length}`; }
     const { rows } = await pool.query(`
       SELECT cc.*, l.nro_liquidacion, c.numero_contrato
       FROM cc_contrapartes cc
       LEFT JOIN liquidaciones l ON cc.id_liquidacion = l.id
       LEFT JOIN contratos c ON cc.id_contrato = c.id
-      WHERE cc.id_contraparte = $1
+      WHERE ${where}
       ORDER BY cc.fecha DESC, cc.id DESC
-    `, [req.params.id]);
+    `, params);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// ?modalidad=FORMAL|INFORMAL -- sin este filtro se mezclaban los saldos de
+// los dos circuitos en un solo numero, que es exactamente lo que NO se
+// quiere ver parado en el modulo Formal o el Informal (para eso esta la
+// vista Consolidada aparte, que si suma todo a proposito).
 router.get('/resumen', async (req, res) => {
   try {
+    const { modalidad } = req.query;
+    const params = [];
+    let joinCond = 'cp.id = cc.id_contraparte';
+    if (modalidad) { params.push(modalidad); joinCond += ` AND cc.modalidad = $${params.length}`; }
     const { rows } = await pool.query(`
       SELECT cp.id, cp.razon_social, cp.tipo_contraparte, cp.cuit,
              COALESCE(SUM(cc.debe - cc.haber), 0) as saldo,
              COUNT(CASE WHEN cc.estado = 'ABIERTO' THEN 1 END) as movs_pendientes
       FROM contrapartes cp
-      LEFT JOIN cc_contrapartes cc ON cp.id = cc.id_contraparte
+      LEFT JOIN cc_contrapartes cc ON ${joinCond}
       WHERE cp.activo = TRUE
       GROUP BY cp.id, cp.razon_social, cp.tipo_contraparte, cp.cuit
       HAVING COUNT(cc.id) > 0
       ORDER BY ABS(COALESCE(SUM(cc.debe - cc.haber), 0)) DESC
-    `);
+    `, params);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -7065,7 +7065,7 @@ const CuentaCorriente = ({modulo, globalFiltroProductor, globalFiltroEspecie}) =
   };
 
   const cargarCCResumen = () => {
-    api.get("/api/cc/resumen")
+    api.get(`/api/cc/resumen?modalidad=${modulo}`)
       .then(data => data && setCCResumen(data))
       .catch(()=>{});
     api.get("/api/cc/transportistas/resumen")
@@ -7084,7 +7084,7 @@ const CuentaCorriente = ({modulo, globalFiltroProductor, globalFiltroEspecie}) =
         setPagoTipo("PAGO");
       } else {
         // 1. Cargar movimientos de cta cte de granos
-        const movs = await api.get(`/api/cc/contrapartes/${client.id}`);
+        const movs = await api.get(`/api/cc/contrapartes/${client.id}?modalidad=${modulo}`);
         setCcMovimientos(movs || []);
         
         // 2. Cargar liquidaciones abiertas para imputación
