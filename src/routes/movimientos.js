@@ -3,6 +3,7 @@ const { pool } = require('../db');
 const { extraerDatosCPE, ExtraccionError } = require('../services/geminiExtraction');
 const { registrarAuditoria } = require('../services/auditoria');
 const { sumarStock, restarStock } = require('../services/stockService');
+const { recalcularContrato } = require('../services/contratosService');
 
 // Al llegar un movimiento a destino (kg_liquidables ya definitivo), actualiza
 // el stock: si tiene contrato de compra y una ubicacion de destino propia
@@ -55,69 +56,6 @@ router.post('/parse-cpe', async (req, res) => {
     res.status(500).json({ error: 'Error interno al interpretar la Carta de Porte.' });
   }
 });
-
-// Recalcula y actualiza la cantidad de toneladas asignadas y el estado de un contrato
-async function recalcularContrato(id_contrato) {
-  if (!id_contrato) return;
-  const client = await pool.connect();
-  try {
-    const { rows: contractRows } = await client.query(
-      'SELECT tipo_contrato, cantidad_toneladas_pactadas, base_calculo_peso FROM contratos WHERE id = $1',
-      [id_contrato]
-    );
-    if (contractRows.length === 0) return;
-    const { tipo_contrato, cantidad_toneladas_pactadas, base_calculo_peso } = contractRows[0];
-
-    let fieldToSum = 'peso_neto_salida_kg';
-    if (base_calculo_peso === 'BRUTO_DESCARGA') {
-      fieldToSum = 'peso_neto_llegada_kg';
-    } else if (base_calculo_peso === 'NETO_ACONDICIONADO') {
-      fieldToSum = 'kg_liquidables';
-    }
-
-    // Si el movimiento tiene un tope de asignacion parcial cargado (kg_asignados_*),
-    // se usa ese valor en vez del peso completo del camion -- es lo que permite
-    // que un camion se reparta entre "lo que entra en el contrato" y el resto
-    // (que queda sin contrato, por ejemplo para un retiro de productor).
-    let sumQuery = '';
-    if (tipo_contrato === 'COMPRA') {
-      sumQuery = `SELECT COALESCE(SUM(COALESCE(kg_asignados_contrato_compra, ${fieldToSum})), 0) as total_kg FROM movimientos WHERE id_contrato_compra = $1`;
-    } else {
-      sumQuery = `SELECT COALESCE(SUM(COALESCE(kg_asignados_contrato_venta, ${fieldToSum})), 0) as total_kg FROM movimientos WHERE id_contrato_venta = $1`;
-    }
-
-    const { rows: sumRows } = await client.query(sumQuery, [id_contrato]);
-    let total_toneladas = parseFloat(sumRows[0].total_kg) / 1000;
-
-    if (tipo_contrato === 'COMPRA') {
-      const { rows: aplicRows } = await client.query(
-        'SELECT COALESCE(SUM(toneladas), 0) as total FROM contrato_aplicaciones_stock WHERE id_contrato = $1',
-        [id_contrato]
-      );
-      total_toneladas += parseFloat(aplicRows[0].total);
-    }
-
-    let estado = 'CONFIRMADO';
-    if (total_toneladas >= parseFloat(cantidad_toneladas_pactadas)) {
-      estado = 'CUMPLIDO';
-    } else if (total_toneladas > 0) {
-      estado = 'EN_CURSO';
-    }
-
-    await client.query(
-      `UPDATE contratos SET
-         cantidad_toneladas_asignadas = $1,
-         estado = $2,
-         updated_at = NOW()
-       WHERE id = $3`,
-      [total_toneladas, estado, id_contrato]
-    );
-  } catch (err) {
-    console.error(`Error al recalcular contrato ${id_contrato}:`, err);
-  } finally {
-    client.release();
-  }
-}
 
 // Asegura que una contraparte exista por CUIT o Razón Social, y si no, la crea automáticamente.
 async function asegurarContraparte(cuit, nombre, tipoDefault) {
@@ -220,6 +158,62 @@ router.get('/mermas', async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM mermas_humedad ORDER BY id_especie, humedad');
     res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /pendientes-asignacion?tipo=COMPRA|VENTA&modalidad=
+// Movimientos ya descargados con kg todavia sin repartir del lado pedido
+// (compra = productor, venta = comprador/destino final). "Sin repartir" =
+// kg_liquidables menos lo que ya tiene el contrato principal (kg_asignados_
+// contrato_compra/venta, o el camion completo si hay contrato principal
+// pero no se cargo un tope) menos lo que ya se mando a contratos extra via
+// movimiento_contrato_extra. No tiene nada que ver con la Bolsa por Zona.
+// Va ANTES de GET /:id para que Express no confunda "pendientes-asignacion" con un id.
+router.get('/pendientes-asignacion', async (req, res) => {
+  try {
+    const { tipo, modalidad } = req.query;
+    if (tipo !== 'COMPRA' && tipo !== 'VENTA') {
+      return res.status(400).json({ error: 'tipo debe ser COMPRA o VENTA' });
+    }
+    const idContratoCol = tipo === 'COMPRA' ? 'id_contrato_compra' : 'id_contrato_venta';
+    const kgAsignadoCol = tipo === 'COMPRA' ? 'kg_asignados_contrato_compra' : 'kg_asignados_contrato_venta';
+    const contraparteNombreCol = tipo === 'COMPRA'
+      ? 'COALESCE(m.remitente_comercial_productor_nombre, m.titular_cpe_nombre)'
+      : 'm.destinatario_nombre';
+    const contraparteCuitCol = tipo === 'COMPRA'
+      ? 'COALESCE(m.remitente_comercial_productor_cuit, m.titular_cpe_cuit)'
+      : 'm.destinatario_cuit';
+
+    const params = [tipo];
+    let where = `m.estado = 'DESCARGADO' AND m.kg_liquidables IS NOT NULL`;
+    if (modalidad) { params.push(modalidad); where += ` AND m.modalidad = $${params.length}`; }
+
+    const { rows } = await pool.query(`
+      SELECT * FROM (
+        SELECT m.id, m.numero_movimiento, m.fecha_descarga, m.modalidad, m.id_especie, m.id_campana,
+               e.nombre AS especie_nombre, ca.descripcion AS campana_desc,
+               ${contraparteNombreCol} AS contraparte_nombre, ${contraparteCuitCol} AS contraparte_cuit,
+               u.nombre AS ubicacion_nombre,
+               m.kg_liquidables,
+               m.${idContratoCol} AS id_contrato_principal,
+               COALESCE(m.${kgAsignadoCol}, CASE WHEN m.${idContratoCol} IS NOT NULL THEN m.kg_liquidables ELSE 0 END) AS kg_asignado_principal,
+               COALESCE((SELECT SUM(kg_aplicados) FROM movimiento_contrato_extra WHERE id_movimiento = m.id AND tipo_contrato = $1), 0) AS kg_asignado_extra
+        FROM movimientos m
+        LEFT JOIN especies e ON m.id_especie = e.id
+        LEFT JOIN campanas ca ON m.id_campana = ca.id
+        LEFT JOIN ubicaciones u ON u.id = COALESCE(m.id_ubicacion_destino, m.id_ubicacion_origen)
+        WHERE ${where}
+      ) t
+      WHERE kg_liquidables - kg_asignado_principal - kg_asignado_extra > 0.001
+      ORDER BY fecha_descarga ASC NULLS LAST, id ASC
+    `, params);
+
+    res.json(rows.map(r => ({
+      ...r,
+      kg_pendiente: parseFloat(r.kg_liquidables) - parseFloat(r.kg_asignado_principal) - parseFloat(r.kg_asignado_extra)
+    })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1217,6 +1211,69 @@ router.put('/:id/asignar', async (req, res) => {
     });
 
     res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /:id/asignar-extra - aplica el kg pendiente (o parte) de un movimiento
+// a un contrato ADICIONAL del mismo lado (compra o venta). El contrato
+// "principal" (movimientos.id_contrato_compra/venta) no se toca.
+router.post('/:id/asignar-extra', async (req, res) => {
+  try {
+    const { tipo_contrato, id_contrato, kg_aplicados } = req.body;
+    if (tipo_contrato !== 'COMPRA' && tipo_contrato !== 'VENTA') {
+      return res.status(400).json({ error: 'tipo_contrato debe ser COMPRA o VENTA' });
+    }
+    if (!id_contrato || !kg_aplicados || parseFloat(kg_aplicados) <= 0) {
+      return res.status(400).json({ error: 'id_contrato y kg_aplicados (mayor a 0) son obligatorios' });
+    }
+
+    const idContratoCol = tipo_contrato === 'COMPRA' ? 'id_contrato_compra' : 'id_contrato_venta';
+    const kgAsignadoCol = tipo_contrato === 'COMPRA' ? 'kg_asignados_contrato_compra' : 'kg_asignados_contrato_venta';
+
+    const { rows: movRows } = await pool.query(
+      `SELECT id, kg_liquidables, ${idContratoCol} AS id_contrato_principal, ${kgAsignadoCol} AS kg_asignado_principal
+       FROM movimientos WHERE id = $1 AND estado = 'DESCARGADO' AND kg_liquidables IS NOT NULL`,
+      [req.params.id]
+    );
+    const mov = movRows[0];
+    if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado, no descargado, o sin kg_liquidables' });
+
+    const { rows: ctrRows } = await pool.query('SELECT id, tipo_contrato FROM contratos WHERE id = $1', [id_contrato]);
+    const contrato = ctrRows[0];
+    if (!contrato) return res.status(404).json({ error: 'Contrato no encontrado' });
+    if (contrato.tipo_contrato !== tipo_contrato) {
+      return res.status(400).json({ error: `El contrato es de tipo ${contrato.tipo_contrato}, no ${tipo_contrato}` });
+    }
+
+    const { rows: extraRows } = await pool.query(
+      'SELECT COALESCE(SUM(kg_aplicados), 0) AS total FROM movimiento_contrato_extra WHERE id_movimiento = $1 AND tipo_contrato = $2',
+      [req.params.id, tipo_contrato]
+    );
+    const kgAsignadoPrincipal = mov.kg_asignado_principal !== null
+      ? parseFloat(mov.kg_asignado_principal)
+      : (mov.id_contrato_principal ? parseFloat(mov.kg_liquidables) : 0);
+    const kgPendiente = parseFloat(mov.kg_liquidables) - kgAsignadoPrincipal - parseFloat(extraRows[0].total);
+
+    if (parseFloat(kg_aplicados) > kgPendiente + 0.001) {
+      return res.status(400).json({ error: `Este movimiento solo tiene ${kgPendiente.toFixed(3)}kg pendientes de asignar en este lado.` });
+    }
+
+    const { rows: nuevaRows } = await pool.query(
+      `INSERT INTO movimiento_contrato_extra (id_movimiento, id_contrato, tipo_contrato, kg_aplicados, usuario)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [req.params.id, id_contrato, tipo_contrato, parseFloat(kg_aplicados), req.user?.usuario || 'desconocido']
+    );
+
+    await recalcularContrato(id_contrato);
+
+    await registrarAuditoria(req, {
+      accion: 'ASIGNAR_CONTRATO_EXTRA', modulo: 'movimientos', registro_id: mov.id,
+      datos_despues: nuevaRows[0]
+    });
+
+    res.status(201).json(nuevaRows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

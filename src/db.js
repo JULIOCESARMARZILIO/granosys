@@ -493,6 +493,27 @@ async function initDB() {
       -- y Contratos (30 dias), para no traer siempre la tabla entera.
       CREATE INDEX IF NOT EXISTS idx_movimientos_created_at ON movimientos(created_at);
       CREATE INDEX IF NOT EXISTS idx_contratos_created_at ON contratos(created_at);
+
+      -- Contratos ADICIONALES de un movimiento, mas alla del contrato
+      -- "principal" (movimientos.id_contrato_compra/venta). No reemplaza a
+      -- ese campo, lo complementa: si el productor entrego de mas y ese
+      -- excedente hay que aplicarlo a un SEGUNDO contrato de compra (o el
+      -- comprador recibio de mas y hay que repartir entre dos contratos de
+      -- venta), la parte principal sigue en movimientos y el resto queda
+      -- aca, un renglon por cada contrato extra. No tiene nada que ver con
+      -- la Bolsa por Zona (contrato_aplicaciones_stock / aplicacion_stock_
+      -- movimientos), son conceptos separados a proposito.
+      CREATE TABLE IF NOT EXISTS movimiento_contrato_extra (
+        id SERIAL PRIMARY KEY,
+        id_movimiento INTEGER NOT NULL REFERENCES movimientos(id) ON DELETE CASCADE,
+        id_contrato INTEGER NOT NULL REFERENCES contratos(id),
+        tipo_contrato VARCHAR(10) NOT NULL CHECK (tipo_contrato IN ('COMPRA','VENTA')),
+        kg_aplicados DECIMAL(12,3) NOT NULL,
+        usuario VARCHAR(50),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_mov_contrato_extra_movimiento ON movimiento_contrato_extra(id_movimiento);
+      CREATE INDEX IF NOT EXISTS idx_mov_contrato_extra_contrato ON movimiento_contrato_extra(id_contrato, tipo_contrato);
     `);
 
     // Migración para relaciones de contrapartes, usuario de carga y reportes

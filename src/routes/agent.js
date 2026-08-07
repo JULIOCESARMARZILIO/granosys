@@ -1,61 +1,7 @@
 const router = require('express').Router();
 const { pool } = require('../db');
 const { registrarAuditoria } = require('../services/auditoria');
-
-// helper function to query contracts tons and states
-async function recalcularContrato(id_contrato) {
-  if (!id_contrato) return;
-  const client = await pool.connect();
-  try {
-    const { rows: contractRows } = await client.query(
-      'SELECT tipo_contrato, cantidad_toneladas_pactadas, base_calculo_peso FROM contratos WHERE id = $1',
-      [id_contrato]
-    );
-    if (contractRows.length === 0) return;
-    const { tipo_contrato, cantidad_toneladas_pactadas, base_calculo_peso } = contractRows[0];
-
-    let fieldToSum = 'peso_neto_salida_kg';
-    if (base_calculo_peso === 'BRUTO_DESCARGA') {
-      fieldToSum = 'peso_neto_llegada_kg';
-    } else if (base_calculo_peso === 'NETO_ACONDICIONADO') {
-      fieldToSum = 'kg_liquidables';
-    }
-
-    let sumQuery = '';
-    if (tipo_contrato === 'COMPRA') {
-      sumQuery = `SELECT COALESCE(SUM(COALESCE(kg_asignados_contrato_compra, ${fieldToSum})), 0) as total_kg FROM movimientos WHERE id_contrato_compra = $1`;
-    } else {
-      sumQuery = `SELECT COALESCE(SUM(COALESCE(kg_asignados_contrato_venta, ${fieldToSum})), 0) as total_kg FROM movimientos WHERE id_contrato_venta = $1`;
-    }
-
-    const { rows: sumRows } = await client.query(sumQuery, [id_contrato]);
-    let totalTn = parseFloat(sumRows[0].total_kg) / 1000;
-
-    if (tipo_contrato === 'COMPRA') {
-      const { rows: aplicRows } = await client.query(
-        'SELECT COALESCE(SUM(toneladas), 0) as total FROM contrato_aplicaciones_stock WHERE id_contrato = $1',
-        [id_contrato]
-      );
-      totalTn += parseFloat(aplicRows[0].total);
-    }
-
-    let nuevoEstado = 'BORRADOR';
-    if (totalTn > 0) {
-      if (totalTn >= parseFloat(cantidad_toneladas_pactadas)) {
-        nuevoEstado = 'CUMPLIDO';
-      } else {
-        nuevoEstado = 'ACTIVO';
-      }
-    }
-
-    await client.query(
-      'UPDATE contratos SET cantidad_toneladas_asignadas = $1, estado = $2, updated_at = NOW() WHERE id = $3',
-      [totalTn, nuevoEstado, id_contrato]
-    );
-  } finally {
-    client.release();
-  }
-}
+const { recalcularContrato } = require('../services/contratosService');
 
 // GET all proposals
 router.get('/proposals', async (req, res) => {

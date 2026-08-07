@@ -969,7 +969,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
   },[modulo,tab,vista,globalFiltroProductor,globalFiltroEspecie]);
 
   const cargarContratos = async () => {
-    if (tab === "ASIGNAR") return;
+    if (tab === "ASIGNAR" || tab === "ASIGNAR_MOV") return;
     try {
       const data = await api.get(`/api/contratos?modalidad=${modulo}&tipo=${tab}&vista=${vista}`);
       const mapped = data.map(c => {
@@ -1078,7 +1078,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
         <div style={{display:"flex",alignItems:"center",gap:14}}>
           <h2 style={{fontSize:18,fontWeight:700}}>Contratos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
-          {tab !== "ASIGNAR" && (
+          {tab !== "ASIGNAR" && tab !== "ASIGNAR_MOV" && (
             <div style={{display:"flex",border:"1px solid #2a2d3e",borderRadius:6,overflow:"hidden"}}>
               {[["recientes","Recientes"],["pendientes","Pendientes"],["todos","Todos"]].map(([v,label])=>(
                 <button key={v} onClick={()=>setVista(v)} style={{
@@ -1089,7 +1089,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
             </div>
           )}
         </div>
-        <Btn onClick={()=>{
+        {tab !== "ASIGNAR" && tab !== "ASIGNAR_MOV" && <Btn onClick={()=>{
           setForm({
             tipo: tab === "CANJE" ? "CANJE" : tab,
             especie:"Soja",id_especie:1,campana:"2024/2025",id_campana:2,id_contraparte:"",tipo_precio:"PRECIO_HECHO",moneda:"PESOS",precio:"",diferencial:"",tipo_diferencial:"ARS",referencia:"MATBA_ROFEX",toneladas:"",tipo_entrega:"A_RETIRAR",tipo_liq:"INCISO_A",forma_pago:"TRANSFERENCIA",plazo:"0",precio_venta_est:"",flete_est:"",destino_est:"",costo_secada_punto: "",costo_zarandeo_tn: "",costo_paritaria_tn: "",costo_fumigacion_fijo: "",humedad_max_seco: "13.5",otros_descripcion: "",costo_secada_destino_punto: "",costo_zarandeo_destino_tn: "",costo_paritaria_destino_tn: "",costo_fumigacion_destino_fijo: "",otros_destino_descripcion: "",costo_otros_destino_valor: "",
@@ -1104,12 +1104,12 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
             _editando:false,_id:null
           });
           setShowForm(true);
-        }}>+ Nuevo Contrato</Btn>
+        }}>+ Nuevo Contrato</Btn>}
       </div>
       <div className="tab-bar" style={{marginBottom:16}}>
-        {["COMPRA","VENTA","CANJE","ASIGNAR"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t==="COMPRA"?"Compras":t==="VENTA"?"Ventas":t==="CANJE"?"Canjes":"Asignar mercadería"}</button>)}
+        {["COMPRA","VENTA","CANJE","ASIGNAR","ASIGNAR_MOV"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t==="COMPRA"?"Compras":t==="VENTA"?"Ventas":t==="CANJE"?"Canjes":t==="ASIGNAR"?"Asignar mercadería":"Asignación de movimientos"}</button>)}
       </div>
-      {tab !== "ASIGNAR" && (
+      {tab !== "ASIGNAR" && tab !== "ASIGNAR_MOV" && (
       <div className="card">
         <table>
           <thead>
@@ -1222,6 +1222,7 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
       </div>
       )}
       {tab === "ASIGNAR" && <AsignarMercaderia modulo={modulo} contrapartes={contrapartes} especies={especies} campanas={campanas} onAplicado={cargarContratos}/>}
+      {tab === "ASIGNAR_MOV" && <AsignacionMovimientos modulo={modulo}/>}
       {showForm&&(
         <Modal 
           title={form._editando ? "Editar Contrato" : "Nuevo Contrato"} 
@@ -2463,6 +2464,146 @@ const AsignarMercaderia = ({modulo, contrapartes, especies, campanas, onAplicado
             </tbody></table>
           )}
         </>
+      )}
+    </div>
+  );
+};
+
+// ── ASIGNACIÓN DE MOVIMIENTOS A CONTRATOS ──
+// Un movimiento puede necesitar repartirse entre mas de un contrato del
+// mismo lado: el productor entrego de mas (dos contratos de compra) o el
+// comprador recibio de mas (dos contratos de venta). El contrato "principal"
+// se sigue asignando como siempre (al cargar el movimiento, o en su ficha);
+// esta pantalla es solo para el remanente que todavia no tiene destino, de
+// cada lado por separado. No tiene nada que ver con la Bolsa por Zona.
+const AsignacionMovimientos = ({modulo}) => {
+  const [lado, setLado] = useState("COMPRA");
+  const [pendientes, setPendientes] = useState([]);
+  const [contratosDisponibles, setContratosDisponibles] = useState([]);
+  const [cargando, setCargando] = useState(true);
+
+  const [asignando, setAsignando] = useState(null); // id de movimiento
+  const [contratoSel, setContratoSel] = useState("");
+  const [kgSel, setKgSel] = useState("");
+  const [guardando, setGuardando] = useState(false);
+
+  const cargar = async () => {
+    setCargando(true);
+    try {
+      const [pend, ctrs] = await Promise.all([
+        api.get(`/api/movimientos/pendientes-asignacion?tipo=${lado}&modalidad=${modulo}`),
+        api.get(`/api/contratos?modalidad=${modulo}&tipo=${lado}&vista=todos`)
+      ]);
+      setPendientes(pend || []);
+      setContratosDisponibles((ctrs || []).filter(c => !c.es_canje && c.estado !== "CUMPLIDO"));
+    } catch(e) { alert("Error al cargar: " + e.message); }
+    finally { setCargando(false); }
+  };
+
+  useEffect(() => { cargar(); }, [lado, modulo]);
+
+  const fmtKg = (v) => `${Number(v).toLocaleString("es-AR",{maximumFractionDigits:0})} kg`;
+
+  // Mismo criterio "soft" que ya se usa al cargar un movimiento: misma
+  // especie/campaña, y si hay nombre de contraparte, que se parezcan.
+  const candidatosPara = (mov) => contratosDisponibles.filter(c => {
+    if (c.id_especie !== mov.id_especie || c.id_campana !== mov.id_campana) return false;
+    const nombreMov = (mov.contraparte_nombre || "").toLowerCase().trim();
+    if (!nombreMov) return true;
+    const nombreCtr = (c.contraparte_nombre || "").toLowerCase().trim();
+    return nombreCtr.includes(nombreMov) || nombreMov.includes(nombreCtr);
+  });
+
+  const abrirAsignar = (mov) => {
+    setAsignando(mov.id);
+    setContratoSel("");
+    setKgSel(mov.kg_pendiente.toFixed(3));
+  };
+
+  const asignar = async (mov) => {
+    if (!contratoSel || !kgSel || parseFloat(kgSel) <= 0) { alert("Elegí el contrato y los kg"); return; }
+    setGuardando(true);
+    try {
+      const r = await api.post(`/api/movimientos/${mov.id}/asignar-extra`, {
+        tipo_contrato: lado, id_contrato: parseInt(contratoSel), kg_aplicados: parseFloat(kgSel)
+      });
+      if (r && r.id) {
+        alert("✓ Asignado correctamente");
+        setAsignando(null);
+        cargar();
+      } else {
+        alert("Error: " + (r?.error || "no se pudo asignar"));
+      }
+    } catch(e) { alert("Error: " + (e.response?.data?.error || e.message)); }
+    finally { setGuardando(false); }
+  };
+
+  return (
+    <div className="card">
+      <div style={{padding:"14px 18px",borderBottom:"1px solid #2a2d3e"}}>
+        <p style={{fontSize:12,color:"#8890a8",margin:0,marginBottom:10}}>
+          Movimientos ya descargados con kilos todavía sin repartir en algún contrato de este lado — porque el {lado==="COMPRA"?"productor entregó":"comprador recibió"} de más, o porque al cargar no había (o había más de uno) contrato para elegir. El contrato principal del movimiento no se toca acá.
+        </p>
+        <div style={{display:"flex",border:"1px solid #2a2d3e",borderRadius:6,overflow:"hidden",width:"fit-content"}}>
+          {[["COMPRA","Lado Compra (productor)"],["VENTA","Lado Venta (comprador)"]].map(([v,label])=>(
+            <button key={v} onClick={()=>setLado(v)} style={{
+              padding:"6px 12px",fontSize:12,fontWeight:600,border:"none",cursor:"pointer",
+              background:lado===v?"#3498db":"transparent",color:lado===v?"#fff":"#8890a8"
+            }}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      {cargando ? (
+        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>Cargando...</div>
+      ) : pendientes.length===0 ? (
+        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay movimientos con kilos pendientes de asignar en este lado.</div>
+      ) : (
+        <table>
+          <thead><tr>
+            <th>Movimiento</th><th>Fecha</th><th>{lado==="COMPRA"?"Productor":"Comprador"}</th>
+            <th>Especie</th><th>Lugar</th><th>Kg origen</th><th>Kg pendiente</th><th></th>
+          </tr></thead>
+          <tbody>
+            {pendientes.map(m=>(
+              <React.Fragment key={m.id}>
+                <tr>
+                  <td className="mono">{m.numero_movimiento}</td>
+                  <td>{m.fecha_descarga ? formatFechaAR(m.fecha_descarga) : "—"}</td>
+                  <td>{m.contraparte_nombre || "—"}{m.contraparte_cuit?" — "+m.contraparte_cuit:""}</td>
+                  <td>{m.especie_nombre}</td>
+                  <td>{m.ubicacion_nombre || "—"}</td>
+                  <td className="mono">{fmtKg(m.kg_liquidables)}</td>
+                  <td className="mono" style={{fontWeight:600,color:"#f5a623"}}>{fmtKg(m.kg_pendiente)}</td>
+                  <td><Btn size="sm" variant="secondary" onClick={()=>abrirAsignar(m)}>Asignar</Btn></td>
+                </tr>
+                {asignando===m.id && (
+                  <tr>
+                    <td colSpan={8} style={{padding:"10px 16px",background:"#0f1117"}}>
+                      {candidatosPara(m).length===0 ? (
+                        <div style={{fontSize:12,color:"#8890a8"}}>No hay contratos de {lado.toLowerCase()} abiertos que coincidan con esta especie/campaña y contraparte.</div>
+                      ) : (
+                        <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"}}>
+                          <FF label="Contrato">
+                            <select value={contratoSel} onChange={e=>setContratoSel(e.target.value)}>
+                              <option value="">Seleccionar...</option>
+                              {candidatosPara(m).map(c=>(
+                                <option key={c.id} value={c.id}>{c.numero_contrato} — faltan {(parseFloat(c.cantidad_toneladas_pactadas)-parseFloat(c.cantidad_toneladas_asignadas||0)).toFixed(3)}tn</option>
+                              ))}
+                            </select>
+                          </FF>
+                          <FF label="Kg a aplicar"><input type="number" value={kgSel} onChange={e=>setKgSel(e.target.value)} placeholder={`máx ${m.kg_pendiente.toFixed(0)}`}/></FF>
+                          <Btn size="sm" disabled={guardando} onClick={()=>asignar(m)}>{guardando?"Asignando...":"Confirmar"}</Btn>
+                          <Btn size="sm" variant="ghost" onClick={()=>setAsignando(null)}>Cancelar</Btn>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );

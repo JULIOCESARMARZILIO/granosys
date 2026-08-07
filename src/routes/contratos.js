@@ -3,6 +3,7 @@ const { pool } = require('../db');
 const { registrarAuditoria } = require('../services/auditoria');
 const { sumarStock, restarStock, camionesDisponiblesEnZona } = require('../services/stockService');
 const { precioVigente } = require('../services/preciosService');
+const { recalcularContrato } = require('../services/contratosService');
 
 // Si viene precio de referencia + descuento %, calcula el precio final descontado.
 // Si no hay descuento pero sí referencia y precio manual, calcula el descuento % equivalente para mostrarlo.
@@ -21,65 +22,6 @@ function resolverPrecioConDescuento(precioReferencia, descuentoPct, precioManual
     return { precio: manual, descuento: (1 - manual / ref) * 100, referencia: ref };
   }
   return { precio: manual, descuento: null, referencia: ref };
-}
-
-// Recalcula y actualiza la cantidad de toneladas asignadas y el estado de un contrato
-async function recalcularContrato(id_contrato) {
-  if (!id_contrato) return;
-  const client = await pool.connect();
-  try {
-    const { rows: contractRows } = await client.query(
-      'SELECT tipo_contrato, cantidad_toneladas_pactadas, base_calculo_peso FROM contratos WHERE id = $1',
-      [id_contrato]
-    );
-    if (contractRows.length === 0) return;
-    const { tipo_contrato, cantidad_toneladas_pactadas, base_calculo_peso } = contractRows[0];
-
-    let fieldToSum = 'peso_neto_salida_kg';
-    if (base_calculo_peso === 'BRUTO_DESCARGA') {
-      fieldToSum = 'peso_neto_llegada_kg';
-    } else if (base_calculo_peso === 'NETO_ACONDICIONADO') {
-      fieldToSum = 'kg_liquidables';
-    }
-
-    let sumQuery = '';
-    if (tipo_contrato === 'COMPRA') {
-      sumQuery = `SELECT COALESCE(SUM(COALESCE(kg_asignados_contrato_compra, ${fieldToSum})), 0) as total_kg FROM movimientos WHERE id_contrato_compra = $1`;
-    } else {
-      sumQuery = `SELECT COALESCE(SUM(COALESCE(kg_asignados_contrato_venta, ${fieldToSum})), 0) as total_kg FROM movimientos WHERE id_contrato_venta = $1`;
-    }
-
-    const { rows: sumRows } = await client.query(sumQuery, [id_contrato]);
-    let total_toneladas = parseFloat(sumRows[0].total_kg) / 1000;
-
-    if (tipo_contrato === 'COMPRA') {
-      const { rows: aplicRows } = await client.query(
-        'SELECT COALESCE(SUM(toneladas), 0) as total FROM contrato_aplicaciones_stock WHERE id_contrato = $1',
-        [id_contrato]
-      );
-      total_toneladas += parseFloat(aplicRows[0].total);
-    }
-
-    let estado = 'CONFIRMADO';
-    if (total_toneladas >= parseFloat(cantidad_toneladas_pactadas)) {
-      estado = 'CUMPLIDO';
-    } else if (total_toneladas > 0) {
-      estado = 'EN_CURSO';
-    }
-
-    await client.query(
-      `UPDATE contratos SET
-         cantidad_toneladas_asignadas = $1,
-         estado = $2,
-         updated_at = NOW()
-       WHERE id = $3`,
-      [total_toneladas, estado, id_contrato]
-    );
-  } catch (err) {
-    console.error(`Error al recalcular contrato ${id_contrato}:`, err);
-  } finally {
-    client.release();
-  }
 }
 
 // GET todos los contratos
