@@ -1233,18 +1233,29 @@ router.post('/:id/asignar-extra', async (req, res) => {
     const kgAsignadoCol = tipo_contrato === 'COMPRA' ? 'kg_asignados_contrato_compra' : 'kg_asignados_contrato_venta';
 
     const { rows: movRows } = await pool.query(
-      `SELECT id, kg_liquidables, ${idContratoCol} AS id_contrato_principal, ${kgAsignadoCol} AS kg_asignado_principal
+      `SELECT id, kg_liquidables, modalidad, id_especie, id_campana, ${idContratoCol} AS id_contrato_principal, ${kgAsignadoCol} AS kg_asignado_principal
        FROM movimientos WHERE id = $1 AND estado = 'DESCARGADO' AND kg_liquidables IS NOT NULL`,
       [req.params.id]
     );
     const mov = movRows[0];
     if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado, no descargado, o sin kg_liquidables' });
 
-    const { rows: ctrRows } = await pool.query('SELECT id, tipo_contrato FROM contratos WHERE id = $1', [id_contrato]);
+    const { rows: ctrRows } = await pool.query('SELECT id, tipo_contrato, id_especie, id_campana FROM contratos WHERE id = $1', [id_contrato]);
     const contrato = ctrRows[0];
     if (!contrato) return res.status(404).json({ error: 'Contrato no encontrado' });
     if (contrato.tipo_contrato !== tipo_contrato) {
       return res.status(400).json({ error: `El contrato es de tipo ${contrato.tipo_contrato}, no ${tipo_contrato}` });
+    }
+    if (contrato.id_especie !== mov.id_especie) {
+      return res.status(400).json({ error: 'El contrato es de otra especie/grano distinta a la del movimiento.' });
+    }
+    if (contrato.id_campana !== mov.id_campana) {
+      // En Formal se exige que la campaña coincida siempre. En Informal se
+      // permite (con aviso ya dado del lado del frontend antes de llegar
+      // aca) -- es habitual que el papeleo quede un poco atrasado.
+      if (mov.modalidad === 'FORMAL') {
+        return res.status(400).json({ error: 'El contrato es de otra campaña. En Formal la campaña tiene que coincidir exactamente.' });
+      }
     }
 
     const { rows: extraRows } = await pool.query(

@@ -2539,9 +2539,12 @@ const AsignacionMovimientos = ({modulo}) => {
   const fmtKg = (v) => `${Number(v).toLocaleString("es-AR",{maximumFractionDigits:0})} kg`;
 
   // Mismo criterio "soft" que ya se usa al cargar un movimiento: misma
-  // especie/campaña, y si hay nombre de contraparte, que se parezcan.
+  // especie, y si hay nombre de contraparte, que se parezcan. La campaña NO
+  // se filtra aca -- se muestra igual pero marcada, porque en la practica la
+  // mayoria de "sin contrato" son en realidad contratos de otra campaña
+  // (el papeleo suele ir atrasado respecto de lo que ya se entregó).
   const candidatosPara = (mov) => contratosDisponibles.filter(c => {
-    if (c.id_especie !== mov.id_especie || c.id_campana !== mov.id_campana) return false;
+    if (c.id_especie !== mov.id_especie) return false;
     const nombreMov = (mov.contraparte_nombre || "").toLowerCase().trim();
     if (!nombreMov) return true;
     const nombreCtr = (c.contraparte_nombre || "").toLowerCase().trim();
@@ -2556,6 +2559,15 @@ const AsignacionMovimientos = ({modulo}) => {
 
   const asignar = async (mov) => {
     if (!contratoSel || !kgSel || parseFloat(kgSel) <= 0) { alert("Elegí el contrato y los kg"); return; }
+    const contrato = contratosDisponibles.find(c => c.id === parseInt(contratoSel));
+    const otraCampana = contrato && contrato.id_campana !== mov.id_campana;
+    if (otraCampana) {
+      if (modulo === "FORMAL") {
+        alert(`Este contrato es de la campaña ${contrato.campana_desc}, pero el movimiento es de ${mov.campana_desc}. En Formal la campaña tiene que coincidir exactamente — no se puede asignar.`);
+        return;
+      }
+      if (!window.confirm(`Este contrato es de la campaña ${contrato.campana_desc}, pero el movimiento es de ${mov.campana_desc}. ¿Confirmás igual?`)) return;
+    }
     setGuardando(true);
     try {
       const r = await api.post(`/api/movimientos/${mov.id}/asignar-extra`, {
@@ -2615,14 +2627,14 @@ const AsignacionMovimientos = ({modulo}) => {
                   <tr>
                     <td colSpan={8} style={{padding:"10px 16px",background:"#0f1117"}}>
                       {candidatosPara(m).length===0 ? (
-                        <div style={{fontSize:12,color:"#8890a8"}}>No hay contratos de {lado.toLowerCase()} abiertos que coincidan con esta especie/campaña y contraparte.</div>
+                        <div style={{fontSize:12,color:"#8890a8"}}>No hay contratos de {lado.toLowerCase()} abiertos que coincidan con esta especie y contraparte.</div>
                       ) : (
                         <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"}}>
                           <FF label="Contrato">
                             <select value={contratoSel} onChange={e=>setContratoSel(e.target.value)}>
                               <option value="">Seleccionar...</option>
                               {candidatosPara(m).map(c=>(
-                                <option key={c.id} value={c.id}>{c.numero_contrato} — faltan {(parseFloat(c.cantidad_toneladas_pactadas)-parseFloat(c.cantidad_toneladas_asignadas||0)).toFixed(3)}tn</option>
+                                <option key={c.id} value={c.id}>{c.numero_contrato} — faltan {(parseFloat(c.cantidad_toneladas_pactadas)-parseFloat(c.cantidad_toneladas_asignadas||0)).toFixed(3)}tn{c.id_campana!==m.id_campana?` ⚠ campaña ${c.campana_desc} (el mov. es de ${m.campana_desc})`:""}</option>
                               ))}
                             </select>
                           </FF>
