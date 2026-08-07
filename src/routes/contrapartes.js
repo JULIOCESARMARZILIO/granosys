@@ -3,6 +3,12 @@ const { pool } = require('../db');
 const Afip = require('@afipsdk/afip.js');
 const fs = require('fs');
 const path = require('path');
+const { registrarAuditoria } = require('../services/auditoria');
+
+// Muchas contrapartes informales quedaron cargadas con este CUIT de
+// relleno en vez de uno real -- no se puede validar unicidad contra el,
+// porque decenas de contrapartes distintas lo comparten a proposito.
+const CUIT_RELLENO = '99-99999999-9';
 
 // Función auxiliar para preparar certificados de AFIP
 function obtenerRutasCertificados() {
@@ -234,8 +240,8 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'La Razón Social es obligatoria' });
     }
 
-    // Verificar unicidad de CUIT si se proporciona
-    if (cuit && cuit.trim() !== '') {
+    // Verificar unicidad de CUIT si se proporciona (salvo el de relleno, que se repite a proposito)
+    if (cuit && cuit.trim() !== '' && cuit.trim() !== CUIT_RELLENO) {
       const { rows: existing } = await pool.query('SELECT id FROM contrapartes WHERE cuit = $1', [cuit.trim()]);
       if (existing.length > 0) {
         return res.status(400).json({ error: 'Ya existe una contraparte registrada con ese CUIT' });
@@ -280,8 +286,8 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: 'La Razón Social es obligatoria' });
     }
 
-    // Verificar unicidad de CUIT en otras contrapartes si se proporciona
-    if (cuit && cuit.trim() !== '') {
+    // Verificar unicidad de CUIT en otras contrapartes si se proporciona (salvo el de relleno)
+    if (cuit && cuit.trim() !== '' && cuit.trim() !== CUIT_RELLENO) {
       const { rows: existing } = await pool.query('SELECT id FROM contrapartes WHERE cuit = $1 AND id <> $2', [cuit.trim(), req.params.id]);
       if (existing.length > 0) {
         return res.status(400).json({ error: 'Ya existe otra contraparte registrada con ese CUIT' });
@@ -301,8 +307,6 @@ router.put('/:id', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-module.exports = router;
 
 // DELETE contraparte - solo si no tiene datos asociados
 router.delete('/:id', async (req, res) => {
@@ -407,3 +411,105 @@ router.delete('/:id/ubicaciones/:idUbicacion', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// GET /api/contrapartes/normalizar-cuit-relleno/preview - solo muestra el
+// alcance (cuantas contrapartes/movimientos se verian afectados), no
+// escribe nada. Pensado para confirmar antes de tocar datos reales.
+router.get('/normalizar-cuit-relleno/preview', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, razon_social, tipo_contraparte FROM contrapartes WHERE cuit = $1 ORDER BY razon_social ASC',
+      [CUIT_RELLENO]
+    );
+    const nombreCount = {};
+    for (const c of rows) {
+      const key = (c.razon_social || '').trim().toLowerCase();
+      nombreCount[key] = (nombreCount[key] || 0) + 1;
+    }
+    const ambiguos = rows.filter(c => nombreCount[(c.razon_social || '').trim().toLowerCase()] > 1).map(c => c.razon_social);
+    res.json({
+      total_contrapartes: rows.length,
+      a_normalizar: rows.length - new Set(ambiguos).size,
+      nombres_ambiguos: [...new Set(ambiguos)],
+      contrapartes: rows
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/contrapartes/normalizar-cuit-relleno - solo ADMIN. A cada
+// contraparte con el CUIT de relleno le asigna uno unico ficticio
+// (decreciendo desde el mismo numero de relleno), y actualiza tambien sus
+// movimientos historicos (por nombre exacto, unico dato confiable hoy) para
+// que sigan matcheando. Nombres que se repiten entre dos o mas contrapartes
+// distintas se saltean -- no hay forma confiable de saber cual es cual.
+router.post('/normalizar-cuit-relleno', async (req, res) => {
+  if (!req.user || req.user.rol !== 'ADMIN') {
+    return res.status(403).json({ error: 'Requiere rol ADMIN' });
+  }
+  const client = await pool.connect();
+  try {
+    const { rows: contrapartesRelleno } = await client.query(
+      'SELECT id, razon_social FROM contrapartes WHERE cuit = $1 ORDER BY id ASC',
+      [CUIT_RELLENO]
+    );
+    if (contrapartesRelleno.length === 0) {
+      return res.json({ actualizadas: 0, movimientos_actualizados: 0, ambiguos: [], detalle: [] });
+    }
+
+    const nombreCount = {};
+    for (const c of contrapartesRelleno) {
+      const key = (c.razon_social || '').trim().toLowerCase();
+      nombreCount[key] = (nombreCount[key] || 0) + 1;
+    }
+
+    await client.query('BEGIN');
+    let base = BigInt(CUIT_RELLENO.replace(/\D/g, ''));
+    let totalMovs = 0;
+    const detalle = [];
+    const ambiguos = new Set();
+
+    for (const c of contrapartesRelleno) {
+      const key = (c.razon_social || '').trim().toLowerCase();
+      if (nombreCount[key] > 1) {
+        ambiguos.add(c.razon_social);
+        continue;
+      }
+      const digitos = base.toString().padStart(11, '0');
+      const nuevoCuit = `${digitos.slice(0, 2)}-${digitos.slice(2, 10)}-${digitos.slice(10)}`;
+      base -= 1n;
+
+      await client.query('UPDATE contrapartes SET cuit = $1, updated_at = NOW() WHERE id = $2', [nuevoCuit, c.id]);
+
+      const { rowCount: rcCompra } = await client.query(
+        `UPDATE movimientos SET remitente_comercial_productor_cuit = $1
+         WHERE remitente_comercial_productor_cuit = $2 AND LOWER(remitente_comercial_productor_nombre) = LOWER($3)`,
+        [nuevoCuit, CUIT_RELLENO, c.razon_social]
+      );
+      const { rowCount: rcVenta } = await client.query(
+        `UPDATE movimientos SET destinatario_cuit = $1
+         WHERE destinatario_cuit = $2 AND LOWER(destinatario_nombre) = LOWER($3)`,
+        [nuevoCuit, CUIT_RELLENO, c.razon_social]
+      );
+      totalMovs += rcCompra + rcVenta;
+      detalle.push({ id: c.id, razon_social: c.razon_social, cuit_nuevo: nuevoCuit, movimientos_actualizados: rcCompra + rcVenta });
+    }
+
+    await client.query('COMMIT');
+
+    await registrarAuditoria(req, {
+      accion: 'NORMALIZAR_CUIT_RELLENO', modulo: 'contrapartes',
+      datos_despues: { actualizadas: detalle.length, movimientos_actualizados: totalMovs, ambiguos: [...ambiguos] }
+    });
+
+    res.json({ actualizadas: detalle.length, movimientos_actualizados: totalMovs, ambiguos: [...ambiguos], detalle });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+module.exports = router;

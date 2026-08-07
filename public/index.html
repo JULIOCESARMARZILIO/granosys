@@ -364,6 +364,7 @@ const Contrapartes = ({modulo}) => {
   const [consultandoArca,setConsultandoArca]=useState(false);
   const [form,setForm]=useState({cuit:"",razon_social:"",es_productor:false,es_comprador:false,es_transportista:false,es_corredor:false,condicion_iva:"RI",provincia:"",localidad:"",telefono:"",email:"",domicilio:"",canal_operacion:modulo==="FORMAL"?"FORMAL":"INFORMAL",id_contraparte_relacionada:""});
   const [contrapartesFormales, setContrapartesFormales] = useState([]);
+  const [normalizandoCuit, setNormalizandoCuit] = useState(false);
 
   useEffect(() => {
     if (showForm && modulo === "INFORMAL") {
@@ -420,6 +421,36 @@ const Contrapartes = ({modulo}) => {
   };
 
   useEffect(()=>{ cargarContrapartes(); }, [modulo, search]);
+
+  const normalizarCuitRelleno = async () => {
+    setNormalizandoCuit(true);
+    try {
+      const preview = await api.get("/api/contrapartes/normalizar-cuit-relleno/preview");
+      if (!preview || preview.total_contrapartes === 0) {
+        alert("No hay contrapartes con el CUIT de relleno (99-99999999-9) para normalizar.");
+        return;
+      }
+      let msg = `Se va a asignar un CUIT único ficticio a ${preview.a_normalizar} contraparte(s) que hoy comparten 99-99999999-9, y actualizar sus movimientos históricos para que sigan coincidiendo.`;
+      if (preview.nombres_ambiguos.length > 0) {
+        msg += `\n\nOJO: ${preview.nombres_ambiguos.length} nombre(s) están repetidos entre dos o más contrapartes y NO se van a tocar (no hay forma de distinguirlas de forma segura):\n${preview.nombres_ambiguos.join(", ")}`;
+      }
+      msg += "\n\n¿Confirmás?";
+      if (!window.confirm(msg)) return;
+
+      const r = await api.post("/api/contrapartes/normalizar-cuit-relleno", {});
+      if (r && r.actualizadas !== undefined) {
+        alert(`✓ Listo: ${r.actualizadas} contraparte(s) normalizadas, ${r.movimientos_actualizados} movimiento(s) actualizados.${r.ambiguos.length ? "\nSin tocar (nombre ambiguo): " + r.ambiguos.join(", ") : ""}`);
+        cargarContrapartes();
+      } else {
+        alert("Error: " + (r?.error || "no se pudo normalizar"));
+      }
+    } catch (e) {
+      alert("Error: " + (e.response?.data?.error || e.message));
+    } finally {
+      setNormalizandoCuit(false);
+    }
+  };
+
   return (
     <div className="fade-in">
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
@@ -427,7 +458,10 @@ const Contrapartes = ({modulo}) => {
           <h2 style={{fontSize:18,fontWeight:700}}>{modulo==="FORMAL"?"Contrapartes Formales":"Contrapartes Informales"}</h2>
           <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>{modulo==="FORMAL"?"Con CUIT registrado en AFIP":"Identificación interna del sistema"}</p>
         </div>
-        <Btn onClick={()=>setShowForm(true)}>+ Nueva Contraparte</Btn>
+        <div style={{display:"flex",gap:8}}>
+          <Btn variant="secondary" disabled={normalizandoCuit} onClick={normalizarCuitRelleno}>{normalizandoCuit?"Normalizando...":"🔧 Normalizar CUITs de relleno"}</Btn>
+          <Btn onClick={()=>setShowForm(true)}>+ Nueva Contraparte</Btn>
+        </div>
       </div>
       <div className="card" style={{marginBottom:14}}>
         <div style={{padding:"12px 16px"}}>
