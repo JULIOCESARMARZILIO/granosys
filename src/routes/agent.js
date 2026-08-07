@@ -342,8 +342,17 @@ Responde de forma concisa, clara, estructurada y en español.`;
       },
       {
         name: "get_movimientos",
-        description: "Obtener la lista de los últimos 100 movimientos de granos (viajes/camiones), patentes, pesajes brutos/netos/tara, fechas y estado.",
-        parameters: { type: "OBJECT", properties: {} }
+        description: "Obtener movimientos de granos (viajes/camiones): patentes, pesajes, fechas y estado. Acepta filtros opcionales que se aplican sobre TODA la base, no solo los mas recientes -- usar sin_destino=true para encontrar los que no tienen la ubicación física de destino (planta) cargada, necesaria para que aparezcan en Bolsa por Zona. Sin ningún filtro, trae los últimos 100 por fecha de carga.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            estado: { type: "STRING", description: "Filtrar por estado exacto: BORRADOR, EN_TRANSITO, DESCARGADO o LIQUIDADO" },
+            modalidad: { type: "STRING", description: "Filtrar por FORMAL o INFORMAL" },
+            sin_destino: { type: "BOOLEAN", description: "true = solo movimientos sin ubicación de destino (planta) cargada" },
+            sin_contrato_compra: { type: "BOOLEAN", description: "true = solo movimientos sin contrato de compra principal asignado" },
+            limite: { type: "NUMBER", description: "Cantidad máxima de resultados a traer (por defecto 100, máximo 500)" }
+          }
+        }
       },
       {
         name: "get_cuenta_corriente",
@@ -536,16 +545,24 @@ Responde de forma concisa, clara, estructurada y en español.`;
           toolResult = rows;
 
         } else if (functionName === 'get_movimientos') {
+          const params = [];
+          let where = '1=1';
+          if (args?.estado) { params.push(args.estado); where += ` AND m.estado = $${params.length}`; }
+          if (args?.modalidad) { params.push(args.modalidad); where += ` AND m.modalidad = $${params.length}`; }
+          if (args?.sin_destino) { where += ` AND m.id_ubicacion_destino IS NULL`; }
+          if (args?.sin_contrato_compra) { where += ` AND m.id_contrato_compra IS NULL`; }
+          const limite = Math.min(parseInt(args?.limite) || 100, 500);
           const { rows } = await pool.query(`
-            SELECT m.*, e.nombre as especie_nombre, ca.descripcion as campana_desc, 
-                   c1.numero_contrato as contrato_compra_nro, c2.numero_contrato as contrato_venta_nro 
-            FROM movimientos m 
-            LEFT JOIN especies e ON m.id_especie = e.id 
-            LEFT JOIN campanas ca ON m.id_campana = ca.id 
-            LEFT JOIN contratos c1 ON m.id_contrato_compra = c1.id 
-            LEFT JOIN contratos c2 ON m.id_contrato_venta = c2.id 
-            ORDER BY m.id DESC LIMIT 100
-          `);
+            SELECT m.*, e.nombre as especie_nombre, ca.descripcion as campana_desc,
+                   c1.numero_contrato as contrato_compra_nro, c2.numero_contrato as contrato_venta_nro
+            FROM movimientos m
+            LEFT JOIN especies e ON m.id_especie = e.id
+            LEFT JOIN campanas ca ON m.id_campana = ca.id
+            LEFT JOIN contratos c1 ON m.id_contrato_compra = c1.id
+            LEFT JOIN contratos c2 ON m.id_contrato_venta = c2.id
+            WHERE ${where}
+            ORDER BY m.id DESC LIMIT ${limite}
+          `, params);
           toolResult = rows;
 
         } else if (functionName === 'get_cuenta_corriente') {
