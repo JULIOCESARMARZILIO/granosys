@@ -135,14 +135,19 @@ async function stockDisponibleEnZona({ zona, id_especie, id_campana }) {
   return parseFloat(rows[0].toneladas) || 0;
 }
 
+// "CUIT" de relleno que usan muchas contrapartes informales cargadas sin
+// CUIT real -- si se matcheara por esto se mezclaria el grano de
+// productores distintos como si fueran la misma persona.
+const CUIT_RELLENO = '99999999999';
+
 // Agrega a `params` la condicion SQL que identifica los movimientos de un
-// productor puntual: por CUIT si esta cargado (mas confiable), si no por
-// nombre (mismo criterio "soft" que ya se usaba en el frontend para sugerir
-// contratos). Devuelve null si no se paso ningun dato de productor -- ahi el
-// llamador no debe filtrar por productor.
+// productor puntual: por CUIT si esta cargado y no es el de relleno (mas
+// confiable), si no por nombre (mismo criterio "soft" que ya se usaba en el
+// frontend para sugerir contratos). Devuelve null si no se paso ningun dato
+// de productor -- ahi el llamador no debe filtrar por productor.
 function condicionProductor(params, cuitProductor, nombreProductor) {
   const cuitDigits = (cuitProductor || '').replace(/\D/g, '');
-  if (cuitDigits) {
+  if (cuitDigits && cuitDigits !== CUIT_RELLENO) {
     params.push(cuitDigits);
     return `regexp_replace(COALESCE(m.remitente_comercial_productor_cuit,''), '\\D', '', 'g') = $${params.length}`;
   }
