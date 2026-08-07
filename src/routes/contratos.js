@@ -536,7 +536,7 @@ router.post('/:id/cerrar', async (req, res) => {
 router.post('/:id/aplicar-stock-zona', async (req, res) => {
   const client = await pool.connect();
   try {
-    const { zona, toneladas } = req.body;
+    const { zona, toneladas, id_contraparte_productor } = req.body;
     if (!zona || !toneladas || parseFloat(toneladas) <= 0) {
       return res.status(400).json({ error: 'zona y toneladas (mayor a 0) son obligatorios' });
     }
@@ -553,11 +553,22 @@ router.post('/:id/aplicar-stock-zona', async (req, res) => {
       return res.status(400).json({ error: `El contrato solo tiene ${restante.toFixed(3)}tn pendientes de cumplir.` });
     }
 
+    // Si se indica un productor, la bolsa se acota a los camiones entregados
+    // por ese productor en esa zona (mismo criterio de matching que se usa
+    // para sugerir contratos: CUIT si esta cargado, si no nombre).
+    let cuitProductor = null, nombreProductor = null;
+    if (id_contraparte_productor) {
+      const { rows: prodRows } = await client.query('SELECT cuit, razon_social FROM contrapartes WHERE id = $1', [id_contraparte_productor]);
+      if (!prodRows[0]) return res.status(404).json({ error: 'Productor no encontrado' });
+      cuitProductor = prodRows[0].cuit;
+      nombreProductor = prodRows[0].razon_social;
+    }
+
     const kgPedidos = parseFloat(toneladas) * 1000;
-    const camiones = await camionesDisponiblesEnZona({ zona, id_especie: contrato.id_especie, id_campana: contrato.id_campana }, client);
+    const camiones = await camionesDisponiblesEnZona({ zona, id_especie: contrato.id_especie, id_campana: contrato.id_campana, cuitProductor, nombreProductor }, client);
     const totalDisponibleKg = camiones.reduce((acc, c) => acc + parseFloat(c.kg_disponible), 0);
     if (kgPedidos > totalDisponibleKg + 0.001) {
-      return res.status(400).json({ error: `La zona "${zona}" solo tiene ${(totalDisponibleKg / 1000).toFixed(3)}tn disponibles de este producto/campaña (en camiones ya descargados).` });
+      return res.status(400).json({ error: `La zona "${zona}" solo tiene ${(totalDisponibleKg / 1000).toFixed(3)}tn disponibles de este producto/campaña${id_contraparte_productor ? ' de ese productor' : ''} (en camiones ya descargados).` });
     }
 
     // Arma la particion: camiones enteros por FIFO, el ultimo aporta solo lo
@@ -573,7 +584,7 @@ router.post('/:id/aplicar-stock-zona', async (req, res) => {
       kgRestante -= aTomar;
     }
 
-    const usuario = req.get('X-Usuario-Actual') || 'desconocido';
+    const usuario = req.user?.usuario || req.get('X-Usuario-Actual') || 'desconocido';
 
     await client.query('BEGIN');
     const { rows: aplicacionRows } = await client.query(

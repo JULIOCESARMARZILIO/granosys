@@ -135,13 +135,39 @@ async function stockDisponibleEnZona({ zona, id_especie, id_campana }) {
   return parseFloat(rows[0].toneladas) || 0;
 }
 
+// Agrega a `params` la condicion SQL que identifica los movimientos de un
+// productor puntual: por CUIT si esta cargado (mas confiable), si no por
+// nombre (mismo criterio "soft" que ya se usaba en el frontend para sugerir
+// contratos). Devuelve null si no se paso ningun dato de productor -- ahi el
+// llamador no debe filtrar por productor.
+function condicionProductor(params, cuitProductor, nombreProductor) {
+  const cuitDigits = (cuitProductor || '').replace(/\D/g, '');
+  if (cuitDigits) {
+    params.push(cuitDigits);
+    return `regexp_replace(COALESCE(m.remitente_comercial_productor_cuit,''), '\\D', '', 'g') = $${params.length}`;
+  }
+  if (nombreProductor && nombreProductor.trim()) {
+    params.push(`%${nombreProductor.trim()}%`);
+    return `m.remitente_comercial_productor_nombre ILIKE $${params.length}`;
+  }
+  return null;
+}
+
 // Camiones (movimientos ya descargados) disponibles en la bolsa de una zona,
 // con cuanto de su kg_liquidables todavia no fue aplicado a ningun contrato
 // (se resta lo ya usado en aplicacion_stock_movimientos, nunca se cachea).
 // Se usa tanto para mostrar la lista antes de aplicar como, con el mismo
 // client de una transaccion, para el algoritmo de aplicacion en si --
-// siempre por orden de llegada (FIFO), el mas viejo primero.
-async function camionesDisponiblesEnZona({ zona, id_especie, id_campana }, dbClient = pool) {
+// siempre por orden de llegada (FIFO), el mas viejo primero. Si se pasa
+// cuitProductor/nombreProductor, se acota a los camiones de ese productor
+// puntual (la bolsa deja de ser fungible entre productores distintos).
+async function camionesDisponiblesEnZona({ zona, id_especie, id_campana, cuitProductor, nombreProductor }, dbClient = pool) {
+  const params = [zona, id_especie, id_campana];
+  let where = `u.zona = $1 AND m.id_especie = $2 AND m.id_campana = $3
+        AND m.estado = 'DESCARGADO' AND m.kg_liquidables IS NOT NULL`;
+  const condProd = condicionProductor(params, cuitProductor, nombreProductor);
+  if (condProd) where += ` AND ${condProd}`;
+
   const { rows } = await dbClient.query(`
     SELECT * FROM (
       SELECT m.id, m.numero_movimiento, m.fecha_descarga, m.kg_liquidables, m.id_ubicacion_destino,
@@ -151,13 +177,41 @@ async function camionesDisponiblesEnZona({ zona, id_especie, id_campana }, dbCli
              ), 0) AS kg_disponible
       FROM movimientos m
       JOIN ubicaciones u ON u.id = m.id_ubicacion_destino
-      WHERE u.zona = $1 AND m.id_especie = $2 AND m.id_campana = $3
-        AND m.estado = 'DESCARGADO' AND m.kg_liquidables IS NOT NULL
+      WHERE ${where}
     ) t
     WHERE kg_disponible > 0.001
     ORDER BY fecha_descarga ASC NULLS LAST, id ASC
-  `, [zona, id_especie, id_campana]);
+  `, params);
   return rows;
 }
 
-module.exports = { sumarStock, restarStock, restarStockPorZona, stockDisponibleEnZona, camionesDisponiblesEnZona };
+// Toneladas disponibles de un productor puntual, agrupadas por zona (en
+// todas las zonas donde tenga camiones descargados sin aplicar todavia).
+// Es lo que arma la vista "Asignar mercadería" del lado de Contratos: elegis
+// un productor y ves de una en que zonas tiene stock y cuanto.
+async function productorPorZona({ id_especie, id_campana, cuitProductor, nombreProductor }, dbClient = pool) {
+  const params = [id_especie, id_campana];
+  let where = `m.id_especie = $1 AND m.id_campana = $2 AND m.estado = 'DESCARGADO'
+        AND m.kg_liquidables IS NOT NULL AND u.zona IS NOT NULL`;
+  const condProd = condicionProductor(params, cuitProductor, nombreProductor);
+  if (!condProd) return [];
+  where += ` AND ${condProd}`;
+
+  const { rows } = await dbClient.query(`
+    SELECT u.zona,
+           SUM(m.kg_liquidables - COALESCE((
+             SELECT SUM(kg_aplicados) FROM aplicacion_stock_movimientos WHERE id_movimiento = m.id
+           ), 0)) AS kg_disponible
+    FROM movimientos m
+    JOIN ubicaciones u ON u.id = m.id_ubicacion_destino
+    WHERE ${where}
+    GROUP BY u.zona
+    HAVING SUM(m.kg_liquidables - COALESCE((
+      SELECT SUM(kg_aplicados) FROM aplicacion_stock_movimientos WHERE id_movimiento = m.id
+    ), 0)) > 0.001
+    ORDER BY u.zona
+  `, params);
+  return rows.map(r => ({ zona: r.zona, toneladas_disponible: parseFloat(r.kg_disponible) / 1000 }));
+}
+
+module.exports = { sumarStock, restarStock, restarStockPorZona, stockDisponibleEnZona, camionesDisponiblesEnZona, productorPorZona };

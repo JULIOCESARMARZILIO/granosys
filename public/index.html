@@ -280,7 +280,7 @@ const Dashboard = ({modulo}) => {
   const movs = movsReal !== null ? movsReal : mockMovimientos.filter(m=>m.modalidad===modulo);
 
   useEffect(()=>{
-    api.get(`/api/movimientos?modalidad=${modulo}`)
+    api.get(`/api/movimientos?modalidad=${modulo}&vista=todos`)
       .then(data=>{
         const mapped = data.map(m => ({
           id: m.id,
@@ -637,6 +637,7 @@ const Contrapartes = ({modulo}) => {
 // ── CONTRATOS ──
 const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec, autoLiquidacionesContrato, setAutoLiquidacionesContrato}) => {
   const [tab,setTab]=useState("COMPRA");
+  const [vista,setVista]=useState("recientes");
   const [showForm,setShowForm]=useState(false);
   const [lista,setLista]=useState([]);
   const [contrapartes,setContrapartes]=useState([]);
@@ -965,11 +966,12 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
     cargarContrapartes();
     cargarEspecies();
     cargarCampanas();
-  },[modulo,tab,globalFiltroProductor,globalFiltroEspecie]);
+  },[modulo,tab,vista,globalFiltroProductor,globalFiltroEspecie]);
 
   const cargarContratos = async () => {
+    if (tab === "ASIGNAR") return;
     try {
-      const data = await api.get(`/api/contratos?modalidad=${modulo}&tipo=${tab}`);
+      const data = await api.get(`/api/contratos?modalidad=${modulo}&tipo=${tab}&vista=${vista}`);
       const mapped = data.map(c => {
         if (c.es_canje) {
           return {
@@ -1074,7 +1076,19 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
   return (
     <div className="fade-in">
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
-        <h2 style={{fontSize:18,fontWeight:700}}>Contratos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
+        <div style={{display:"flex",alignItems:"center",gap:14}}>
+          <h2 style={{fontSize:18,fontWeight:700}}>Contratos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
+          {tab !== "ASIGNAR" && (
+            <div style={{display:"flex",border:"1px solid #2a2d3e",borderRadius:6,overflow:"hidden"}}>
+              {[["recientes","Recientes"],["pendientes","Pendientes"],["todos","Todos"]].map(([v,label])=>(
+                <button key={v} onClick={()=>setVista(v)} style={{
+                  padding:"5px 10px",fontSize:11,fontWeight:600,border:"none",cursor:"pointer",
+                  background:vista===v?"#3498db":"transparent",color:vista===v?"#fff":"#8890a8"
+                }}>{label}</button>
+              ))}
+            </div>
+          )}
+        </div>
         <Btn onClick={()=>{
           setForm({
             tipo: tab === "CANJE" ? "CANJE" : tab,
@@ -1093,8 +1107,9 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
         }}>+ Nuevo Contrato</Btn>
       </div>
       <div className="tab-bar" style={{marginBottom:16}}>
-        {["COMPRA","VENTA","CANJE"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t==="COMPRA"?"Compras":t==="VENTA"?"Ventas":"Canjes"}</button>)}
+        {["COMPRA","VENTA","CANJE","ASIGNAR"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t==="COMPRA"?"Compras":t==="VENTA"?"Ventas":t==="CANJE"?"Canjes":"Asignar mercadería"}</button>)}
       </div>
+      {tab !== "ASIGNAR" && (
       <div className="card">
         <table>
           <thead>
@@ -1205,6 +1220,8 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
         </table>
         {lista.length===0&&<div style={{padding:40,textAlign:"center",color:"#565d7a"}}>No hay contratos de {tab.toLowerCase()} en modalidad {modulo.toLowerCase()}</div>}
       </div>
+      )}
+      {tab === "ASIGNAR" && <AsignarMercaderia modulo={modulo} contrapartes={contrapartes} especies={especies} campanas={campanas} onAplicado={cargarContratos}/>}
       {showForm&&(
         <Modal 
           title={form._editando ? "Editar Contrato" : "Nuevo Contrato"} 
@@ -2255,6 +2272,202 @@ const Contratos = ({modulo, globalFiltroProductor, globalFiltroEspecie, setGloba
   );
 };
 
+// ── ASIGNAR MERCADERÍA (bolsa por zona, desde el lado del productor/contrato) ──
+// Arranca eligiendo productor + especie/campaña en vez de arrancar por
+// zona: muestra cuanto tiene ESE productor puntual sin aplicar en cada
+// zona (nunca mezclado con lo de otro productor) y sus contratos de
+// compra abiertos, para ir completando contrato por contrato sin tener
+// que ir camion por camion.
+const AsignarMercaderia = ({modulo, contrapartes, especies, campanas, onAplicado}) => {
+  const [idProductor, setIdProductor] = useState("");
+  const [idEspecie, setIdEspecie] = useState("");
+  const [idCampana, setIdCampana] = useState("");
+  const [zonas, setZonas] = useState(null);
+  const [contratosProductor, setContratosProductor] = useState([]);
+  const [cargando, setCargando] = useState(false);
+
+  const [aplicando, setAplicando] = useState(null); // zona siendo aplicada
+  const [contratoSel, setContratoSel] = useState("");
+  const [toneladasSel, setToneladasSel] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [camionesDisponibles, setCamionesDisponibles] = useState([]);
+  const [cargandoCamiones, setCargandoCamiones] = useState(false);
+
+  const productores = contrapartes.filter(c => c.tipo_contraparte === "PRODUCTOR" || c.tipo_contraparte === "AMBOS" || c.tipo === "PRODUCTOR" || c.tipo === "AMBOS");
+
+  const buscar = async () => {
+    if (!idProductor || !idEspecie || !idCampana) { setZonas(null); return; }
+    setCargando(true);
+    try {
+      const [z, ctrs] = await Promise.all([
+        api.get(`/api/stock/productor/${idProductor}/por-zona?id_especie=${idEspecie}&id_campana=${idCampana}`),
+        api.get(`/api/contratos?modalidad=${modulo}&tipo=COMPRA&vista=todos`)
+      ]);
+      setZonas(z || []);
+      const idProdInt = parseInt(idProductor);
+      setContratosProductor((ctrs || []).filter(c =>
+        !c.es_canje && c.id_contraparte === idProdInt && c.id_especie === parseInt(idEspecie) &&
+        c.id_campana === parseInt(idCampana) && c.estado !== "CUMPLIDO"
+      ));
+    } catch(e) { alert("Error al buscar: " + e.message); }
+    finally { setCargando(false); }
+  };
+
+  useEffect(() => { buscar(); }, [idProductor, idEspecie, idCampana]);
+
+  const fmtTn = (v) => `${Number(v).toLocaleString("es-AR",{minimumFractionDigits:3,maximumFractionDigits:3})} tn`;
+
+  const abrirAplicar = async (zona) => {
+    setAplicando(zona);
+    setContratoSel("");
+    setToneladasSel("");
+    setCamionesDisponibles([]);
+    setCargandoCamiones(true);
+    try {
+      const camiones = await api.get(`/api/stock/por-zona/${encodeURIComponent(zona)}/camiones?id_especie=${idEspecie}&id_campana=${idCampana}&id_contraparte=${idProductor}`);
+      setCamionesDisponibles(camiones || []);
+    } catch(e) { /* solo es la vista previa, se puede seguir igual */ }
+    finally { setCargandoCamiones(false); }
+  };
+
+  const aplicar = async (zona) => {
+    if (!contratoSel || !toneladasSel) { alert("Elegí el contrato y las toneladas"); return; }
+    setGuardando(true);
+    try {
+      const r = await api.post(`/api/contratos/${contratoSel}/aplicar-stock-zona`, {
+        zona, toneladas: parseFloat(toneladasSel), id_contraparte_productor: parseInt(idProductor)
+      });
+      if (r && r.aplicacion) {
+        const detalleCamiones = (r.camiones||[]).map(c=>`${c.numero_movimiento}: ${(c.kg/1000).toFixed(3)}tn`).join("\n");
+        alert(`✓ Aplicadas ${r.aplicacion.toneladas}tn al contrato, tomadas de ${(r.camiones||[]).length} camión(es):\n${detalleCamiones}`);
+        setAplicando(null);
+        buscar();
+        if (onAplicado) onAplicado();
+      } else {
+        alert("Error: " + (r?.error || "no se pudo aplicar"));
+      }
+    } catch(e) { alert("Error: " + (e.response?.data?.error || e.message)); }
+    finally { setGuardando(false); }
+  };
+
+  return (
+    <div className="card">
+      <div style={{padding:"14px 18px",borderBottom:"1px solid #2a2d3e"}}>
+        <p style={{fontSize:12,color:"#8890a8",margin:0}}>
+          Elegí el productor y el producto: vas a ver cuánto tiene entregado y sin asignar en cada zona (solo lo de él, no se mezcla con lo de otros productores en la misma zona), y sus contratos de compra pendientes para ir aplicando.
+        </p>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}}>
+          <FF label="Productor">
+            <select value={idProductor} onChange={e=>setIdProductor(e.target.value)}>
+              <option value="">Seleccionar...</option>
+              {productores.map(p=><option key={p.id} value={p.id}>{p.razon_social}{p.cuit?" — "+p.cuit:""}</option>)}
+            </select>
+          </FF>
+          <FF label="Cultivo">
+            <select value={idEspecie} onChange={e=>setIdEspecie(e.target.value)}>
+              <option value="">Seleccionar...</option>
+              {especies.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+            </select>
+          </FF>
+          <FF label="Campaña">
+            <select value={idCampana} onChange={e=>setIdCampana(e.target.value)}>
+              <option value="">Seleccionar...</option>
+              {campanas.map(c=><option key={c.id} value={c.id}>{c.descripcion}</option>)}
+            </select>
+          </FF>
+        </div>
+      </div>
+
+      {!idProductor || !idEspecie || !idCampana ? (
+        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>Elegí productor, cultivo y campaña para ver su stock por zona.</div>
+      ) : cargando ? (
+        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>Cargando...</div>
+      ) : (
+        <>
+          <div style={{padding:"12px 18px 4px",fontSize:11,color:"#8890a8",textTransform:"uppercase",letterSpacing:".06em"}}>Toneladas sin asignar de este productor, por zona</div>
+          {(!zonas || zonas.length===0) ? (
+            <div style={{padding:"10px 18px 20px",color:"#8890a8",fontSize:13}}>Este productor no tiene camiones descargados sin aplicar de este producto/campaña.</div>
+          ) : (
+            <table><thead><tr><th>Zona</th><th>Toneladas disponibles</th><th></th></tr></thead>
+            <tbody>
+              {zonas.map(z=>(
+                <React.Fragment key={z.zona}>
+                  <tr>
+                    <td style={{fontWeight:600}}>{z.zona}</td>
+                    <td className="mono">{fmtTn(z.toneladas_disponible)}</td>
+                    <td><Btn size="sm" variant="secondary" onClick={()=>abrirAplicar(z.zona)}>Aplicar a contrato</Btn></td>
+                  </tr>
+                  {aplicando===z.zona && (
+                    <tr>
+                      <td colSpan={3} style={{padding:"10px 16px",background:"#0f1117"}}>
+                        {contratosProductor.length===0 ? (
+                          <div style={{fontSize:12,color:"#8890a8"}}>Este productor no tiene contratos de compra pendientes en {modulo.toLowerCase()} para este cultivo/campaña.</div>
+                        ) : (
+                          <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"}}>
+                            <FF label="Contrato de compra">
+                              <select value={contratoSel} onChange={e=>setContratoSel(e.target.value)}>
+                                <option value="">Seleccionar...</option>
+                                {contratosProductor.map(c=>(
+                                  <option key={c.id} value={c.id}>{c.numero_contrato} — faltan {(parseFloat(c.cantidad_toneladas_pactadas)-parseFloat(c.cantidad_toneladas_asignadas||0)).toFixed(3)}tn</option>
+                                ))}
+                              </select>
+                            </FF>
+                            <FF label="Toneladas a aplicar"><input type="number" value={toneladasSel} onChange={e=>setToneladasSel(e.target.value)} placeholder={`máx ${z.toneladas_disponible}`}/></FF>
+                            <Btn size="sm" disabled={guardando} onClick={()=>aplicar(z.zona)}>{guardando?"Aplicando...":"Confirmar"}</Btn>
+                            <Btn size="sm" variant="ghost" onClick={()=>setAplicando(null)}>Cancelar</Btn>
+                          </div>
+                        )}
+                        <div style={{marginTop:10}}>
+                          <div style={{fontSize:11,color:"#8890a8",marginBottom:4}}>Camiones de este productor en esta zona (se toman enteros por orden de llegada; el último se parte si hace falta):</div>
+                          {cargandoCamiones ? <div style={{fontSize:12,color:"#8890a8"}}>Cargando...</div> : camionesDisponibles.length===0 ? (
+                            <div style={{fontSize:12,color:"#8890a8"}}>No hay camiones descargados disponibles.</div>
+                          ) : (
+                            <table style={{width:"100%",fontSize:11}}>
+                              <thead><tr><th>Movimiento</th><th>Fecha descarga</th><th>Kg disponibles</th><th>Ubicación</th></tr></thead>
+                              <tbody>
+                                {camionesDisponibles.map(c=>(
+                                  <tr key={c.id}>
+                                    <td className="mono">{c.numero_movimiento}</td>
+                                    <td>{c.fecha_descarga ? formatFechaAR(c.fecha_descarga) : "—"}</td>
+                                    <td className="mono">{Number(c.kg_disponible).toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
+                                    <td>{c.ubicacion_destino_nombre}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody></table>
+          )}
+
+          <div style={{padding:"12px 18px 4px",fontSize:11,color:"#8890a8",textTransform:"uppercase",letterSpacing:".06em"}}>Contratos de compra pendientes de este productor</div>
+          {contratosProductor.length===0 ? (
+            <div style={{padding:"10px 18px 20px",color:"#8890a8",fontSize:13}}>No tiene contratos de compra pendientes para este cultivo/campaña en {modulo.toLowerCase()}.</div>
+          ) : (
+            <table><thead><tr><th>Número</th><th>Tn pactadas</th><th>Tn asignadas</th><th>Faltan</th><th>Estado</th></tr></thead>
+            <tbody>
+              {contratosProductor.map(c=>(
+                <tr key={c.id}>
+                  <td className="mono">{c.numero_contrato}</td>
+                  <td className="mono">{fmtTn(c.cantidad_toneladas_pactadas)}</td>
+                  <td className="mono">{fmtTn(c.cantidad_toneladas_asignadas||0)}</td>
+                  <td className="mono">{fmtTn(parseFloat(c.cantidad_toneladas_pactadas)-parseFloat(c.cantidad_toneladas_asignadas||0))}</td>
+                  <td><Badge label={c.estado} color={c.estado==="EN_CURSO"?"blue":"gray"}/></td>
+                </tr>
+              ))}
+            </tbody></table>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
 // ── MOVIMIENTOS ──
 const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspecie, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec}) => {
   const [showForm,setShowForm]=useState(false);
@@ -2283,6 +2496,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   const [importingExcel, setImportingExcel] = useState(false);
   const [excelFileName, setExcelFileName] = useState("");
   const [movsReal,setMovsReal]=useState(null);
+  const [vista,setVista]=useState("recientes");
 
   let rawMovs = movsReal !== null ? movsReal : mockMovimientos.filter(m=>m.modalidad===modulo);
   if (globalFiltroProductor) {
@@ -2778,7 +2992,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
 
   const cargarContratos = async () => {
     try {
-      const data = await api.get(`/api/contratos?modalidad=${modulo}`); // Corregido el parámetro de query
+      const data = await api.get(`/api/contratos?modalidad=${modulo}&vista=todos`); // Corregido el parámetro de query
       const mapped = data.map(c => ({
         id: c.id,
         id_contraparte: c.id_contraparte,
@@ -2845,7 +3059,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
 
   const cargarMovimientos = async () => {
     try {
-      const data = await api.get(`/api/movimientos?modalidad=${modulo}`);
+      const data = await api.get(`/api/movimientos?modalidad=${modulo}&vista=${vista}`);
       const mapped = data.map(m => ({
         ...m,
         id: m.id,
@@ -2904,7 +3118,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     cargarContratos();
     cargarContrapartes();
     cargarMermas();
-  },[modulo]);
+  },[modulo,vista]);
 
   const estadoColor = e=>({EN_TRANSITO:"orange",DESCARGADO:"blue",LIQUIDADO:"green",ANULADO:"red",BORRADOR:"gray"}[e]||"gray");
   const liqColor = e=>({LIQUIDADO:"green",ASIGNADO:"blue",PRELIQUIDADO:"orange",SIN_ASIGNAR:"gray"}[e]||"gray");
@@ -3659,7 +3873,17 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   return (
     <div className="fade-in">
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
-        <h2 style={{fontSize:18,fontWeight:700}}>Movimientos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
+        <div style={{display:"flex",alignItems:"center",gap:14}}>
+          <h2 style={{fontSize:18,fontWeight:700}}>Movimientos {modulo==="FORMAL"?"Formales":"Informales"}</h2>
+          <div style={{display:"flex",border:"1px solid #2a2d3e",borderRadius:6,overflow:"hidden"}}>
+            {[["recientes","Recientes"],["pendientes","Pendientes"],["todos","Todos"]].map(([v,label])=>(
+              <button key={v} onClick={()=>setVista(v)} style={{
+                padding:"5px 10px",fontSize:11,fontWeight:600,border:"none",cursor:"pointer",
+                background:vista===v?"#3498db":"transparent",color:vista===v?"#fff":"#8890a8"
+              }}>{label}</button>
+            ))}
+          </div>
+        </div>
         <div style={{display:"flex",gap:8}}>
           <Btn variant="secondary" size="sm" onClick={()=>setShowRapido(true)}>⚡ Carga Rápida</Btn>
           <Btn variant="secondary" size="sm" onClick={()=>setShowImport(true)}>↑ Importar CPE</Btn>
@@ -5752,8 +5976,8 @@ const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie, setG
       const runAutoLiq = async () => {
         try {
           const cps = await api.get("/api/contrapartes");
-          const ctrs = await api.get(`/api/contratos?modulo=${modulo}`);
-          const movs = await api.get(`/api/movimientos?modalidad=${modulo}`);
+          const ctrs = await api.get(`/api/contratos?modulo=${modulo}&vista=todos`);
+          const movs = await api.get(`/api/movimientos?modalidad=${modulo}&vista=todos`);
           
           const mappedCps = cps.map(c => ({
             ...c,
@@ -5852,8 +6076,8 @@ const Liquidaciones = ({modulo, globalFiltroProductor, globalFiltroEspecie, setG
   const abrirNuevaModal = async () => {
     try {
       const cps = await api.get("/api/contrapartes");
-      const ctrs = await api.get(`/api/contratos?modulo=${modulo}`);
-      const movs = await api.get(`/api/movimientos?modalidad=${modulo}`);
+      const ctrs = await api.get(`/api/contratos?modulo=${modulo}&vista=todos`);
+      const movs = await api.get(`/api/movimientos?modalidad=${modulo}&vista=todos`);
       
       setContrapartes(cps.map(c => ({
         ...c,
@@ -7298,8 +7522,8 @@ const Stock = ({modulo, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec
     const fetchData = async () => {
       try {
         setCargando(true);
-        const resMov = await api.get(`/api/movimientos?modalidad=${modulo}`);
-        const resCont = await api.get(`/api/contratos`);
+        const resMov = await api.get(`/api/movimientos?modalidad=${modulo}&vista=todos`);
+        const resCont = await api.get(`/api/contratos?vista=todos`);
         
         // Map movements
         const mappedMovs = resMov.map(m => ({
@@ -7951,7 +8175,7 @@ const ReporteFletes = ({modulo}) => {
   const cargarMovimientos = async () => {
     setCargando(true);
     try {
-      const res = await api.get(`/api/movimientos?modalidad=${modulo}`);
+      const res = await api.get(`/api/movimientos?modalidad=${modulo}&vista=todos`);
       if (res) {
         setTodosMovs(res.map(mapMovimiento));
       }
@@ -8880,7 +9104,7 @@ const ImportadorExcel = ({modulo, usuario}) => {
 
   useEffect(() => {
     api.get("/api/contrapartes").then(d => setContrapartes(d || [])).catch(() => {});
-    api.get(`/api/contratos?modulo=${modulo}`).then(d => setContratos(d || [])).catch(() => {});
+    api.get(`/api/contratos?modulo=${modulo}&vista=todos`).then(d => setContratos(d || [])).catch(() => {});
   }, [modulo]);
 
   // Columnas esperadas en el Excel

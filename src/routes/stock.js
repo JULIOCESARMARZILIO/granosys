@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const { pool } = require('../db');
-const { camionesDisponiblesEnZona } = require('../services/stockService');
+const { camionesDisponiblesEnZona, productorPorZona } = require('../services/stockService');
 
 router.get('/', async (req, res) => {
   try {
@@ -52,16 +52,49 @@ router.get('/por-zona', async (req, res) => {
 // aplicacion, exactamente que camiones se van a consumir.
 router.get('/por-zona/:zona/camiones', async (req, res) => {
   try {
-    const { id_especie, id_campana } = req.query;
+    const { id_especie, id_campana, id_contraparte } = req.query;
     if (!id_especie || !id_campana) {
       return res.status(400).json({ error: 'id_especie e id_campana son obligatorios' });
+    }
+    let cuitProductor = null, nombreProductor = null;
+    if (id_contraparte) {
+      const { rows } = await pool.query('SELECT cuit, razon_social FROM contrapartes WHERE id = $1', [id_contraparte]);
+      if (!rows[0]) return res.status(404).json({ error: 'Productor no encontrado' });
+      cuitProductor = rows[0].cuit;
+      nombreProductor = rows[0].razon_social;
     }
     const camiones = await camionesDisponiblesEnZona({
       zona: req.params.zona,
       id_especie: parseInt(id_especie),
-      id_campana: parseInt(id_campana)
+      id_campana: parseInt(id_campana),
+      cuitProductor, nombreProductor
     });
     res.json(camiones);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/stock/productor/:idContraparte/por-zona?id_especie=&id_campana=
+// Toneladas de ese productor puntual (por CUIT, o por nombre si no tiene
+// CUIT cargado) que ya estan descargadas pero sin aplicar a ningun contrato
+// todavia, agrupadas por zona. Base de la pantalla "Asignar mercadería" en
+// Contratos: se arranca eligiendo el productor, no la bolsa.
+router.get('/productor/:idContraparte/por-zona', async (req, res) => {
+  try {
+    const { id_especie, id_campana } = req.query;
+    if (!id_especie || !id_campana) {
+      return res.status(400).json({ error: 'id_especie e id_campana son obligatorios' });
+    }
+    const { rows } = await pool.query('SELECT cuit, razon_social FROM contrapartes WHERE id = $1', [req.params.idContraparte]);
+    if (!rows[0]) return res.status(404).json({ error: 'Productor no encontrado' });
+    const zonas = await productorPorZona({
+      id_especie: parseInt(id_especie),
+      id_campana: parseInt(id_campana),
+      cuitProductor: rows[0].cuit,
+      nombreProductor: rows[0].razon_social
+    });
+    res.json(zonas);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
