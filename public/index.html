@@ -8,6 +8,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="/vendor/xlsx-0.20.3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -12082,6 +12084,26 @@ const AgenteIA = ({ modulo, usuario }) => {
     URL.revokeObjectURL(url);
   };
 
+  const exportarAPDF = (data) => {
+    if (!data || data.length === 0) return;
+    const { jsPDF } = window.jspdf;
+    const columnas = Object.keys(data[0]);
+    const doc = new jsPDF({ orientation: 'landscape' });
+    doc.setFontSize(11);
+    doc.text('GranoSYS — Agente IA', 14, 10);
+    doc.autoTable({
+      head: [columnas],
+      body: data.map(row => columnas.map(c => {
+        const val = row[c];
+        return val === null || val === undefined ? '' : String(val);
+      })),
+      startY: 16,
+      styles: { fontSize: 6, cellPadding: 1.5 },
+      headStyles: { fillColor: [245, 166, 35] }
+    });
+    doc.save(`agente_ia_${new Date().toISOString().slice(0,10)}.pdf`);
+  };
+
   const handleApprove = async (id) => {
     try {
       const res = await api.post(`/api/agent/proposals/${id}/approve`, {
@@ -12160,8 +12182,9 @@ const AgenteIA = ({ modulo, usuario }) => {
               }}>
                 {m.text}
                 {m.data && m.data.length > 0 && (
-                  <div style={{marginTop:8}}>
-                    <Btn size="sm" variant="secondary" onClick={()=>exportarAExcel(m.data)}>📥 Exportar a Excel ({m.data.length})</Btn>
+                  <div style={{marginTop:8,display:"flex",gap:6}}>
+                    <Btn size="sm" variant="secondary" onClick={()=>exportarAExcel(m.data)}>📥 Excel ({m.data.length})</Btn>
+                    <Btn size="sm" variant="secondary" onClick={()=>exportarAPDF(m.data)}>📄 PDF</Btn>
                   </div>
                 )}
               </div>
