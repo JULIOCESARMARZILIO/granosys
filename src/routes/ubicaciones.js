@@ -52,18 +52,32 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT /api/ubicaciones/:id - carga manual de zona/sub-zona (bolsa de stock)
-// y la distancia a la referencia (flete)
+// PUT /api/ubicaciones/:id - carga manual de zona/sub-zona (bolsa de stock),
+// distancia a la referencia (flete), y los datos generales de la ubicacion
+// (nombre, localidad, provincia, direccion, cuit_titular, nro_planta).
 router.put('/:id', async (req, res) => {
   try {
-    const { zona, sub_zona, km_a_referencia } = req.body;
+    const { zona, sub_zona, km_a_referencia, nombre, localidad, provincia, direccion, cuit_titular, nro_planta, tipo } = req.body;
     const { rows } = await pool.query(
       `UPDATE ubicaciones SET
          zona = COALESCE($1, zona),
          sub_zona = COALESCE($2, sub_zona),
-         km_a_referencia = CASE WHEN $3::text IS NOT NULL THEN $3::decimal ELSE km_a_referencia END
-       WHERE id = $4 RETURNING *`,
-      [zona || null, sub_zona || null, km_a_referencia !== undefined && km_a_referencia !== '' ? km_a_referencia : null, req.params.id]
+         km_a_referencia = CASE WHEN $3::text IS NOT NULL THEN $3::decimal ELSE km_a_referencia END,
+         nombre = COALESCE(NULLIF($4, ''), nombre),
+         localidad = COALESCE(NULLIF($5, ''), localidad),
+         provincia = COALESCE(NULLIF($6, ''), provincia),
+         direccion = COALESCE(NULLIF($7, ''), direccion),
+         cuit_titular = COALESCE(NULLIF($8, ''), cuit_titular),
+         nro_planta = COALESCE(NULLIF($9, ''), nro_planta),
+         tipo = COALESCE(NULLIF($10, ''), tipo)
+       WHERE id = $11 RETURNING *`,
+      [
+        zona || null, sub_zona || null,
+        km_a_referencia !== undefined && km_a_referencia !== '' ? km_a_referencia : null,
+        nombre || null, localidad || null, provincia || null, direccion || null,
+        cuit_titular || null, nro_planta || null, tipo || null,
+        req.params.id
+      ]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Ubicación no encontrada' });
     res.json(rows[0]);
