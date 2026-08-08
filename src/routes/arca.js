@@ -90,6 +90,45 @@ router.post('/sync/granos-por-coe', async (req, res) => {
   }
 });
 
+// Persiste una CPE/CPEDG ya consultada oficialmente. CTG es la clave idempotente;
+// vincula o crea maestros formales por CUIT y número de planta sin emitir acciones en ARCA.
+router.post('/sync/cpe-normalizada', async (req, res) => {
+  try {
+    const resultado = await arcaOfficialClient.importarCpeNormalizada(req.body || {});
+    res.status(201).json({ ok: true, resultado, soloConsulta: true });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
+// Importación oficial, idempotente y exclusivamente de consulta por CTG.
+router.post('/sync/cpe-por-ctg', async (req, res) => {
+  try {
+    const job = await arcaOfficialClient.iniciarSyncCpePorCtg({
+      ctgs: req.body?.ctgs || [],
+      desde: req.body?.desde || '2026-02-01',
+      userId: req.user?.id || null
+    });
+    res.status(202).json({ ok: true, job, soloConsulta: true });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/documentos/:id/pdf', async (req, res) => {
+  try {
+    const file = await arcaOfficialClient.obtenerPdfDocumento(req.params.id);
+    if (!file) return res.status(404).json({ ok: false, error: 'PDF oficial no encontrado.' });
+    res.setHeader('Content-Type', file.mime_type);
+    res.setHeader('Content-Length', file.size_bytes);
+    res.setHeader('Content-Disposition', `inline; filename="CPE-${file.external_key}.pdf"`);
+    res.setHeader('ETag', `"${file.content_hash}"`);
+    res.send(file.content);
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/sync/resumen/documentos', async (req, res) => {
   try {
     const fuentes = await arcaOfficialClient.obtenerResumenDocumentos();

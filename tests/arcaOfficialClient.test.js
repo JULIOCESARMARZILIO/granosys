@@ -71,4 +71,42 @@ describe('arcaOfficialClient XML helpers', () => {
     expect(result.datosGenerales.razonSocial).toBe('EMPRESA DE PRUEBA SA');
     expect(result.datosGenerales.domicilioFiscal.localidad).toBe('CHIVILCOY');
   });
+
+  test('normalizes CUIT and plant identifiers used by CPE deduplication', () => {
+    expect(client._internal.normalizarCuit('30-71018399-2')).toBe('30710183992');
+    expect(client._internal.normalizarCuit('123')).toBeNull();
+    expect(client._internal.normalizarNumeroPlanta('00021047')).toBe('21047');
+  });
+
+  test('extracts CPE participants and plants without repeating role/CUIT', () => {
+    const xml = [
+      '<respuesta><cabecera><cuitSolicitante>30710183992</cuitSolicitante><nroCTG>10134183216</nroCTG></cabecera>',
+      '<origen><planta>00014229</planta><cuitTitularPlanta>30710183992</cuitTitularPlanta><domicilioOrigen>RUTA 5</domicilioOrigen></origen>',
+      '<intervinientes><cuitCorredorVentaPrimaria>30701843742</cuitCorredorVentaPrimaria></intervinientes>',
+      '<destino><cuit>30506792165</cuit><planta>21047</planta><domicilioDestino>COLON</domicilioDestino></destino>',
+      '<transporte><cuitTransportista>30705555551</cuitTransportista><cuitChofer>20233381781</cuitChofer></transporte></respuesta>'
+    ].join('');
+    expect(client._internal.extraerIntervinientesCpe(xml)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ rol: 'SOLICITANTE', cuit: '30710183992' }),
+      expect.objectContaining({ rol: 'CORREDOR_VENTA_PRIMARIA', cuit: '30701843742' }),
+      expect.objectContaining({ rol: 'TRANSPORTISTA', cuit: '30705555551' }),
+      expect.objectContaining({ rol: 'CHOFER', cuit: '20233381781' })
+    ]));
+    expect(client._internal.extraerPlantasCpe(xml)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ rol: 'ORIGEN', numero: '14229' }),
+      expect.objectContaining({ rol: 'DESTINO', numero: '21047' })
+    ]));
+  });
+
+  test('converts an official WSCPE response to a complete JSON tree', () => {
+    expect(client._internal.xmlToObject('<respuesta><cabecera><nroCTG>10134183216</nroCTG></cabecera><pdf>JVBERi0=</pdf></respuesta>'))
+      .toEqual({ respuesta: { cabecera: { nroCTG: '10134183216' }, pdf: 'JVBERi0=' } });
+  });
+
+  test('maps official CPE roles to existing counterpart types', () => {
+    expect(client._internal.tipoContrapartePorRol('TRANSPORTISTA')).toBe('TRANSPORTISTA');
+    expect(client._internal.tipoContrapartePorRol('CORREDOR VENTA PRIMARIA')).toBe('CORREDOR');
+    expect(client._internal.tipoContrapartePorRol('PRODUCTOR')).toBe('PRODUCTOR');
+    expect(client._internal.tipoContrapartePorRol('DESTINATARIO')).toBe('COMPRADOR');
+  });
 });

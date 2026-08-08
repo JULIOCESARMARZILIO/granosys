@@ -11,6 +11,25 @@ const ticketCache = new Map();
 let ticketTableReady = false;
 let syncTablesReady = false;
 let reconciliationTableReady = false;
+let cpeMasterTablesReady = false;
+
+function normalizarCuit(value) {
+  const cuit = String(value || '').replace(/\D/g, '');
+  return /^\d{11}$/.test(cuit) ? cuit : null;
+}
+
+function normalizarNumeroPlanta(value) {
+  const numero = String(value || '').trim().replace(/^0+(?=\d)/, '');
+  return numero || null;
+}
+
+function tipoContrapartePorRol(role) {
+  const rol = String(role || '').toUpperCase();
+  if (rol.includes('TRANSPORT')) return 'TRANSPORTISTA';
+  if (rol.includes('CORREDOR')) return 'CORREDOR';
+  if (rol.includes('PRODUCTOR') || rol.includes('VENDEDOR') || rol.includes('REMITENTE')) return 'PRODUCTOR';
+  return 'COMPRADOR';
+}
 
 function ticketEncryptionKey(config) {
   return crypto.createHash('sha256')
@@ -107,6 +126,81 @@ async function ensureReconciliationTable() {
       ON arca_cc_reconciliations(estado, decidido_at DESC);
   `);
   reconciliationTableReady = true;
+}
+
+async function ensureCpeMasterTables() {
+  if (cpeMasterTablesReady) return;
+  await ensureSyncTables();
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS arca_cpe_registry (
+      ctg VARCHAR(20) PRIMARY KEY,
+      document_id BIGINT NOT NULL UNIQUE REFERENCES arca_official_documents(id) ON DELETE RESTRICT,
+      tipo_cpe VARCHAR(40) NOT NULL,
+      first_imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS arca_cpe_participants (
+      id BIGSERIAL PRIMARY KEY,
+      document_id BIGINT NOT NULL REFERENCES arca_official_documents(id) ON DELETE CASCADE,
+      ctg VARCHAR(20) NOT NULL REFERENCES arca_cpe_registry(ctg) ON DELETE CASCADE,
+      rol VARCHAR(80) NOT NULL,
+      cuit VARCHAR(11) NOT NULL,
+      razon_social_oficial VARCHAR(200),
+      contraparte_id INTEGER REFERENCES contrapartes(id) ON DELETE SET NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(document_id, rol, cuit)
+    );
+    CREATE INDEX IF NOT EXISTS idx_arca_cpe_participants_cuit
+      ON arca_cpe_participants(cuit);
+    CREATE TABLE IF NOT EXISTS arca_cpe_plants (
+      id BIGSERIAL PRIMARY KEY,
+      document_id BIGINT NOT NULL REFERENCES arca_official_documents(id) ON DELETE CASCADE,
+      ctg VARCHAR(20) NOT NULL REFERENCES arca_cpe_registry(ctg) ON DELETE CASCADE,
+      rol VARCHAR(80) NOT NULL,
+      nro_planta VARCHAR(20) NOT NULL,
+      cuit_titular VARCHAR(11),
+      nombre_oficial VARCHAR(200),
+      localidad VARCHAR(100),
+      provincia VARCHAR(100),
+      direccion VARCHAR(200),
+      ubicacion_id INTEGER REFERENCES ubicaciones(id) ON DELETE SET NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(document_id, rol, nro_planta)
+    );
+    CREATE INDEX IF NOT EXISTS idx_arca_cpe_plants_number
+      ON arca_cpe_plants(nro_planta, cuit_titular);
+    CREATE TABLE IF NOT EXISTS arca_official_files (
+      id BIGSERIAL PRIMARY KEY,
+      document_id BIGINT NOT NULL REFERENCES arca_official_documents(id) ON DELETE CASCADE,
+      file_type VARCHAR(20) NOT NULL,
+      mime_type VARCHAR(100) NOT NULL,
+      content BYTEA NOT NULL,
+      content_hash VARCHAR(64) NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      first_imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(document_id, file_type, content_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_arca_official_files_document
+      ON arca_official_files(document_id, file_type);
+    CREATE TABLE IF NOT EXISTS arca_cpe_import_events (
+      id BIGSERIAL PRIMARY KEY,
+      ctg VARCHAR(20) NOT NULL REFERENCES arca_cpe_registry(ctg) ON DELETE RESTRICT,
+      document_id BIGINT NOT NULL REFERENCES arca_official_documents(id) ON DELETE RESTRICT,
+      job_id UUID REFERENCES arca_sync_jobs(id) ON DELETE SET NULL,
+      imported_by INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+      payload_hash VARCHAR(64) NOT NULL,
+      pdf_hash VARCHAR(64),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_arca_cpe_import_events_ctg
+      ON arca_cpe_import_events(ctg, created_at DESC);
+  `);
+  cpeMasterTablesReady = true;
 }
 
 async function loadPersistedTicket(cacheKey, config) {
@@ -253,6 +347,89 @@ async function soapPost(url, action, body) {
     throw new Error(tag(xml, 'faultstring') || tag(xml, 'faultcode') || `ARCA respondiÃ³ HTTP ${response.status}.`);
   }
   return xml;
+}
+
+function xmlToObject(xml) {
+  const root = {};
+  const stack = [{ value: root }];
+  const tokens = String(xml || '').replace(/<!--[\s\S]*?-->/g, '').match(/<[^>]+>|[^<]+/g) || [];
+  for (const token of tokens) {
+    if (/^<\?/.test(token) || /^<!/.test(token)) continue;
+    if (/^<\//.test(token)) {
+      if (stack.length > 1) stack.pop();
+      continue;
+    }
+    if (/^</.test(token)) {
+      const match = token.match(/^<\s*(?:\w+:)?([^\s/>]+)/);
+      if (!match) continue;
+      const name = match[1];
+      const parent = stack[stack.length - 1].value;
+      const node = {};
+      if (Object.prototype.hasOwnProperty.call(parent, name)) {
+        if (!Array.isArray(parent[name])) parent[name] = [parent[name]];
+        parent[name].push(node);
+      } else {
+        parent[name] = node;
+      }
+      if (!/\/\s*>$/.test(token)) stack.push({ value: node, parent, name });
+      continue;
+    }
+    const text = decodeXml(token.trim());
+    if (!text || stack.length === 1) continue;
+    const current = stack[stack.length - 1];
+    if (Object.keys(current.value).length === 0) current.parent[current.name] = text;
+    else current.value._text = (current.value._text || '') + text;
+  }
+  return root;
+}
+
+function extraerIntervinientesCpe(xml) {
+  const roles = {
+    cuitSolicitante: 'SOLICITANTE', cuitTitularPlanta: 'TITULAR_PLANTA',
+    cuitOrigen: 'ORIGEN', cuitRemitenteComercial: 'REMITENTE_COMERCIAL',
+    cuitRemitenteComercialVentaPrimaria: 'REMITENTE_COMERCIAL_VENTA_PRIMARIA',
+    cuitRemitenteComercialVentaSecundaria: 'REMITENTE_COMERCIAL_VENTA_SECUNDARIA',
+    cuitRemitenteComercialVentaSecundaria2: 'REMITENTE_COMERCIAL_VENTA_SECUNDARIA_2',
+    cuitMercadoATermino: 'MERCADO_A_TERMINO', cuitCorredorVentaPrimaria: 'CORREDOR_VENTA_PRIMARIA',
+    cuitCorredorVentaSecundaria: 'CORREDOR_VENTA_SECUNDARIA', cuitRepresentanteEntregador: 'REPRESENTANTE_ENTREGADOR',
+    cuitRepresentanteRecibidor: 'REPRESENTANTE_RECIBIDOR', cuitComisionista: 'COMISIONISTA',
+    cuitCorredor: 'CORREDOR', cuitTransportista: 'TRANSPORTISTA', cuitTransportistaTramo2: 'TRANSPORTISTA_TRAMO_2',
+    cuitChofer: 'CHOFER', cuitConductor: 'CONDUCTOR', cuitConductorTramo2: 'CONDUCTOR_TRAMO_2',
+    cuitPagadorFlete: 'PAGADOR_FLETE', cuitIntermediarioFlete: 'INTERMEDIARIO_FLETE'
+  };
+  const result = [];
+  for (const [field, rol] of Object.entries(roles)) {
+    for (const value of tags(xml, field)) {
+      const cuit = normalizarCuit(value);
+      if (cuit) result.push({ rol, cuit, campoOficial: field });
+    }
+  }
+  for (const [blockName, rol] of [['origen', 'ORIGEN'], ['destino', 'DESTINO'], ['destinatario', 'DESTINATARIO']]) {
+    const block = tag(xml, blockName);
+    const cuit = normalizarCuit(tag(block || '', 'cuit') || tag(block || '', 'cuitOrigen'));
+    if (cuit) result.push({ rol, cuit, campoOficial: `${blockName}.cuit` });
+  }
+  return [...new Map(result.map(item => [`${item.rol}:${item.cuit}`, item])).values()];
+}
+
+function extraerPlantasCpe(xml) {
+  const result = [];
+  for (const rol of ['origen', 'destino', 'cabecera']) {
+    const bloque = tag(xml, rol);
+    if (!bloque) continue;
+    const numero = normalizarNumeroPlanta(tag(bloque, 'planta'));
+    if (!numero) continue;
+    result.push({
+      rol: rol.toUpperCase(),
+      numero,
+      cuitTitular: normalizarCuit(tag(bloque, 'cuitTitularPlanta') || tag(bloque, 'cuit')),
+      nombre: tag(bloque, 'plantaAFIP') || tag(bloque, 'plantaObservaciones') || null,
+      localidad: tag(bloque, 'localidad') || tag(bloque, 'descripcionLocalidad') || null,
+      provincia: tag(bloque, 'provincia') || tag(bloque, 'descripcionProvincia') || null,
+      direccion: tag(bloque, 'domicilioOrigen') || tag(bloque, 'domicilioDestino') || tag(bloque, 'domicilio') || null
+    });
+  }
+  return result;
 }
 
 async function getTicket(service = 'wslpg', force = false) {
@@ -509,6 +686,268 @@ async function guardarDocumentoOficial(fuente, externalKey, documentDate, payloa
       last_seen_at=NOW()
   `, [fuente, externalKey, documentDate, serialized, hash]);
   return rowCount > 0;
+}
+
+async function importarCpeNormalizada({ ctg, tipoCpe, fecha, payload, intervinientes = [], plantas = [], pdfBuffer = null, jobId = null, userId = null }) {
+  const ctgNormalizado = String(ctg || '').replace(/\D/g, '');
+  if (!/^\d{8,20}$/.test(ctgNormalizado)) throw new Error(`CTG inválido: ${ctg}`);
+  if (!tipoCpe) throw new Error('El tipo de CPE es obligatorio.');
+  await ensureCpeMasterTables();
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const serialized = JSON.stringify(payload || {});
+    const hash = crypto.createHash('sha256').update(serialized).digest('hex');
+    const { rows: documents } = await client.query(`
+      INSERT INTO arca_official_documents
+        (fuente, external_key, document_date, payload, payload_hash)
+      VALUES ('WSCPE_CPE',$1,$2,$3::jsonb,$4)
+      ON CONFLICT(fuente, external_key) DO UPDATE SET
+        document_date=EXCLUDED.document_date,
+        payload=EXCLUDED.payload,
+        payload_hash=EXCLUDED.payload_hash,
+        last_seen_at=NOW()
+      RETURNING id
+    `, [ctgNormalizado, fecha || null, serialized, hash]);
+    const documentId = documents[0].id;
+
+    await client.query(`
+      INSERT INTO arca_cpe_registry (ctg, document_id, tipo_cpe)
+      VALUES ($1,$2,$3)
+      ON CONFLICT(ctg) DO UPDATE SET
+        document_id=EXCLUDED.document_id,
+        tipo_cpe=EXCLUDED.tipo_cpe,
+        last_seen_at=NOW()
+    `, [ctgNormalizado, documentId, String(tipoCpe).slice(0, 40)]);
+
+    let pdfGuardado = false;
+    let pdfHash = null;
+    if (pdfBuffer) {
+      const content = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+      if (content.length < 5 || content.subarray(0, 5).toString('ascii') !== '%PDF-') {
+        throw new Error(`ARCA devolvió un PDF inválido para CTG ${ctgNormalizado}.`);
+      }
+      const contentHash = crypto.createHash('sha256').update(content).digest('hex');
+      pdfHash = contentHash;
+      await client.query(`
+        INSERT INTO arca_official_files
+          (document_id,file_type,mime_type,content,content_hash,size_bytes)
+        VALUES ($1,'PDF','application/pdf',$2,$3,$4)
+        ON CONFLICT(document_id,file_type,content_hash) DO UPDATE SET last_seen_at=NOW()
+      `, [documentId, content, contentHash, content.length]);
+      pdfGuardado = true;
+    }
+
+    let contrapartesCreadas = 0;
+    let contrapartesVinculadas = 0;
+    for (const item of intervinientes) {
+      const cuit = normalizarCuit(item.cuit);
+      const rol = String(item.rol || '').trim().slice(0, 80);
+      if (!cuit || !rol) continue;
+      let razonSocial = String(item.razonSocial || item.razon_social || '').trim().slice(0, 200) || null;
+      const { rows: existentes } = await client.query(
+        "SELECT id FROM contrapartes WHERE regexp_replace(COALESCE(cuit,''),'[^0-9]','','g')=$1 ORDER BY activo DESC, id LIMIT 1",
+        [cuit]
+      );
+      let contraparteId = existentes[0]?.id || null;
+      if (!contraparteId && !razonSocial) {
+        try {
+          const padron = await consultarPadronA13(cuit);
+          razonSocial = String(padron?.datosGenerales?.razonSocial || '').trim().slice(0, 200) || null;
+        } catch (error) {
+          console.warn(`Padrón A13 no resolvió el CUIT ${cuit}: ${error.message}`);
+        }
+      }
+      if (!contraparteId && razonSocial) {
+        const { rows: creadas } = await client.query(`
+          INSERT INTO contrapartes
+            (codigo_interno,cuit,razon_social,tipo_contraparte,canal_operacion,observaciones)
+          VALUES ($1,$2,$3,$4,'FORMAL',$5)
+          ON CONFLICT(codigo_interno) DO UPDATE SET updated_at=NOW()
+          RETURNING id
+        `, [`ARCA-${cuit}`, cuit, razonSocial, tipoContrapartePorRol(rol), `Alta automática desde CPE CTG ${ctgNormalizado}`]);
+        contraparteId = creadas[0].id;
+        contrapartesCreadas += 1;
+      }
+      if (contraparteId) contrapartesVinculadas += 1;
+      await client.query(`
+        INSERT INTO arca_cpe_participants
+          (document_id,ctg,rol,cuit,razon_social_oficial,contraparte_id,payload)
+        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
+        ON CONFLICT(document_id,rol,cuit) DO UPDATE SET
+          razon_social_oficial=COALESCE(EXCLUDED.razon_social_oficial,arca_cpe_participants.razon_social_oficial),
+          contraparte_id=COALESCE(EXCLUDED.contraparte_id,arca_cpe_participants.contraparte_id),
+          payload=EXCLUDED.payload,
+          updated_at=NOW()
+      `, [documentId, ctgNormalizado, rol, cuit, razonSocial, contraparteId, JSON.stringify(item)]);
+    }
+
+    let plantasCreadas = 0;
+    let plantasVinculadas = 0;
+    for (const item of plantas) {
+      const numero = normalizarNumeroPlanta(item.numero || item.nroPlanta || item.nro_planta);
+      const rol = String(item.rol || '').trim().slice(0, 80);
+      if (!numero || !rol) continue;
+      const cuitTitular = normalizarCuit(item.cuitTitular || item.cuit_titular);
+      const { rows: existentes } = await client.query(`
+        SELECT id FROM ubicaciones
+        WHERE nro_planta=$1
+          AND ($2::text IS NULL OR regexp_replace(COALESCE(cuit_titular,''),'[^0-9]','','g')=$2)
+        ORDER BY activo DESC, id LIMIT 1
+      `, [numero, cuitTitular]);
+      let ubicacionId = existentes[0]?.id || null;
+      if (!ubicacionId) {
+        const nombre = String(item.nombre || `Planta ${numero}`).trim().slice(0, 200);
+        const { rows: creadas } = await client.query(`
+          INSERT INTO ubicaciones
+            (nombre,tipo,localidad,provincia,direccion,cuit_titular,nro_planta)
+          VALUES ($1,'DESTINO_ENTREGA',$2,$3,$4,$5,$6)
+          RETURNING id
+        `, [nombre, item.localidad || null, item.provincia || null, item.direccion || null, cuitTitular, numero]);
+        ubicacionId = creadas[0].id;
+        plantasCreadas += 1;
+      }
+      plantasVinculadas += 1;
+      if (cuitTitular) {
+        const { rows: titulares } = await client.query(
+          "SELECT id FROM contrapartes WHERE regexp_replace(COALESCE(cuit,''),'[^0-9]','','g')=$1 ORDER BY activo DESC, id LIMIT 1",
+          [cuitTitular]
+        );
+        if (titulares[0]) {
+          await client.query(`
+            INSERT INTO contraparte_ubicaciones (id_contraparte,id_ubicacion)
+            VALUES ($1,$2) ON CONFLICT(id_contraparte,id_ubicacion) DO NOTHING
+          `, [titulares[0].id, ubicacionId]);
+        }
+      }
+      await client.query(`
+        INSERT INTO arca_cpe_plants
+          (document_id,ctg,rol,nro_planta,cuit_titular,nombre_oficial,localidad,provincia,direccion,ubicacion_id,payload)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)
+        ON CONFLICT(document_id,rol,nro_planta) DO UPDATE SET
+          cuit_titular=COALESCE(EXCLUDED.cuit_titular,arca_cpe_plants.cuit_titular),
+          nombre_oficial=COALESCE(EXCLUDED.nombre_oficial,arca_cpe_plants.nombre_oficial),
+          localidad=COALESCE(EXCLUDED.localidad,arca_cpe_plants.localidad),
+          provincia=COALESCE(EXCLUDED.provincia,arca_cpe_plants.provincia),
+          direccion=COALESCE(EXCLUDED.direccion,arca_cpe_plants.direccion),
+          ubicacion_id=EXCLUDED.ubicacion_id,
+          payload=EXCLUDED.payload,
+          updated_at=NOW()
+      `, [documentId, ctgNormalizado, rol, numero, cuitTitular, item.nombre || null, item.localidad || null, item.provincia || null, item.direccion || null, ubicacionId, JSON.stringify(item)]);
+    }
+    await client.query(`
+      INSERT INTO arca_cpe_import_events
+        (ctg,document_id,job_id,imported_by,payload_hash,pdf_hash)
+      VALUES ($1,$2,$3,$4,$5,$6)
+    `, [ctgNormalizado, documentId, jobId, userId, hash, pdfHash]);
+    await client.query('COMMIT');
+    return {
+      ctg: ctgNormalizado,
+      documentId,
+      intervinientes: intervinientes.length,
+      contrapartesCreadas,
+      contrapartesVinculadas,
+      plantas: plantas.length,
+      plantasCreadas,
+      plantasVinculadas,
+      pdfGuardado
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+const WSCPE_DETAIL_METHODS = Object.freeze([
+  { method: 'consultarCPEAutomotor', element: 'ConsultarCPEAutomotorReq', tipo: 'AUTOMOTOR' },
+  { method: 'consultarCPEFerroviaria', element: 'ConsultarCPEFerroviariaReq', tipo: 'FERROVIARIA' },
+  { method: 'consultarCPEAutomotorDG', element: 'ConsultarCPEAutomotorDGReq', tipo: 'AUTOMOTOR_DG' },
+  { method: 'consultarCPEFerroviariaDG', element: 'ConsultarCPEFerroviariaDGReq', tipo: 'FERROVIARIA_DG' },
+  { method: 'consultarCPEEmisionDestinoDG', element: 'ConsultarCPEEmisionDestinoDGReq', tipo: 'EMISION_DESTINO_DG' },
+  { method: 'consultarCPEDuctos', element: 'ConsultarCPEDuctosReq', tipo: 'DUCTOS_DG' }
+]);
+
+async function wscpeCall(definition, requestXml) {
+  const config = getConfig();
+  const ticket = await getTicket('wscpe');
+  const url = config.production
+    ? 'https://cpea-ws.afip.gob.ar/wscpe/services/soap'
+    : 'https://fwshomo.afip.gov.ar/wscpe/services/soap';
+  const namespace = 'https://serviciosjava.afip.gob.ar/wscpe/';
+  const auth = `<auth><token>${xmlEscape(ticket.token)}</token><sign>${xmlEscape(ticket.sign)}</sign><cuitRepresentada>${config.cuit}</cuitRepresentada></auth>`;
+  const envelope = `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wsc="${namespace}"><soapenv:Header/><soapenv:Body><wsc:${definition.element}>${auth}<solicitud>${requestXml}</solicitud></wsc:${definition.element}></soapenv:Body></soapenv:Envelope>`;
+  return soapPost(url, `${namespace}${definition.method}`, envelope);
+}
+
+function erroresWscpe(xml) {
+  const errors = [];
+  for (const item of tags(xml, 'error')) {
+    const code = tag(item, 'codigo') || tag(item, 'code');
+    const description = tag(item, 'descripcion') || tag(item, 'description') || item;
+    errors.push([code, description].filter(Boolean).join(': '));
+  }
+  return errors.filter(Boolean);
+}
+
+function fechaCpe(xml) {
+  const value = tag(xml, 'fechaEmision') || tag(xml, 'fechaPartida') || tag(xml, 'fechaHoraPartida');
+  const match = String(value || '').match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : null;
+}
+
+async function consultarCpePorCtg(ctg) {
+  const safeCtg = String(ctg || '').replace(/\D/g, '');
+  if (!/^\d{8,20}$/.test(safeCtg)) throw new Error(`CTG inválido: ${ctg}`);
+  const errors = [];
+  for (const definition of WSCPE_DETAIL_METHODS) {
+    try {
+      const xml = await wscpeCall(definition, `<nroCTG>${safeCtg}</nroCTG>`);
+      const businessErrors = erroresWscpe(xml);
+      const respuesta = tag(xml, 'respuesta');
+      const pdfBase64 = respuesta ? tag(respuesta, 'pdf') : null;
+      if (businessErrors.length || !respuesta || !tag(respuesta, 'cabecera')) {
+        errors.push(`${definition.tipo}: ${businessErrors.join(' | ') || 'sin datos'}`);
+        continue;
+      }
+      const pdfBuffer = pdfBase64 ? Buffer.from(pdfBase64.replace(/\s/g, ''), 'base64') : null;
+      const respuestaSinPdf = respuesta.replace(
+        /<(?:\w+:)?pdf(?:\s[^>]*)?>[\s\S]*?<\/(?:\w+:)?pdf>/i,
+        pdfBuffer ? `<pdfHash>${crypto.createHash('sha256').update(pdfBuffer).digest('hex')}</pdfHash>` : ''
+      );
+      return {
+        ctg: safeCtg,
+        tipoCpe: definition.tipo,
+        fecha: fechaCpe(respuesta),
+        payload: { tipoCpe: definition.tipo, detalle: xmlToObject(respuestaSinPdf), rawXml: respuestaSinPdf },
+        intervinientes: extraerIntervinientesCpe(respuesta),
+        plantas: extraerPlantasCpe(respuesta),
+        pdfBuffer
+      };
+    } catch (error) {
+      errors.push(`${definition.tipo}: ${error.message}`);
+    }
+  }
+  throw new Error(`WSCPE no encontró el CTG ${safeCtg}. ${errors.join(' | ')}`);
+}
+
+async function importarCpePorCtg(ctg, context = {}) {
+  const detail = await consultarCpePorCtg(ctg);
+  return importarCpeNormalizada({ ...detail, ...context });
+}
+
+async function obtenerPdfDocumento(documentId) {
+  await ensureCpeMasterTables();
+  const { rows } = await pool.query(`
+    SELECT f.content, f.mime_type, f.content_hash, f.size_bytes, d.external_key
+    FROM arca_official_files f
+    JOIN arca_official_documents d ON d.id=f.document_id
+    WHERE f.document_id=$1 AND f.file_type='PDF'
+    ORDER BY f.last_seen_at DESC LIMIT 1
+  `, [documentId]);
+  return rows[0] || null;
 }
 
 async function wsfeCall(method, requestXml = '') {
@@ -860,6 +1299,48 @@ async function iniciarSyncWslpg({ desde = '2026-01-01', limite = 2000, puntosEmi
     documentos: WSLPG_DOCUMENT_TYPES.map(type => type.id),
     estado: 'PENDIENTE'
   };
+}
+
+async function ejecutarSyncCpePorCtg(jobId, ctgs, userId = null) {
+  await pool.query("UPDATE arca_sync_jobs SET estado='EJECUTANDO', started_at=NOW() WHERE id=$1", [jobId]);
+  let revisados = 0;
+  let importados = 0;
+  const errores = [];
+  for (const ctg of ctgs) {
+    revisados += 1;
+    try {
+      await importarCpePorCtg(ctg, { jobId, userId });
+      importados += 1;
+    } catch (error) {
+      errores.push({ ctg, error: error.message });
+    }
+    await pool.query(`
+      UPDATE arca_sync_jobs SET total_importados=$1,total_revisados=$2 WHERE id=$3
+    `, [importados, revisados, jobId]);
+  }
+  const estado = errores.length ? (importados ? 'PARCIAL' : 'ERROR') : 'COMPLETADO';
+  await pool.query(`
+    UPDATE arca_sync_jobs
+    SET estado=$1,total_importados=$2,total_revisados=$3,error=$4,finished_at=NOW()
+    WHERE id=$5
+  `, [estado, importados, revisados, errores.length ? JSON.stringify(errores).slice(0, 20000) : null, jobId]);
+}
+
+async function iniciarSyncCpePorCtg({ ctgs = [], desde = '2026-02-01', userId = null } = {}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(desde)) throw new Error('La fecha desde debe usar formato AAAA-MM-DD.');
+  const safeCtgs = [...new Set((Array.isArray(ctgs) ? ctgs : [ctgs])
+    .map(value => String(value || '').replace(/\D/g, ''))
+    .filter(value => /^\d{8,20}$/.test(value)))];
+  if (!safeCtgs.length) throw new Error('Debe indicar al menos un CTG válido.');
+  if (safeCtgs.length > 5000) throw new Error('El lote no puede superar 5000 CTG.');
+  await ensureSyncTables();
+  const id = crypto.randomUUID();
+  await pool.query(`
+    INSERT INTO arca_sync_jobs(id,fuente,desde,estado,solicitado_por)
+    VALUES($1,'WSCPE_CPE',$2,'PENDIENTE',$3)
+  `, [id, desde, userId]);
+  setImmediate(() => void ejecutarSyncCpePorCtg(id, safeCtgs, userId));
+  return { id, fuente: 'WSCPE_CPE', desde, totalCtgs: safeCtgs.length, estado: 'PENDIENTE' };
 }
 
 async function obtenerResumenDocumentos() {
@@ -1329,6 +1810,10 @@ module.exports = {
   iniciarSyncFacturasEmitidas,
   iniciarSyncWslpg,
   importarWslpgPorCoe,
+  iniciarSyncCpePorCtg,
+  consultarCpePorCtg,
+  importarCpePorCtg,
+  obtenerPdfDocumento,
   obtenerSyncJob,
   obtenerResumenDocumentos,
   listarDocumentosOficiales,
@@ -1336,6 +1821,7 @@ module.exports = {
   resumirIvaVentas,
   listarConciliacionesCuentaCorriente,
   decidirConciliacionCuentaCorriente,
+  importarCpeNormalizada,
   diagnosticarCredenciales,
   _internal: {
     xmlEscape,
@@ -1346,6 +1832,14 @@ module.exports = {
     wslpgBusinessError,
     detalleFiscalWsfe,
     signoComprobanteWsfe,
+    xmlToObject,
+    extraerIntervinientesCpe,
+    extraerPlantasCpe,
+    erroresWscpe,
+    fechaCpe,
+    normalizarCuit,
+    normalizarNumeroPlanta,
+    tipoContrapartePorRol,
     parsearPersonaPadronA13,
     getConfig,
     validateCredentials
