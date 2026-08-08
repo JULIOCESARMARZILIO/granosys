@@ -10551,7 +10551,7 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
             </div>
             <Btn size="sm" onClick={crearUbicacion} disabled={guardandoUbicacion}>{guardandoUbicacion?"Guardando...":"+ Nueva ubicación"}</Btn>
           </div>
-          <table><thead><tr><th>Nombre</th><th>Tipo</th><th>Localidad</th><th>Comprador</th><th>Zona</th><th>Sub-zona</th><th>Km a referencia</th></tr></thead>
+          <table><thead><tr><th>Nombre</th><th>Tipo</th><th>Localidad</th><th>Comprador</th><th>Zona</th><th>Sub-zona</th><th>Km a referencia</th><th></th></tr></thead>
           <tbody>
             {[...ubicaciones].sort((a,b)=>(a.zona?1:0)-(b.zona?1:0)).map(u=>(
               <tr key={u.id} style={!u.zona?{background:"#2a1515"}:{}}>
@@ -10594,9 +10594,18 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
                       } catch(err){ alert("Error: "+err.message); }
                     }}/>
                 </td>
+                <td>
+                  <Btn size="sm" variant="danger" onClick={async()=>{
+                    if (!window.confirm(`¿Eliminar "${u.nombre}"? Deja de aparecer en los listados, pero no se borran los movimientos/contratos que ya la usaron.`)) return;
+                    try {
+                      await api.delete(`/api/ubicaciones/${u.id}`);
+                      cargarUbicaciones();
+                    } catch(err){ alert("Error: "+err.message); }
+                  }}>Eliminar</Btn>
+                </td>
               </tr>
             ))}
-            {ubicaciones.length===0&&<tr><td colSpan={7} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay ubicaciones cargadas</td></tr>}
+            {ubicaciones.length===0&&<tr><td colSpan={8} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay ubicaciones cargadas</td></tr>}
           </tbody></table>
         </div>
       )}
