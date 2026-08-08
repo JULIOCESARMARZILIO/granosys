@@ -163,6 +163,96 @@ router.get('/mermas', async (req, res) => {
   }
 });
 
+// GET /buscar-vinculo?nro_ctg=&patente=
+// Busca movimientos (de cualquier modalidad, Formal o Informal) por CTG y/o
+// patente, para poder engancharlos manualmente cuando el "gemelo" no se
+// creo solo al cargar (que es el caso de casi todos los reales hoy: el
+// gemelo automatico solo se genera si el CPE ya estaba cargado en el
+// momento exacto de crear el movimiento, no si se agrega despues editando).
+// La patente se compara sin espacios y sin importar mayusculas, porque en
+// los datos reales aparece cargada de formas distintas para el mismo camion.
+router.get('/buscar-vinculo', async (req, res) => {
+  try {
+    const { nro_ctg, patente } = req.query;
+    if (!nro_ctg && !patente) {
+      return res.status(400).json({ error: 'Ingresá al menos CTG o patente para buscar' });
+    }
+    const params = [];
+    const condiciones = [];
+    if (nro_ctg && nro_ctg.trim()) {
+      params.push(nro_ctg.trim());
+      condiciones.push(`m.nro_ctg = $${params.length}`);
+    }
+    if (patente && patente.trim()) {
+      params.push(patente.trim().replace(/\s+/g, '').toUpperCase());
+      condiciones.push(`REPLACE(UPPER(m.patente_chasis), ' ', '') = $${params.length}`);
+      condiciones.push(`REPLACE(UPPER(m.patente_acoplado), ' ', '') = $${params.length}`);
+    }
+    const { rows } = await pool.query(`
+      SELECT m.id, m.numero_movimiento, m.modalidad, m.estado, m.nro_ctg, m.nro_cpe,
+             m.patente_chasis, m.patente_acoplado, m.fecha_cpe, m.id_movimiento_vinculado,
+             COALESCE(m.remitente_comercial_productor_nombre, m.titular_cpe_nombre) AS productor_nombre,
+             m.destinatario_nombre,
+             mv.numero_movimiento AS vinculado_a_numero
+      FROM movimientos m
+      LEFT JOIN movimientos mv ON mv.id = m.id_movimiento_vinculado
+      WHERE ${condiciones.join(' OR ')}
+      ORDER BY m.modalidad, m.id DESC
+      LIMIT 50
+    `, params);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /:id/vincular - engancha manualmente dos movimientos (uno Formal, uno
+// Informal) que representan el mismo camion pero se cargaron por separado.
+// Bidireccional: los dos quedan apuntandose entre si, igual que hace el
+// mecanismo automatico al crear un Informal con CPE ya cargado.
+router.put('/:id/vincular', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id_par } = req.body;
+    if (!id_par) return res.status(400).json({ error: 'id_par es obligatorio' });
+    if (parseInt(id_par) === parseInt(req.params.id)) {
+      return res.status(400).json({ error: 'No se puede vincular un movimiento consigo mismo' });
+    }
+
+    const { rows: movs } = await client.query(
+      'SELECT id, modalidad, id_movimiento_vinculado FROM movimientos WHERE id = ANY($1)',
+      [[req.params.id, id_par]]
+    );
+    if (movs.length !== 2) return res.status(404).json({ error: 'No se encontraron los dos movimientos' });
+
+    const actual = movs.find(m => m.id === parseInt(req.params.id));
+    const par = movs.find(m => m.id === parseInt(id_par));
+    if (actual.modalidad === par.modalidad) {
+      return res.status(400).json({ error: 'Solo se puede vincular un movimiento Formal con uno Informal, no dos del mismo lado' });
+    }
+    if (actual.id_movimiento_vinculado || par.id_movimiento_vinculado) {
+      return res.status(400).json({ error: 'Uno de los dos movimientos ya está vinculado a otro. Desvinculalo primero.' });
+    }
+
+    await client.query('BEGIN');
+    await client.query('UPDATE movimientos SET id_movimiento_vinculado = $1 WHERE id = $2', [par.id, actual.id]);
+    await client.query('UPDATE movimientos SET id_movimiento_vinculado = $1 WHERE id = $2', [actual.id, par.id]);
+    await client.query('COMMIT');
+
+    await registrarAuditoria(req, {
+      accion: 'VINCULAR_MOVIMIENTOS', modulo: 'movimientos', registro_id: actual.id,
+      datos_despues: { vinculado_con: par.id }
+    });
+
+    res.json({ ok: true, id: actual.id, id_par: par.id });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // GET /pendientes-asignacion?tipo=COMPRA|VENTA&modalidad=
 // Movimientos ya descargados con kg todavia sin repartir del lado pedido
 // (compra = productor, venta = comprador/destino final). "Sin repartir" =

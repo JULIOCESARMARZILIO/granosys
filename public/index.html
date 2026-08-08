@@ -2658,7 +2658,129 @@ const AsignacionMovimientos = ({modulo}) => {
 };
 
 // ── MOVIMIENTOS ──
+// ── VINCULACIÓN FORMAL / INFORMAL ──
+// El "gemelo" automatico (un Informal con CPE genera su par Formal solo)
+// unicamente se dispara al CREAR el movimiento con el CPE ya cargado en ese
+// momento -- si el CPE se agrega despues editando, o el par ya existia de
+// antes por otro medio, nunca quedan enganchados. Esta pantalla busca por
+// CTG y/o patente en TODA la base (las dos modalidades) para engancharlos
+// a mano cuando corresponda.
+const VinculacionMovimientos = ({modulo, onVolver}) => {
+  const [nroCtg, setNroCtg] = useState("");
+  const [patente, setPatente] = useState("");
+  const [resultados, setResultados] = useState(null);
+  const [buscando, setBuscando] = useState(false);
+  const [seleccionados, setSeleccionados] = useState([]);
+  const [vinculando, setVinculando] = useState(false);
+
+  const buscar = async () => {
+    if (!nroCtg.trim() && !patente.trim()) { alert("Ingresá al menos CTG o patente"); return; }
+    setBuscando(true);
+    setSeleccionados([]);
+    try {
+      const params = [];
+      if (nroCtg.trim()) params.push(`nro_ctg=${encodeURIComponent(nroCtg.trim())}`);
+      if (patente.trim()) params.push(`patente=${encodeURIComponent(patente.trim())}`);
+      const r = await api.get(`/api/movimientos/buscar-vinculo?${params.join("&")}`);
+      setResultados(r || []);
+    } catch(e) { alert("Error al buscar: " + e.message); }
+    finally { setBuscando(false); }
+  };
+
+  const toggleSeleccion = (m) => {
+    if (m.id_movimiento_vinculado) return; // ya esta vinculado, no se toca desde aca
+    setSeleccionados(prev => {
+      if (prev.includes(m.id)) return prev.filter(id => id !== m.id);
+      if (prev.length >= 2) return prev; // maximo dos
+      return [...prev, m.id];
+    });
+  };
+
+  const seleccionadosObjs = (resultados || []).filter(m => seleccionados.includes(m.id));
+  const puedeVincular = seleccionadosObjs.length === 2 && seleccionadosObjs[0].modalidad !== seleccionadosObjs[1].modalidad;
+
+  const vincular = async () => {
+    if (!puedeVincular) return;
+    setVinculando(true);
+    try {
+      const r = await api.put(`/api/movimientos/${seleccionadosObjs[0].id}/vincular`, { id_par: seleccionadosObjs[1].id });
+      if (r && r.ok) {
+        alert(`✓ ${seleccionadosObjs[0].numero_movimiento} vinculado con ${seleccionadosObjs[1].numero_movimiento}`);
+        buscar();
+      } else {
+        alert("Error: " + (r?.error || "no se pudo vincular"));
+      }
+    } catch(e) { alert("Error: " + (e.response?.data?.error || e.message)); }
+    finally { setVinculando(false); }
+  };
+
+  return (
+    <div className="fade-in">
+      <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20}}>
+        <Btn variant="ghost" size="sm" onClick={onVolver}>← Volver a Movimientos</Btn>
+        <h2 style={{fontSize:18,fontWeight:700}}>Vinculación Formal / Informal</h2>
+      </div>
+      <div className="card" style={{marginBottom:16,padding:"14px 18px"}}>
+        <p style={{fontSize:12,color:"#8890a8",margin:0,marginBottom:12}}>
+          Cuando un camión se cargó por separado del lado Formal y del lado Informal (no se enganchó solo al crearlo), buscalo acá por CTG y/o patente — te muestra los movimientos que coincidan de cualquiera de los dos lados, y podés elegir uno Formal y uno Informal para vincularlos.
+        </p>
+        <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"}}>
+          <FF label="N° CTG"><input value={nroCtg} onChange={e=>setNroCtg(e.target.value)} placeholder="Ej: 10133308605" onKeyDown={e=>e.key==="Enter"&&buscar()}/></FF>
+          <FF label="Patente"><input value={patente} onChange={e=>setPatente(e.target.value)} placeholder="Ej: KGJ082" onKeyDown={e=>e.key==="Enter"&&buscar()}/></FF>
+          <Btn disabled={buscando} onClick={buscar}>{buscando?"Buscando...":"Buscar"}</Btn>
+        </div>
+      </div>
+
+      {resultados !== null && (
+        <div className="card">
+          {resultados.length === 0 ? (
+            <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>No se encontraron movimientos con ese CTG/patente.</div>
+          ) : (
+            <>
+              <table>
+                <thead><tr>
+                  <th></th><th>Movimiento</th><th>Modalidad</th><th>Estado</th><th>CTG</th><th>Patente</th>
+                  <th>Productor</th><th>Comprador</th><th>Vinculado con</th>
+                </tr></thead>
+                <tbody>
+                  {resultados.map(m=>(
+                    <tr key={m.id} style={m.id_movimiento_vinculado ? {opacity:0.5} : {}}>
+                      <td>
+                        {!m.id_movimiento_vinculado && (
+                          <input type="checkbox" checked={seleccionados.includes(m.id)} onChange={()=>toggleSeleccion(m)}
+                            disabled={!seleccionados.includes(m.id) && seleccionados.length>=2}/>
+                        )}
+                      </td>
+                      <td className="mono">{m.numero_movimiento}</td>
+                      <td><Badge label={m.modalidad} color={m.modalidad==="FORMAL"?"blue":"orange"}/></td>
+                      <td>{m.estado}</td>
+                      <td className="mono">{m.nro_ctg || "—"}</td>
+                      <td className="mono">{m.patente_chasis || "—"}</td>
+                      <td>{m.productor_nombre || "—"}</td>
+                      <td>{m.destinatario_nombre || "—"}</td>
+                      <td>{m.vinculado_a_numero || (m.id_movimiento_vinculado ? "—" : "")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:12,color:"#8890a8"}}>
+                  {seleccionados.length===0 && "Elegí un movimiento Formal y uno Informal para vincularlos."}
+                  {seleccionados.length===1 && "Falta elegir el segundo."}
+                  {seleccionados.length===2 && !puedeVincular && "Los dos elegidos son de la misma modalidad — elegí uno Formal y uno Informal."}
+                </span>
+                <Btn disabled={!puedeVincular || vinculando} onClick={vincular}>{vinculando?"Vinculando...":"🔗 Vincular seleccionados"}</Btn>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspecie, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec}) => {
+  const [subTab,setSubTab]=useState("lista");
   const [showForm,setShowForm]=useState(false);
   const [showImport,setShowImport]=useState(false);
   const [showRapido,setShowRapido]=useState(false);
@@ -4066,6 +4188,10 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     return false;
   });
 
+  if (subTab === "vinculacion") {
+    return <VinculacionMovimientos modulo={modulo} onVolver={()=>setSubTab("lista")}/>;
+  }
+
   return (
     <div className="fade-in">
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
@@ -4079,6 +4205,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
               }}>{label}</button>
             ))}
           </div>
+          <Btn variant="secondary" size="sm" onClick={()=>setSubTab("vinculacion")}>🔗 Vinculación Formal/Informal</Btn>
         </div>
         <div style={{display:"flex",gap:8}}>
           <Btn variant="secondary" size="sm" onClick={()=>setShowRapido(true)}>⚡ Carga Rápida</Btn>
@@ -10150,6 +10277,9 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
   useEffect(() => {
     if (tab === "usuarios") {
       api.get("/api/usuarios").then(d => d && setUsuarios(d)).catch(() => {});
+    }
+    if (tab === "ubicaciones") {
+      cargarUbicaciones();
     }
   }, [tab]);
 
