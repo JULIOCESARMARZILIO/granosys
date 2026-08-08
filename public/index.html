@@ -10551,13 +10551,16 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
             </div>
             <Btn size="sm" onClick={crearUbicacion} disabled={guardandoUbicacion}>{guardandoUbicacion?"Guardando...":"+ Nueva ubicación"}</Btn>
           </div>
-          <table><thead><tr><th>Nombre</th><th>Tipo</th><th>Localidad</th><th>Zona</th><th>Sub-zona</th><th>Km a referencia</th></tr></thead>
+          <table><thead><tr><th>Nombre</th><th>Tipo</th><th>Localidad</th><th>Comprador</th><th>Zona</th><th>Sub-zona</th><th>Km a referencia</th></tr></thead>
           <tbody>
             {[...ubicaciones].sort((a,b)=>(a.zona?1:0)-(b.zona?1:0)).map(u=>(
               <tr key={u.id} style={!u.zona?{background:"#2a1515"}:{}}>
                 <td style={{fontWeight:500}}>{u.nombre}{!u.zona && <span style={{marginLeft:6,fontSize:11,color:"#e74c3c"}}>⚠ sin clasificar</span>}</td>
                 <td style={{fontSize:12,color:"#8890a8"}}>{u.tipo}</td>
                 <td style={{fontSize:12,color:"#8890a8"}}>{u.localidad||"—"}</td>
+                <td style={{fontSize:12,color:(u.compradores&&u.compradores.length)?"#8890a8":"#e74c3c"}}>
+                  {(u.compradores&&u.compradores.length) ? u.compradores.map(c=>c.razon_social).join(", ") : "sin comprador"}
+                </td>
                 <td>
                   <input defaultValue={u.zona||""} placeholder="Ej: Rosario Norte" style={{width:120,padding:"4px 8px",background:"#0f1117",border:"1px solid #2a2d3e",color:"#e8eaf0",borderRadius:4,fontSize:12}}
                     onBlur={async(ev)=>{
@@ -10593,7 +10596,7 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
                 </td>
               </tr>
             ))}
-            {ubicaciones.length===0&&<tr><td colSpan={6} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay ubicaciones cargadas</td></tr>}
+            {ubicaciones.length===0&&<tr><td colSpan={7} style={{textAlign:"center",color:"#565d7a",padding:20}}>No hay ubicaciones cargadas</td></tr>}
           </tbody></table>
         </div>
       )}

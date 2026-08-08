@@ -11,7 +11,18 @@ router.get('/', async (req, res) => {
       params.push(`%${q}%`);
       where += ` AND (nombre ILIKE $${params.length} OR localidad ILIKE $${params.length} OR provincia ILIKE $${params.length})`;
     }
-    const { rows } = await pool.query(`SELECT * FROM ubicaciones ${where} ORDER BY nombre ASC`, params);
+    const { rows } = await pool.query(`
+      SELECT u.*, COALESCE(comp.compradores, '[]'::json) AS compradores
+      FROM ubicaciones u
+      LEFT JOIN LATERAL (
+        SELECT json_agg(json_build_object('id', c.id, 'razon_social', c.razon_social) ORDER BY c.razon_social) AS compradores
+        FROM contraparte_ubicaciones cu
+        JOIN contrapartes c ON c.id = cu.id_contraparte
+        WHERE cu.id_ubicacion = u.id
+      ) comp ON TRUE
+      ${where}
+      ORDER BY u.nombre ASC
+    `, params);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
