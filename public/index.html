@@ -10888,6 +10888,7 @@ const Configuracion = ({usuario, defaultTab, setDefaultTab}) => {
 
 // ── APP PRINCIPAL ──
 const DocumentosArca = () => {
+  const [fuente,setFuente]=useState("WSFE_EMITIDA");
   const [documentos,setDocumentos]=useState([]);
   const [paginacion,setPaginacion]=useState({pagina:1,paginas:1,total:0});
   const [conciliacion,setConciliacion]=useState({totalCuits:0,vinculadas:0,pendientes:0});
@@ -10904,10 +10905,10 @@ const DocumentosArca = () => {
   const [detalle,setDetalle]=useState(null);
   const [error,setError]=useState("");
 
-  const cargar = async (paginaSolicitada=pagina) => {
+  const cargar = async (paginaSolicitada=pagina, fuenteSolicitada=fuente) => {
     setCargando(true); setError("");
     try {
-      const params=new URLSearchParams({fuente:"WSFE_EMITIDA",desde,pagina:String(paginaSolicitada),limite:"50"});
+      const params=new URLSearchParams({fuente:fuenteSolicitada,desde,pagina:String(paginaSolicitada),limite:"50"});
       if(hasta) params.set("hasta",hasta);
       if(buscar.trim()) params.set("buscar",buscar.trim());
       const ivaParams=new URLSearchParams({desde});
@@ -10926,9 +10927,10 @@ const DocumentosArca = () => {
     } catch(e) { setError(e.message||"No se pudieron cargar los documentos ARCA."); }
     finally { setCargando(false); }
   };
-  useEffect(()=>{cargar(pagina);},[pagina]);
+  useEffect(()=>{cargar(pagina);},[pagina,fuente]);
 
   const money=value=>Number(value||0).toLocaleString("es-AR",{style:"currency",currency:"ARS"});
+  const esCpe=fuente==="WSCPE_CPE";
   const tipoNombre=tipo=>({1:"Factura A",2:"Nota de Débito A",3:"Nota de Crédito A",6:"Factura B",7:"Nota de Débito B",8:"Nota de Crédito B",11:"Factura C",12:"Nota de Débito C",13:"Nota de Crédito C",201:"Factura de Crédito MiPyME A",206:"Factura de Crédito MiPyME B"}[Number(tipo)]||`Tipo ${tipo||"-"}`);
   const decidirCc = async (item,decision) => {
     const accion=decision==="VINCULAR_EXISTENTE"?"vincular el movimiento existente":decision==="CREAR_MOVIMIENTO"?"crear un movimiento FORMAL en cuenta corriente":"rechazar la conciliación";
@@ -11043,23 +11045,127 @@ const DocumentosArca = () => {
     }
   };
 
+  const sincronizarCpeDesdeArca = async () => {
+    setSincronizando(true);
+    setSyncError("");
+    setSyncJobs([]);
+    try {
+      const inicio=desde<"2026-02-01"?"2026-02-01":desde;
+      const fin=hasta||new Date().toISOString().slice(0,10);
+      const respuesta=await api.post("/api/arca/sync/cpe-destino",{desde:inicio,hasta:fin});
+      if(!respuesta?.job) throw new Error("No se pudo iniciar la consulta WSCPE.");
+      setSyncJobs([respuesta.job]);
+      const terminado=await esperarSync(respuesta.job);
+      if(terminado.estado==="ERROR"||terminado.estado==="PARCIAL") {
+        setSyncError(terminado.error||"ARCA devolvio observaciones durante la consulta de CPE.");
+      }
+      setFuente("WSCPE_CPE");
+      setDesde(inicio);
+      setPagina(1);
+      await cargar(1,"WSCPE_CPE");
+    } catch(e) {
+      setSyncError(e.message||"No se pudo completar la sincronizacion de CPE.");
+    } finally {
+      setSincronizando(false);
+    }
+  };
+
+  const importarListadoCtgArca = () => {
+    const input=document.createElement("input");
+    input.type="file";
+    input.accept=".xlsx,.xls,.csv,.txt";
+    input.onchange=async event=>{
+      const archivo=event.target.files?.[0];
+      if(!archivo) return;
+      setSincronizando(true);
+      setSyncError("");
+      setSyncJobs([]);
+      try {
+        const data=await archivo.arrayBuffer();
+        const workbook=XLSX.read(data,{type:"array",raw:false});
+        const encontrados=new Set();
+        workbook.SheetNames.forEach(nombre=>{
+          const filas=XLSX.utils.sheet_to_json(workbook.Sheets[nombre],{header:1,defval:"",raw:true});
+          let filaCabecera=-1;
+          let columnaCtg=-1;
+          for(let i=0;i<Math.min(filas.length,30)&&columnaCtg<0;i+=1) {
+            const indice=(filas[i]||[]).findIndex(celda=>{
+              const cabecera=String(celda||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]/g,"");
+              return ["ctg","nctg","nroctg","numeroctg"].includes(cabecera);
+            });
+            if(indice>=0) { filaCabecera=i; columnaCtg=indice; }
+          }
+          if(columnaCtg<0) return;
+          filas.slice(filaCabecera+1).forEach(fila=>{
+            const valor=fila[columnaCtg];
+            const texto=String(valor??"").trim();
+            const ctg=/^[+-]?\d+(?:[.,]\d+)?e[+-]?\d+$/i.test(texto)&&Number.isSafeInteger(Number(texto))
+              ? String(Number(texto))
+              : texto.replace(/\D/g,"");
+            if(/^\d{8,20}$/.test(ctg)) encontrados.add(ctg);
+          });
+        });
+        const ctgs=[...encontrados];
+        if(!ctgs.length) throw new Error("El archivo no contiene una columna CTG reconocible.");
+        if(!window.confirm(`Se encontraron ${ctgs.length} CTG unicos. GranoSYS consultara detalle y PDF por WSCPE sin modificar ARCA. ¿Continuar?`)) return;
+        const respuesta=await api.post("/api/arca/sync/cpe-por-ctg",{ctgs,desde:desde<"2026-02-01"?"2026-02-01":desde});
+        if(!respuesta?.job) throw new Error("No se pudo iniciar la consulta masiva por CTG.");
+        setSyncJobs([respuesta.job]);
+        const terminado=await esperarSync(respuesta.job);
+        if(terminado.estado==="ERROR"||terminado.estado==="PARCIAL") setSyncError(terminado.error||"ARCA devolvio observaciones para algunos CTG.");
+        setFuente("WSCPE_CPE");
+        setPagina(1);
+        await cargar(1,"WSCPE_CPE");
+      } catch(e) {
+        setSyncError(e.message||"No se pudo importar el listado de CTG.");
+      } finally {
+        setSincronizando(false);
+      }
+    };
+    input.click();
+  };
+
+  const abrirPdfOficial = async documento => {
+    try {
+      const response=await fetch(`${API_URL}/api/arca/documentos/${documento.id}/pdf`,{headers:authHeaders()});
+      if(!response.ok) throw new Error(await response.text());
+      const blob=await response.blob();
+      const url=URL.createObjectURL(blob);
+      window.open(url,"_blank","noopener,noreferrer");
+      setTimeout(()=>URL.revokeObjectURL(url),60000);
+    } catch(e) {
+      alert("No se pudo abrir el PDF oficial: "+e.message);
+    }
+  };
+
   return <div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18}}>
-      <div><h2 style={{fontSize:20,fontWeight:700,marginBottom:4}}>Documentos ARCA</h2><div style={{fontSize:12,color:"#8890a8"}}>Comprobantes oficiales emitidos por Inversiones del Salado S.A. · Solo consulta</div></div>
-      <Btn onClick={()=>cargar(pagina)} disabled={cargando}>{cargando?"Actualizando...":"Actualizar"}</Btn>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18,gap:12}}>
+      <div><h2 style={{fontSize:20,fontWeight:700,marginBottom:4}}>Documentos ARCA</h2><div style={{fontSize:12,color:"#8890a8"}}>{esCpe?"Cartas de Porte Electronicas de granos y derivados vinculadas a Inversiones del Salado S.A. · Solo consulta":"Comprobantes oficiales emitidos por Inversiones del Salado S.A. · Solo consulta"}</div></div>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <Btn variant={esCpe?"secondary":"primary"} onClick={()=>{setFuente("WSFE_EMITIDA");setDesde("2026-01-01");setPagina(1);}}>Facturas</Btn>
+        <Btn variant={esCpe?"primary":"secondary"} onClick={()=>{setFuente("WSCPE_CPE");setDesde("2026-02-01");setPagina(1);}}>CPE / CPEDG</Btn>
+        <Btn onClick={()=>cargar(pagina)} disabled={cargando}>{cargando?"Actualizando...":"Actualizar"}</Btn>
+      </div>
     </div>
-    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:16}}>
+    {!esCpe&&<div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:16}}>
       {[["Comprobantes",paginacion.total,"#3498db"],["CUIT receptores",conciliacion.totalCuits,"#f5a623"],["Contrapartes vinculadas",conciliacion.vinculadas,"#27ae60"],["Pendientes de alta",conciliacion.pendientes,"#e74c3c"]].map(([label,value,color])=>
         <div className="card" key={label} style={{padding:"14px 16px"}}><div style={{fontSize:11,color:"#8890a8",textTransform:"uppercase"}}>{label}</div><div style={{fontSize:24,fontWeight:700,color,marginTop:5}}>{value||0}</div></div>
       )}
-    </div>
+    </div>}
+    {esCpe&&<div className="card" style={{padding:"14px 16px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div><div style={{fontSize:11,color:"#8890a8",textTransform:"uppercase"}}>CPE / CPEDG almacenadas</div><div style={{fontSize:24,fontWeight:700,color:"#3498db",marginTop:5}}>{paginacion.total||0}</div></div>
+      <div style={{fontSize:11,color:"#8890a8",maxWidth:520}}>Identidad unica por CTG. El detalle oficial, los intervinientes, las plantas y el PDF quedan vinculados sin duplicados.</div>
+    </div>}
     <div className="card" style={{padding:"14px 16px",marginBottom:16,border:"1px solid #2f5f88"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:16}}>
         <div>
-          <div style={{fontSize:15,fontWeight:700}}>Sincronización oficial ARCA</div>
-          <div style={{fontSize:11,color:"#8890a8",marginTop:3}}>Consulta desde {desde}. Importa facturas emitidas por WSFE y documentos disponibles por WSLPG. No emite, anula ni contabiliza.</div>
+          <div style={{fontSize:15,fontWeight:700}}>Sincronizacion oficial ARCA</div>
+          <div style={{fontSize:11,color:"#8890a8",marginTop:3}}>{esCpe?`Consulta WSCPE por plantas activas y destino desde ${desde}. Consolida CPE/CPEDG por CTG y guarda detalle, intervinientes, plantas y PDF.`:`Consulta desde ${desde}. Importa facturas emitidas por WSFE y documentos disponibles por WSLPG. No emite, anula ni contabiliza.`}</div>
         </div>
-        <Btn onClick={sincronizarDesdeArca} disabled={sincronizando}>{sincronizando?"Sincronizando...":"Sincronizar desde ARCA"}</Btn>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
+          {esCpe&&<Btn variant="secondary" onClick={importarListadoCtgArca} disabled={sincronizando}>Importar listado ARCA (CTG)</Btn>}
+          <Btn onClick={esCpe?sincronizarCpeDesdeArca:sincronizarDesdeArca} disabled={sincronizando}>{sincronizando?"Sincronizando...":esCpe?"Bajar CPE por destino":"Sincronizar desde ARCA"}</Btn>
+        </div>
       </div>
       {syncJobs.length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginTop:12}}>
         {syncJobs.map(job=><div key={job.id} style={{padding:10,background:"#11141d",borderRadius:7,fontSize:12}}>
@@ -11068,9 +11174,9 @@ const DocumentosArca = () => {
         </div>)}
       </div>}
       {syncError&&<div style={{marginTop:10,padding:10,background:"rgba(231,76,60,.12)",color:"#e74c3c",borderRadius:7}}>{syncError}</div>}
-      <div style={{fontSize:10,color:"#6f7892",marginTop:10}}>Las facturas recibidas y los formularios generados exclusivamente en servicios interactivos no se listan por WSFE/WSLPG: requieren su canal oficial específico o importación por COE/PDF.</div>
+      <div style={{fontSize:10,color:"#6f7892",marginTop:10}}>{esCpe?"Solo consulta. ARCA permite enumerar por destino y planta. Otras participaciones se completan por CTG sin duplicar documentos.":"Las facturas recibidas y los formularios generados exclusivamente en servicios interactivos no se listan por WSFE/WSLPG: requieren su canal oficial especifico o importacion por COE/PDF."}</div>
     </div>
-    <div className="card" style={{padding:"14px 16px",marginBottom:16}}>
+    <div className="card" style={{padding:"14px 16px",marginBottom:16,display:esCpe?"none":"block"}}>
       <div style={{display:"flex",justifyContent:"space-between",gap:16,alignItems:"flex-start",marginBottom:12}}>
         <div><div style={{fontSize:15,fontWeight:700}}>IVA Ventas · borrador de control</div><div style={{fontSize:11,color:"#8890a8",marginTop:3}}>Comprobantes WSFE emitidos. Requiere revisión humana antes de su presentación impositiva.</div></div>
         <Badge label={(ivaVentas.controlIntegridad?.observados||0)===0?"Integridad OK":`${ivaVentas.controlIntegridad?.observados||0} observados`} color={(ivaVentas.controlIntegridad?.observados||0)===0?"green":"red"}/>
@@ -11081,7 +11187,7 @@ const DocumentosArca = () => {
         )}
       </div>
     </div>
-    <div className="card" style={{padding:"14px 16px",marginBottom:16}}>
+    <div className="card" style={{padding:"14px 16px",marginBottom:16,display:esCpe?"none":"block"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,marginBottom:10}}>
         <div><div style={{fontSize:15,fontWeight:700}}>Conciliación ARCA → Cuenta corriente</div><div style={{fontSize:11,color:"#8890a8",marginTop:3}}>No genera movimientos sin confirmación humana. Solo modalidad FORMAL.</div></div>
         <div style={{fontSize:11,color:"#8890a8"}}>{ccConciliaciones.total||0} pendientes · {ccConciliaciones.posiblesDuplicados||0} posibles coincidencias · {ccConciliaciones.pendientesSinContraparte||0} sin contraparte</div>
@@ -11109,7 +11215,7 @@ const DocumentosArca = () => {
       </div>
     </div>
     <div className="card" style={{padding:"12px 14px",marginBottom:14,display:"grid",gridTemplateColumns:"2fr 1fr 1fr auto",gap:10,alignItems:"end"}}>
-      <div><label className="form-label">Buscar CUIT, contraparte o comprobante</label><input value={buscar} onChange={e=>setBuscar(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){setPagina(1);cargar(1);}}} placeholder="Ej: 30506792165"/></div>
+      <div><label className="form-label">{esCpe?"Buscar CTG":"Buscar CUIT, contraparte o comprobante"}</label><input value={buscar} onChange={e=>setBuscar(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){setPagina(1);cargar(1);}}} placeholder={esCpe?"Ej: 10134183216":"Ej: 30506792165"}/></div>
       <div><label className="form-label">Desde</label><input type="date" value={desde} onChange={e=>setDesde(e.target.value)}/></div>
       <div><label className="form-label">Hasta</label><input type="date" value={hasta} onChange={e=>setHasta(e.target.value)}/></div>
       <Btn onClick={()=>{setPagina(1);cargar(1);}}>Filtrar</Btn>
@@ -11117,10 +11223,16 @@ const DocumentosArca = () => {
     {error&&<div style={{padding:12,background:"rgba(231,76,60,.12)",color:"#e74c3c",borderRadius:7,marginBottom:12}}>{error}</div>}
     <div className="card" style={{overflow:"hidden"}}>
       <table style={{width:"100%",borderCollapse:"collapse"}}>
-        <thead><tr>{["Fecha","Comprobante","Receptor","Contraparte","Importe","Estado",""].map(h=><th key={h} style={{padding:"11px 12px",textAlign:"left",fontSize:10,color:"#8890a8",textTransform:"uppercase",borderBottom:"1px solid #2a2d3e"}}>{h}</th>)}</tr></thead>
+        <thead><tr>{(esCpe?["Fecha","CTG","Tipo","PDF",""]:["Fecha","Comprobante","Receptor","Contraparte","Importe","Estado",""]).map(h=><th key={h} style={{padding:"11px 12px",textAlign:"left",fontSize:10,color:"#8890a8",textTransform:"uppercase",borderBottom:"1px solid #2a2d3e"}}>{h}</th>)}</tr></thead>
         <tbody>
-          {!cargando&&documentos.length===0&&<tr><td colSpan="7" style={{padding:28,textAlign:"center",color:"#8890a8"}}>No hay comprobantes para estos filtros.</td></tr>}
-          {documentos.map(d=>{const p=d.payload||{};return <tr key={d.id} style={{borderBottom:"1px solid #252837"}}>
+          {!cargando&&documentos.length===0&&<tr><td colSpan={esCpe?5:7} style={{padding:28,textAlign:"center",color:"#8890a8"}}>No hay documentos para estos filtros.</td></tr>}
+          {documentos.map(d=>{const p=d.payload||{};if(esCpe)return <tr key={d.id} style={{borderBottom:"1px solid #252837"}}>
+            <td style={{padding:"10px 12px"}}>{d.document_date?String(d.document_date).slice(0,10):"-"}</td>
+            <td style={{padding:"10px 12px",fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{d.external_key}</td>
+            <td style={{padding:"10px 12px"}}>{p.tipoCpe||"CPE / CPEDG"}</td>
+            <td style={{padding:"10px 12px"}}><Badge label={d.tiene_pdf?"PDF guardado":"PDF pendiente"} color={d.tiene_pdf?"green":"red"}/></td>
+            <td style={{padding:"10px 12px"}}><div style={{display:"flex",gap:6}}><Btn variant="secondary" onClick={()=>setDetalle(d)}>Ver</Btn>{d.tiene_pdf&&<Btn onClick={()=>abrirPdfOficial(d)}>PDF</Btn>}</div></td>
+          </tr>;return <tr key={d.id} style={{borderBottom:"1px solid #252837"}}>
             <td style={{padding:"10px 12px"}}>{d.document_date?String(d.document_date).slice(0,10):"-"}</td>
             <td style={{padding:"10px 12px"}}><div style={{fontWeight:600}}>{tipoNombre(p.CbteTipo)}</div><div style={{fontSize:11,color:"#8890a8"}}>PV {p.PtoVta} · N° {p.CbteDesde}</div></td>
             <td style={{padding:"10px 12px",fontFamily:"'IBM Plex Mono',monospace"}}>{p.DocNro||"-"}</td>
@@ -11136,15 +11248,23 @@ const DocumentosArca = () => {
         <div style={{display:"flex",gap:7}}><Btn variant="secondary" disabled={pagina<=1} onClick={()=>setPagina(v=>Math.max(1,v-1))}>Anterior</Btn><Btn variant="secondary" disabled={pagina>=(paginacion.paginas||1)} onClick={()=>setPagina(v=>v+1)}>Siguiente</Btn></div>
       </div>
     </div>
-    {detalle&&<Modal title="Detalle del comprobante ARCA" onClose={()=>setDetalle(null)}>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+    {detalle&&<Modal title={esCpe?"Detalle CPE / CPEDG":"Detalle del comprobante ARCA"} onClose={()=>setDetalle(null)}>
+      {esCpe?<div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <FF label="CTG"><div style={{fontFamily:"monospace",fontWeight:700}}>{detalle.external_key}</div></FF><FF label="Fecha"><div>{String(detalle.document_date||"").slice(0,10)||"-"}</div></FF>
+          <FF label="Tipo"><div>{detalle.payload?.tipoCpe||"CPE / CPEDG"}</div></FF><FF label="PDF"><div>{detalle.tiene_pdf?"Guardado y verificado":"No disponible"}</div></FF>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:14}}>{detalle.tiene_pdf&&<Btn onClick={()=>abrirPdfOficial(detalle)}>Abrir PDF oficial</Btn>}</div>
+        <div style={{marginTop:14}}><div className="form-label">Datos oficiales completos</div><pre style={{maxHeight:360,overflow:"auto",padding:12,background:"#0d1017",border:"1px solid #252837",borderRadius:7,fontSize:11,whiteSpace:"pre-wrap"}}>{JSON.stringify(detalle.payload?.detalle||detalle.payload,null,2)}</pre></div>
+        <div style={{marginTop:14,fontSize:11,color:"#565d7a"}}>Hash SHA-256: {detalle.payload_hash}</div>
+      </div>:<React.Fragment><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
         <FF label="Tipo"><div>{tipoNombre(detalle.payload?.CbteTipo)}</div></FF><FF label="Fecha"><div>{String(detalle.document_date||"").slice(0,10)}</div></FF>
         <FF label="Punto de venta / número"><div>{detalle.payload?.PtoVta} / {detalle.payload?.CbteDesde}</div></FF><FF label="CUIT receptor"><div>{detalle.payload?.DocNro||"-"}</div></FF>
         <FF label="Importe total"><div>{money(detalle.payload?.ImpTotal)}</div></FF><FF label="Moneda"><div>{detalle.payload?.MonId||"-"} · Cotización {detalle.payload?.MonCotiz||"-"}</div></FF>
         <FF label="Neto gravado"><div>{money(detalle.payload?.ImpNeto)}</div></FF><FF label="IVA"><div>{money(detalle.payload?.ImpIVA)}</div></FF>
         <FF label="Exento / no gravado"><div>{money(detalle.payload?.ImpOpEx)} / {money(detalle.payload?.ImpTotConc)}</div></FF><FF label="Otros tributos"><div>{money(detalle.payload?.ImpTrib)}</div></FF>
         <FF label="Contraparte"><div>{detalle.contraparte_razon_social||"Pendiente de alta"}</div></FF><FF label="Código de autorización"><div style={{fontFamily:"monospace"}}>{detalle.payload?.CodAutorizacion||"-"}</div></FF>
-      </div><div style={{marginTop:14,fontSize:11,color:"#565d7a"}}>Hash SHA-256: {detalle.payload_hash}</div>
+      </div><div style={{marginTop:14,fontSize:11,color:"#565d7a"}}>Hash SHA-256: {detalle.payload_hash}</div></React.Fragment>}
     </Modal>}
   </div>;
 };
@@ -12134,7 +12254,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.7.1 — GranoSYS - INVDELSAL</div>
+          v2.7.2 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -13545,7 +13665,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.7.1 — GranoSYS - <span
+            v2.7.2 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>

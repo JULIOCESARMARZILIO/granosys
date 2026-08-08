@@ -12,7 +12,7 @@
 
 - WSFE: facturas emitidas. Primera sincronización desde 2026-01-01.
 - WSCDC: constatación de comprobantes conocidos; no ofrece listado masivo de recibidos.
-- WSCPE: cartas de porte emitidas, recibidas e intervinientes.
+- WSCPE: detalle y PDF por CTG; enumeracion historica por destino/planta y consolidacion de otros roles desde listados oficiales.
 - WSLPG: liquidaciones primarias y secundarias, ajustes y certificados electrónicos.
 - Portal IVA / Libro IVA Digital: complemento para comprobantes recibidos.
 
@@ -30,9 +30,12 @@
 - Primera sincronización WSFE completada: 181 comprobantes emitidos desde 2026-01-01, sin errores.
 - Implementada sincronización por lotes de facturas emitidas con trabajo en segundo plano.
 - Implementada pantalla de consulta de documentos ARCA con filtros, detalle, hash y conciliación por CUIT.
-- Las contrapartes existentes se vinculan por CUIT normalizado. Las faltantes quedan como propuestas pendientes; no se crean silenciosamente.
+- En WSFE las contrapartes existentes se vinculan por CUIT normalizado y las faltantes quedan pendientes de decision humana.
+- En CPE, por autorizacion funcional expresa, cada interviniente oficial se vincula por CUIT y puede crear el maestro FORMAL si ARCA devuelve razon social; la importacion nunca crea movimientos de cuenta corriente.
 - Implementada sincronización consultiva WSLPG por punto de emisión para LPG, LSG, ajustes incluidos y certificaciones electrónicas.
-- Pendiente: identificar todos los puntos de emisión WSLPG utilizados, sincronizador WSCPE, importación Portal IVA y flujo de aprobación reforzado.
+- Implementado sincronizador WSCPE de solo consulta con identidad global por CTG, detalle completo, intervinientes, plantas, PDF y auditoria append-only.
+- Implementada enumeracion WSCPE por destino/planta desde 2026-02-01 y carga masiva de la columna CTG de archivos oficiales para remitente comercial u otros roles no enumerables por el Web Service.
+- Pendiente: identificar todos los puntos de emisión WSLPG utilizados, importación Portal IVA y flujo de aprobación reforzado.
 
 ## Control fiscal de IVA Ventas
 
@@ -58,3 +61,4 @@
 
 - WSLPG recupera por punto de emisión y número de orden los documentos emitidos por la CUIT representada.
 - Los documentos recibidos no disponen de un listado masivo equivalente en WSFE/WSCDC. Se integrarán mediante Portal IVA / Libro IVA Digital y luego se validarán contra los servicios oficiales.
+- WSCPE no publica una consulta historica general por CUIT/rol. `consultarCPEPorDestino` solo enumera la calidad destino para planta y rango de fechas; remitente comercial y otros roles requieren obtener los CTG del listado oficial interactivo y luego consultar cada documento por WSCPE.

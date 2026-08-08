@@ -870,16 +870,36 @@ const WSCPE_DETAIL_METHODS = Object.freeze([
   { method: 'consultarCPEDuctos', element: 'ConsultarCPEDuctosReq', tipo: 'DUCTOS_DG' }
 ]);
 
+function wscpeTargets(production) {
+  const currentUrl = production
+    ? 'https://cpea-ws.arca.gob.ar/wscpe/services/soap'
+    : 'https://cpea-ws-qaext.arca.gob.ar/wscpe/services/soap';
+  const legacyUrl = production
+    ? 'https://cpea-ws.afip.gob.ar/wscpe/services/soap'
+    : 'https://cpea-ws-qaext.afip.gob.ar/wscpe/services/soap';
+  return [
+    { url: legacyUrl, namespace: 'https://serviciosjava.afip.gob.ar/wscpe/' },
+    { url: legacyUrl, namespace: 'http://serviciosjava.afip.gob.ar/wscpe/' },
+    { url: currentUrl, namespace: 'https://serviciosjava.arca.gob.ar/wscpe/' },
+    { url: currentUrl, namespace: 'http://serviciosjava.arca.gob.ar/wscpe/' },
+    { url: currentUrl, namespace: 'https://serviciosjava.afip.gob.ar/wscpe/' }
+  ];
+}
+
 async function wscpeCall(definition, requestXml) {
   const config = getConfig();
   const ticket = await getTicket('wscpe');
-  const url = config.production
-    ? 'https://cpea-ws.afip.gob.ar/wscpe/services/soap'
-    : 'https://fwshomo.afip.gov.ar/wscpe/services/soap';
-  const namespace = 'https://serviciosjava.afip.gob.ar/wscpe/';
   const auth = `<auth><token>${xmlEscape(ticket.token)}</token><sign>${xmlEscape(ticket.sign)}</sign><cuitRepresentada>${config.cuit}</cuitRepresentada></auth>`;
-  const envelope = `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wsc="${namespace}"><soapenv:Header/><soapenv:Body><wsc:${definition.element}>${auth}<solicitud>${requestXml}</solicitud></wsc:${definition.element}></soapenv:Body></soapenv:Envelope>`;
-  return soapPost(url, `${namespace}${definition.method}`, envelope);
+  const failures = [];
+  for (const target of wscpeTargets(config.production)) {
+    const envelope = `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wsc="${target.namespace}"><soapenv:Header/><soapenv:Body><wsc:${definition.element}>${auth}<solicitud>${requestXml}</solicitud></wsc:${definition.element}></soapenv:Body></soapenv:Envelope>`;
+    try {
+      return await soapPost(target.url, `${target.namespace}${definition.method}`, envelope);
+    } catch (error) {
+      failures.push(`${new URL(target.url).hostname} ${target.namespace}: ${error.message}`);
+    }
+  }
+  throw new Error(`WSCPE no respondio con ningun endpoint oficial: ${failures.join(' | ')}`);
 }
 
 function erroresWscpe(xml) {
@@ -931,6 +951,93 @@ async function consultarCpePorCtg(ctg) {
     }
   }
   throw new Error(`WSCPE no encontró el CTG ${safeCtg}. ${errors.join(' | ')}`);
+}
+
+function validarFechaIso(value, label) {
+  const text = String(value || '');
+  const parsed = new Date(`${text}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)
+      || Number.isNaN(parsed.getTime())
+      || parsed.toISOString().slice(0, 10) !== text) {
+    throw new Error(`${label} debe usar formato AAAA-MM-DD.`);
+  }
+  return text;
+}
+
+function sumarDiasIso(value, days) {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function rangosWscpe(desde, hasta, diasPorRango = 31) {
+  const result = [];
+  let cursor = validarFechaIso(desde, 'La fecha desde');
+  const end = validarFechaIso(hasta, 'La fecha hasta');
+  if (cursor > end) throw new Error('La fecha desde no puede ser posterior a la fecha hasta.');
+  while (cursor <= end) {
+    const candidate = sumarDiasIso(cursor, diasPorRango - 1);
+    const rangeEnd = candidate < end ? candidate : end;
+    result.push({ desde: cursor, hasta: rangeEnd });
+    cursor = sumarDiasIso(rangeEnd, 1);
+  }
+  return result;
+}
+
+function esRespuestaSinResultadosWscpe(errors) {
+  return errors.length > 0 && errors.every(message =>
+    /no (?:se )?(?:encontr|hall)|sin (?:datos|resultados)|no existen/i.test(message)
+  );
+}
+
+async function consultarPlantasWscpe(cuitConsultar = null) {
+  const config = getConfig();
+  const cuit = normalizarCuit(cuitConsultar || config.cuit);
+  if (!cuit) throw new Error('El CUIT para consultar plantas debe tener 11 digitos.');
+  const xml = await wscpeCall(
+    { method: 'consultarPlantas', element: 'ConsultarPlantasReq' },
+    `<cuit>${cuit}</cuit>`
+  );
+  const respuesta = tag(xml, 'respuesta') || xml;
+  const errors = erroresWscpe(respuesta);
+  if (errors.length && !esRespuestaSinResultadosWscpe(errors)) {
+    throw new Error(`WSCPE consultarPlantas: ${errors.join(' | ')}`);
+  }
+  const plantas = tags(respuesta, 'planta').map(item => ({
+    nroPlanta: normalizarNumeroPlanta(tag(item, 'nroPlanta')),
+    codProvincia: tag(item, 'codProvincia') || null,
+    codLocalidad: tag(item, 'codLocalidad') || null,
+    latitud: tag(item, 'latitud') || null,
+    longitud: tag(item, 'longitud') || null,
+    ubicacionGeoreferencial: tag(item, 'ubicacionGeoreferencial') || null
+  })).filter(item => item.nroPlanta);
+  return [...new Map(plantas.map(item => [item.nroPlanta, item])).values()];
+}
+
+async function consultarCpesDestinoWscpe({ planta, desde, hasta, tipoCartaPorte = null }) {
+  const nroPlanta = normalizarNumeroPlanta(planta);
+  if (!nroPlanta) throw new Error('El numero de planta es obligatorio.');
+  const fechaDesde = validarFechaIso(desde, 'La fecha desde');
+  const fechaHasta = validarFechaIso(hasta, 'La fecha hasta');
+  const tipoXml = tipoCartaPorte
+    ? `<tipoCartaPorte>${xmlEscape(String(tipoCartaPorte))}</tipoCartaPorte>`
+    : '';
+  const xml = await wscpeCall(
+    { method: 'consultarCPEPorDestino', element: 'ConsultarCPEPorDestinoReq' },
+    `<planta>${xmlEscape(nroPlanta)}</planta><fechaPartidaDesde>${fechaDesde}</fechaPartidaDesde><fechaPartidaHasta>${fechaHasta}</fechaPartidaHasta>${tipoXml}`
+  );
+  const respuesta = tag(xml, 'respuesta') || xml;
+  const errors = erroresWscpe(respuesta);
+  if (errors.length && !esRespuestaSinResultadosWscpe(errors)) {
+    throw new Error(`WSCPE consultarCPEPorDestino planta ${nroPlanta}: ${errors.join(' | ')}`);
+  }
+  return tags(respuesta, 'cartaPorte').map(item => ({
+    ctg: String(tag(item, 'nroCTG') || '').replace(/\D/g, ''),
+    fechaPartida: tag(item, 'fechaPartida') || null,
+    estado: tag(item, 'estado') || null,
+    fechaUltimaModificacion: tag(item, 'fechaUltimaModificacion') || null,
+    nroPlanta
+  })).filter(item => /^\d{8,20}$/.test(item.ctg));
 }
 
 async function importarCpePorCtg(ctg, context = {}) {
@@ -1343,6 +1450,92 @@ async function iniciarSyncCpePorCtg({ ctgs = [], desde = '2026-02-01', userId = 
   return { id, fuente: 'WSCPE_CPE', desde, totalCtgs: safeCtgs.length, estado: 'PENDIENTE' };
 }
 
+async function ejecutarSyncCpeDestino(jobId, { desde, hasta, userId = null }) {
+  await pool.query("UPDATE arca_sync_jobs SET estado='EJECUTANDO', started_at=NOW() WHERE id=$1", [jobId]);
+  const errores = [];
+  let importados = 0;
+  let revisados = 0;
+  try {
+    const config = getConfig();
+    const plantas = await consultarPlantasWscpe(config.cuit);
+    if (!plantas.length) {
+      throw new Error(`ARCA no informo plantas activas para el CUIT ${config.cuit}.`);
+    }
+
+    const ctgs = new Set();
+    for (const planta of plantas) {
+      for (const rango of rangosWscpe(desde, hasta)) {
+        try {
+          const cartas = await consultarCpesDestinoWscpe({
+            planta: planta.nroPlanta,
+            desde: rango.desde,
+            hasta: rango.hasta
+          });
+          cartas.forEach(item => ctgs.add(item.ctg));
+        } catch (error) {
+          errores.push({
+            fase: 'LISTADO',
+            planta: planta.nroPlanta,
+            desde: rango.desde,
+            hasta: rango.hasta,
+            error: error.message
+          });
+        }
+      }
+    }
+
+    for (const ctg of ctgs) {
+      revisados += 1;
+      try {
+        await importarCpePorCtg(ctg, { jobId, userId });
+        importados += 1;
+      } catch (error) {
+        errores.push({ fase: 'DETALLE', ctg, error: error.message });
+      }
+      await pool.query(`
+        UPDATE arca_sync_jobs SET total_importados=$1,total_revisados=$2 WHERE id=$3
+      `, [importados, revisados, jobId]);
+    }
+
+    const estado = errores.length ? (importados ? 'PARCIAL' : 'ERROR') : 'COMPLETADO';
+    await pool.query(`
+      UPDATE arca_sync_jobs
+      SET estado=$1,total_importados=$2,total_revisados=$3,error=$4,finished_at=NOW()
+      WHERE id=$5
+    `, [estado, importados, revisados, errores.length ? JSON.stringify(errores).slice(0, 20000) : null, jobId]);
+  } catch (error) {
+    await pool.query(`
+      UPDATE arca_sync_jobs
+      SET estado='ERROR',total_importados=$1,total_revisados=$2,error=$3,finished_at=NOW()
+      WHERE id=$4
+    `, [importados, revisados, error.message, jobId]);
+  }
+}
+
+async function iniciarSyncCpeDestino({
+  desde = '2026-02-01',
+  hasta = new Date().toISOString().slice(0, 10),
+  userId = null
+} = {}) {
+  const fechaDesde = validarFechaIso(desde, 'La fecha desde');
+  const fechaHasta = validarFechaIso(hasta, 'La fecha hasta');
+  if (fechaDesde > fechaHasta) throw new Error('La fecha desde no puede ser posterior a la fecha hasta.');
+  await ensureSyncTables();
+  const id = crypto.randomUUID();
+  await pool.query(`
+    INSERT INTO arca_sync_jobs(id,fuente,desde,estado,solicitado_por)
+    VALUES($1,'WSCPE_DESTINO',$2,'PENDIENTE',$3)
+  `, [id, fechaDesde, userId]);
+  setImmediate(() => void ejecutarSyncCpeDestino(id, { desde: fechaDesde, hasta: fechaHasta, userId }));
+  return {
+    id,
+    fuente: 'WSCPE_DESTINO',
+    desde: fechaDesde,
+    hasta: fechaHasta,
+    estado: 'PENDIENTE'
+  };
+}
+
 async function obtenerResumenDocumentos() {
   await ensureSyncTables();
   const { rows } = await pool.query(`
@@ -1413,7 +1606,11 @@ async function listarDocumentosOficiales({
            d.payload, d.payload_hash,
            d.first_imported_at, d.last_seen_at,
            cp.id AS contraparte_id, cp.razon_social AS contraparte_razon_social,
-           cp.cuit AS contraparte_cuit
+           cp.cuit AS contraparte_cuit,
+           EXISTS(
+             SELECT 1 FROM arca_official_files f
+             WHERE f.document_id=d.id AND f.file_type='PDF'
+           ) AS tiene_pdf
     ${baseJoin}
     WHERE ${where}
     ORDER BY d.document_date DESC NULLS LAST, d.id DESC
@@ -1811,6 +2008,9 @@ module.exports = {
   iniciarSyncWslpg,
   importarWslpgPorCoe,
   iniciarSyncCpePorCtg,
+  iniciarSyncCpeDestino,
+  consultarPlantasWscpe,
+  consultarCpesDestinoWscpe,
   consultarCpePorCtg,
   importarCpePorCtg,
   obtenerPdfDocumento,
@@ -1841,6 +2041,9 @@ module.exports = {
     normalizarNumeroPlanta,
     tipoContrapartePorRol,
     parsearPersonaPadronA13,
+    validarFechaIso,
+    rangosWscpe,
+    wscpeTargets,
     getConfig,
     validateCredentials
   }

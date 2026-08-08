@@ -115,6 +115,22 @@ router.post('/sync/cpe-por-ctg', async (req, res) => {
   }
 });
 
+// Enumera las plantas activas del CUIT representado, lista las CPE recibidas
+// como destino por rango de fechas y consolida cada CTG con su detalle y PDF.
+// Es una operacion exclusivamente de consulta: no acepta, rechaza ni modifica CPE.
+router.post('/sync/cpe-destino', async (req, res) => {
+  try {
+    const job = await arcaOfficialClient.iniciarSyncCpeDestino({
+      desde: req.body?.desde || '2026-02-01',
+      hasta: req.body?.hasta || new Date().toISOString().slice(0, 10),
+      userId: req.user?.id || null
+    });
+    res.status(202).json({ ok: true, job, soloConsulta: true });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/documentos/:id/pdf', async (req, res) => {
   try {
     const file = await arcaOfficialClient.obtenerPdfDocumento(req.params.id);

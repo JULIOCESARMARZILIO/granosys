@@ -109,4 +109,23 @@ describe('arcaOfficialClient XML helpers', () => {
     expect(client._internal.tipoContrapartePorRol('PRODUCTOR')).toBe('PRODUCTOR');
     expect(client._internal.tipoContrapartePorRol('DESTINATARIO')).toBe('COMPRADOR');
   });
+
+  test('splits the historical WSCPE query into inclusive 31-day ranges', () => {
+    expect(client._internal.rangosWscpe('2026-02-01', '2026-04-05')).toEqual([
+      { desde: '2026-02-01', hasta: '2026-03-03' },
+      { desde: '2026-03-04', hasta: '2026-04-03' },
+      { desde: '2026-04-04', hasta: '2026-04-05' }
+    ]);
+  });
+
+  test('preserves the proven WSCPE target and includes ARCA domain compatibility', () => {
+    const targets = client._internal.wscpeTargets(true);
+    expect(targets[0]).toEqual({
+      url: 'https://cpea-ws.afip.gob.ar/wscpe/services/soap',
+      namespace: 'https://serviciosjava.afip.gob.ar/wscpe/'
+    });
+    expect(targets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ url: 'https://cpea-ws.arca.gob.ar/wscpe/services/soap' })
+    ]));
+  });
 });
