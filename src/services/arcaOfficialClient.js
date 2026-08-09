@@ -970,7 +970,10 @@ function sumarDiasIso(value, days) {
   return date.toISOString().slice(0, 10);
 }
 
-function rangosWscpe(desde, hasta, diasPorRango = 31) {
+// ARCA WSCPE rechaza consultarCPEPorDestino cuando el intervalo inclusivo
+// supera tres dias (error 2152). Mantener este limite en un solo lugar evita
+// que una sincronizacion historica falle completa por usar bloques mensuales.
+function rangosWscpe(desde, hasta, diasPorRango = 3) {
   const result = [];
   let cursor = validarFechaIso(desde, 'La fecha desde');
   const end = validarFechaIso(hasta, 'La fecha hasta');
