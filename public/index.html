@@ -10911,18 +10911,33 @@ const DocumentosArca = () => {
       const params=new URLSearchParams({fuente:fuenteSolicitada,desde,pagina:String(paginaSolicitada),limite:"50"});
       if(hasta) params.set("hasta",hasta);
       if(buscar.trim()) params.set("buscar",buscar.trim());
+      const obtenerDocumentos=async()=>{
+        let respuesta=null;
+        for(let intento=0;intento<3&&!respuesta;intento+=1) {
+          respuesta=await api.get(`/api/arca/documentos?${params.toString()}`);
+          if(!respuesta&&intento<2) await new Promise(resolve=>setTimeout(resolve,600));
+        }
+        if(!respuesta) throw new Error("La lista de Documentos ARCA no respondio. La sincronizacion puede continuar; usa Actualizar para reintentar la consulta.");
+        return respuesta;
+      };
+      if(fuenteSolicitada==="WSCPE_CPE") {
+        const docs=await obtenerDocumentos();
+        setDocumentos(docs?.documentos||[]);
+        setPaginacion(docs?.paginacion||{pagina:1,paginas:1,total:0});
+        return;
+      }
       const ivaParams=new URLSearchParams({desde});
       if(hasta) ivaParams.set("hasta",hasta);
       const [docs,concil,iva,ccConcil]=await Promise.all([
-        api.get(`/api/arca/documentos?${params.toString()}`),
+        obtenerDocumentos(),
         api.get("/api/arca/documentos/conciliacion-contrapartes"),
         api.get(`/api/arca/documentos/iva-ventas/resumen?${ivaParams.toString()}`),
         api.get(`/api/arca/cc/conciliaciones?${ivaParams.toString()}&estado=PENDIENTE&limite=200`)
       ]);
-      setDocumentos(docs.documentos||[]);
-      setPaginacion(docs.paginacion||{pagina:1,paginas:1,total:0});
-      setConciliacion(concil);
-      setIvaVentas(iva.resultado||{totales:{},periodos:[],alicuotas:[],tributos:[],controlIntegridad:{observados:0}});
+      setDocumentos(docs?.documentos||[]);
+      setPaginacion(docs?.paginacion||{pagina:1,paginas:1,total:0});
+      setConciliacion(concil||{totalCuits:0,vinculadas:0,pendientes:0});
+      setIvaVentas(iva?.resultado||{totales:{},periodos:[],alicuotas:[],tributos:[],controlIntegridad:{observados:0}});
       setCcConciliaciones(ccConcil?.resultado||{total:0,pendientesSinContraparte:0,posiblesDuplicados:0,conciliaciones:[]});
     } catch(e) { setError(e.message||"No se pudieron cargar los documentos ARCA."); }
     finally { setCargando(false); }
@@ -11015,7 +11030,11 @@ const DocumentosArca = () => {
   const esperarSync = async job => {
     for(let intento=0;intento<180;intento+=1) {
       const respuesta=await api.get(`/api/arca/sync/${job.id}`);
-      const actual=respuesta.job||job;
+      if(!respuesta?.job) {
+        await new Promise(resolve=>setTimeout(resolve,2000));
+        continue;
+      }
+      const actual=respuesta.job;
       setSyncJobs(prev=>prev.map(item=>item.id===actual.id?actual:item));
       if(["COMPLETADO","PARCIAL","ERROR"].includes(actual.estado)) return actual;
       await new Promise(resolve=>setTimeout(resolve,2000));
@@ -12254,7 +12273,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.7.3 — GranoSYS - INVDELSAL</div>
+          v2.7.4 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -13665,7 +13684,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.7.3 — GranoSYS - <span
+            v2.7.4 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
