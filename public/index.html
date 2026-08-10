@@ -2779,8 +2779,108 @@ const VinculacionMovimientos = ({modulo, onVolver}) => {
   );
 };
 
+// ── REPORTES DE DESCARGA (desde la app móvil) ──
+// Llegan con foto de ticket + contraparte/comprador/observaciones desde el
+// celu, sin pasar todavía por ningún control. Acá se revisan uno por uno:
+// "Completar" abre el alta normal de Movimiento con esos datos precargados
+// (y la foto al lado para mirar); recién cuando se guarda el movimiento se
+// borra este reporte (foto incluida) — no se conservan a largo plazo.
+const ReportesDescarga = ({onVolver, onCompletar}) => {
+  const [reportes, setReportes] = useState(null);
+  const [cargando, setCargando] = useState(true);
+  const [abiertoId, setAbiertoId] = useState(null);
+  const [fotoAbierta, setFotoAbierta] = useState(null);
+  const [cargandoFoto, setCargandoFoto] = useState(false);
+
+  const cargar = async () => {
+    setCargando(true);
+    try {
+      const r = await api.get("/api/reportes-descarga");
+      setReportes(r || []);
+    } catch(e) { alert("Error al cargar: " + e.message); }
+    finally { setCargando(false); }
+  };
+  useEffect(()=>{ cargar(); }, []);
+
+  const toggleAbierto = async (r) => {
+    if (abiertoId === r.id) { setAbiertoId(null); setFotoAbierta(null); return; }
+    setAbiertoId(r.id);
+    setFotoAbierta(null);
+    setCargandoFoto(true);
+    try {
+      const detalle = await api.get(`/api/reportes-descarga/${r.id}`);
+      setFotoAbierta(detalle?.foto_base64 || null);
+    } catch(e) { /* si falla, se puede completar igual sin ver la foto */ }
+    finally { setCargandoFoto(false); }
+  };
+
+  const descartar = async (r) => {
+    if (!window.confirm(`¿Descartar este reporte sin crear un movimiento? Se borra la foto y no se puede deshacer.`)) return;
+    try {
+      await api.delete(`/api/reportes-descarga/${r.id}`);
+      cargar();
+    } catch(e) { alert("Error: " + e.message); }
+  };
+
+  return (
+    <div className="fade-in">
+      <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20}}>
+        <Btn variant="ghost" size="sm" onClick={onVolver}>← Volver a Movimientos</Btn>
+        <h2 style={{fontSize:18,fontWeight:700}}>Reportes de descarga pendientes</h2>
+      </div>
+      <div className="card" style={{marginBottom:16,padding:"14px 18px"}}>
+        <p style={{fontSize:12,color:"#8890a8",margin:0}}>
+          Lo que mandan desde la app del celu (foto del ticket + comprador + contraparte + observaciones). "Completar" abre el alta de movimiento con estos datos ya cargados — elegís Formal/Informal, revisás la foto y completás el resto. Al guardar, este reporte se borra solo.
+        </p>
+      </div>
+
+      {cargando ? (
+        <div style={{padding:40,textAlign:"center",color:"#8890a8"}}>Cargando...</div>
+      ) : (reportes && reportes.length === 0) ? (
+        <div className="card" style={{padding:40,textAlign:"center",color:"#8890a8"}}>No hay reportes pendientes.</div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {(reportes||[]).map(r=>(
+            <div className="card" key={r.id} style={{padding:0,overflow:"hidden"}}>
+              <div style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",cursor:"pointer"}} onClick={()=>toggleAbierto(r)}>
+                <div style={{flex:1,minWidth:200}}>
+                  <div style={{fontWeight:600}}>{r.contraparte_texto || "(sin contraparte)"}</div>
+                  <div style={{fontSize:12,color:"#8890a8"}}>
+                    Comprador: {r.comprador_nombre || "—"} · Patente: {r.patente_chasis || "—"} · {new Date(r.created_at).toLocaleString("es-AR")}
+                  </div>
+                  {r.lugar_descarga_sugerido && <div style={{fontSize:12,color:"#8890a8"}}>Lugar sugerido: {r.lugar_descarga_sugerido}</div>}
+                  {r.observaciones && <div style={{fontSize:12,color:"#8890a8",fontStyle:"italic"}}>"{r.observaciones}"</div>}
+                </div>
+                <div style={{fontSize:12,color:"#8890a8"}}>{r.usuario||"—"}</div>
+                <Btn size="sm" onClick={(e)=>{e.stopPropagation();onCompletar(r);}}>Completar →</Btn>
+                <Btn size="sm" variant="danger" onClick={(e)=>{e.stopPropagation();descartar(r);}}>Descartar</Btn>
+              </div>
+              {abiertoId === r.id && (
+                <div style={{padding:"0 16px 16px",borderTop:"1px solid #2a2d3e"}}>
+                  {cargandoFoto ? (
+                    <div style={{padding:20,textAlign:"center",color:"#8890a8"}}>Cargando foto...</div>
+                  ) : fotoAbierta ? (
+                    <img src={fotoAbierta} style={{maxWidth:"100%",maxHeight:500,borderRadius:8,marginTop:12}}/>
+                  ) : (
+                    <div style={{padding:20,textAlign:"center",color:"#8890a8"}}>No se pudo cargar la foto.</div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspecie, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec}) => {
   const [subTab,setSubTab]=useState("lista");
+  const [completandoReporteId,setCompletandoReporteId]=useState(null);
+  const [reportesPendientesCount,setReportesPendientesCount]=useState(0);
+  useEffect(()=>{
+    api.get("/api/reportes-descarga").then(d=>setReportesPendientesCount((d||[]).length)).catch(()=>{});
+  },[subTab]);
   const [showForm,setShowForm]=useState(false);
   const [showImport,setShowImport]=useState(false);
   const [showRapido,setShowRapido]=useState(false);
@@ -3112,6 +3212,10 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             calidad_valor_ajuste: calidadValorAjuste
           });
         }
+      }
+      if (completandoReporteId) {
+        try { await api.delete(`/api/reportes-descarga/${completandoReporteId}`); } catch(e2) {}
+        setCompletandoReporteId(null);
       }
       alert(selected ? "✓ Cambios guardados" : "✓ Movimiento creado exitosamente");
       setShowForm(false);
@@ -4192,6 +4296,27 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     return <VinculacionMovimientos modulo={modulo} onVolver={()=>setSubTab("lista")}/>;
   }
 
+  if (subTab === "reportes") {
+    return <ReportesDescarga onVolver={()=>setSubTab("lista")} onCompletar={(reporte)=>{
+      setSelected(null);
+      setMovForm({
+        ...movForm,
+        remitente_comercial_productor_nombre: reporte.contraparte_texto || "",
+        titular_cpe_nombre: reporte.contraparte_texto || "",
+        destinatario_nombre: reporte.comprador_nombre || "",
+        destinatario_cuit: reporte.comprador_cuit || "",
+        patente_chasis: reporte.patente_chasis || "",
+        peso_bruto_salida_kg: reporte.peso_bruto_kg || "",
+        peso_tara_salida_kg: reporte.peso_tara_kg || "",
+        localidad_destino: reporte.lugar_descarga_sugerido || "",
+        observaciones: reporte.observaciones || "",
+      });
+      setCompletandoReporteId(reporte.id);
+      setSubTab("lista");
+      setShowForm(true);
+    }}/>;
+  }
+
   return (
     <div className="fade-in">
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
@@ -4206,6 +4331,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             ))}
           </div>
           <Btn variant="secondary" size="sm" onClick={()=>setSubTab("vinculacion")}>🔗 Vinculación Formal/Informal</Btn>
+          <Btn variant="secondary" size="sm" onClick={()=>setSubTab("reportes")}>📋 Reportes pendientes{reportesPendientesCount>0?` (${reportesPendientesCount})`:""}</Btn>
         </div>
         <div style={{display:"flex",gap:8}}>
           <Btn variant="secondary" size="sm" onClick={()=>setShowRapido(true)}>⚡ Carga Rápida</Btn>

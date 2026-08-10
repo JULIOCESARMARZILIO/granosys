@@ -127,6 +127,25 @@ async function initDB() {
         UNIQUE(id_contraparte, id_ubicacion)
       );
 
+      -- Reportes de descarga mandados desde la app móvil (foto de ticket +
+      -- datos mínimos). Quedan pendientes hasta que alguien en la oficina
+      -- los revisa y confirma como movimiento real; la foto se borra junto
+      -- con la fila una vez procesado (no se conserva a largo plazo).
+      CREATE TABLE IF NOT EXISTS reportes_descarga (
+        id SERIAL PRIMARY KEY,
+        foto_base64 TEXT,
+        mime_type VARCHAR(50),
+        contraparte_texto VARCHAR(300),
+        id_comprador INTEGER REFERENCES contrapartes(id) ON DELETE SET NULL,
+        lugar_descarga_sugerido VARCHAR(200),
+        patente_chasis VARCHAR(20),
+        peso_bruto_kg NUMERIC(10,2),
+        peso_tara_kg NUMERIC(10,2),
+        observaciones TEXT,
+        usuario VARCHAR(100),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
       CREATE TABLE IF NOT EXISTS contratos (
         id SERIAL PRIMARY KEY,
         numero_contrato VARCHAR(30) NOT NULL UNIQUE,

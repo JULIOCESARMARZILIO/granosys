@@ -725,73 +725,49 @@
       </div>
     </div>
 
-    <!-- TAB 1: FORM (REGISTER DEPARTURE) -->
+    <!-- TAB 1: FORM (REPORTAR DESCARGA POR FOTO) -->
     <div id="tab-form" class="tab-content active">
-      
+
       <!-- SCANNER BUTTON -->
-      <button class="btn btn-scan" onclick="triggerCamera()">
+      <button class="btn btn-scan" onclick="triggerCamera()" id="btn-scan-label">
         <svg style="width:22px; height:22px; fill:currentColor" viewBox="0 0 24 24">
           <path d="M4 4h3V2H4c-1.1 0-2 .9-2 2v3h2V4zm16 0h-3v2h3v3h2V4c0-1.1-.9-2-2-2zm0 16h-3v2h3c1.1 0 2-.9 2-2v-3h-2v3zM4 20h3v2H4c-1.1 0-2-.9-2-2v-3h2v3zm12-8c0-2.21-1.79-4-4-4s-4 1.79-4 4 1.79 4 4 4 4-1.79 4-4zm-4 2c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/>
         </svg>
-        Tomar Foto a Ticket / CPE
+        Tomar Foto del Ticket
       </button>
       <input type="file" accept="image/*" capture="environment" id="camera-input" style="display: none;" onchange="processCapture(this)">
+
+      <div id="foto-preview-wrap" style="display:none; margin-bottom:16px;">
+        <img id="foto-preview" style="width:100%; border-radius:12px; border:1px solid var(--border);" />
+      </div>
 
       <div class="card">
         <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
           <span style="display:inline-block; width:6px; height:6px; background-color:var(--primary); border-radius:50%"></span>
-          Registro de Salida
+          Reportar Descarga
         </h3>
-
-        <!-- Form fields -->
-        <div class="form-row">
-          <div class="form-group">
-            <label for="modalidad">Canal / Modulo</label>
-            <select id="modalidad" onchange="onModalidadChange()">
-              <option value="INFORMAL">Informal</option>
-              <option value="FORMAL">Formal</option>
-            </select>
-          </div>
-          <div class="form-group" id="group-cpe" style="display: none;">
-            <label for="nro_cpe">N° CPE</label>
-            <input type="text" id="nro_cpe" placeholder="00000-00000000">
-          </div>
+        <div style="font-size:12px; color:var(--text-muted); margin-bottom:14px;">
+          Sacale la foto al ticket, completá lo que falte y enviá. Queda pendiente hasta que alguien en la oficina lo confirme como movimiento — ahí se elimina la foto.
         </div>
 
         <div class="form-group">
-          <label for="productor">Productor</label>
-          <select id="productor" onchange="onProductorChange()">
-            <option value="">Seleccionar productor...</option>
+          <label for="comprador">Comprador</label>
+          <select id="comprador">
+            <option value="">Seleccionar comprador...</option>
           </select>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label for="especie">Especie</label>
-            <select id="especie" onchange="onEspecieChange()">
-              <option value="Soja">Soja</option>
-              <option value="Trigo">Trigo</option>
-              <option value="Maíz">Maíz</option>
-              <option value="Girasol">Girasol</option>
-              <option value="Sorgo">Sorgo</option>
-              <option value="Cebada">Cebada</option>
-              <option value="Pellet de Cáscara de Soja">Pellet de Cáscara de Soja</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="campana">Campaña</label>
-            <select id="campana">
-              <option value="2024/2025">2024/2025</option>
-              <option value="2025/2026">2025/2026</option>
-            </select>
-          </div>
         </div>
 
         <div class="form-group">
-          <label for="contrato">Contrato de Compra</label>
-          <select id="contrato">
-            <option value="">Sin asignar (Posición abierta)</option>
-          </select>
+          <label for="contraparte_texto">Contraparte (quién descarga)</label>
+          <input type="text" id="contraparte_texto" list="lista-productores" placeholder="Nombre del productor / contraparte">
+          <datalist id="lista-productores"></datalist>
+        </div>
+
+        <div class="form-group">
+          <label for="lugar_descarga">Lugar de descarga</label>
+          <input type="text" id="lugar_descarga" list="lista-localidades" placeholder="Ej. 25 de Mayo, Chivilcoy">
+          <datalist id="lista-localidades"></datalist>
+          <div id="lugar-sugerencia" style="font-size:11px; color:var(--primary); margin-top:4px; display:none;"></div>
         </div>
 
         <div class="form-row">
@@ -799,40 +775,25 @@
             <label for="patente">Patente Chasis</label>
             <input type="text" id="patente" placeholder="AA496YI" style="text-transform: uppercase;">
           </div>
-          <div class="form-group">
-            <label for="humedad">Humedad (%)</label>
-            <input type="number" step="0.1" id="humedad" placeholder="13.5">
-          </div>
         </div>
 
         <div class="form-row">
           <div class="form-group">
-            <label for="bruto">Bruto Carga (kg)</label>
-            <input type="number" id="bruto" placeholder="52000" oninput="calcNeto()">
+            <label for="bruto">Bruto (kg)</label>
+            <input type="number" id="bruto" placeholder="52000">
           </div>
           <div class="form-group">
-            <label for="tara">Tara Camión (kg)</label>
-            <input type="number" id="tara" placeholder="17000" oninput="calcNeto()">
+            <label for="tara">Tara (kg)</label>
+            <input type="number" id="tara" placeholder="17000">
           </div>
         </div>
 
         <div class="form-group">
-          <label for="neto">Neto Carga (kg) - Calculado</label>
-          <input type="number" id="neto" readonly style="background-color: rgba(255,255,255,0.05); color: var(--text-muted);" placeholder="0">
+          <label for="observaciones">Observaciones</label>
+          <textarea id="observaciones" rows="3" placeholder="Cualquier dato extra que ayude a completarlo..."></textarea>
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label for="destino_nombre">Destino (Nombre / Razón Social)</label>
-            <input type="text" id="destino_nombre" placeholder="Ej. Cargill, ACA">
-          </div>
-          <div class="form-group">
-            <label for="localidad_destino">Localidad de Entrega</label>
-            <input type="text" id="localidad_destino" placeholder="Ej. Cañuelas, Quequén">
-          </div>
-        </div>
-
-        <button class="btn" style="margin-top: 10px;" id="btn-submit" onclick="submitMovement()">Registrar Salida de Camión</button>
+        <button class="btn" style="margin-top: 10px;" id="btn-submit" onclick="submitReporte()">Enviar Reporte de Descarga</button>
       </div>
 
     </div>
@@ -1047,6 +1008,10 @@
     let offlineQueue = [];
 
     let loggedInUser = "mobile-balanza";
+    let authToken = null;
+    function authHeaders() {
+      return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    }
 
     // ========== SERVICE WORKER REGISTRATION ==========
     if ('serviceWorker' in navigator) {
@@ -1160,10 +1125,16 @@
       }
     }
 
-    // Helper: fetch with offline fallback
+    // Helper: fetch with offline fallback. Siempre suma el header de
+    // autorizacion (salvo login, que todavia no tiene token).
     async function apiFetch(url, options = {}) {
+      const merged = { ...options, headers: { ...authHeaders(), ...(options.headers || {}) } };
       try {
-        const r = await fetch(url, options);
+        const r = await fetch(url, merged);
+        if (r.status === 401) {
+          cerrarSesion();
+          throw new Error('Sesión vencida, volvé a ingresar.');
+        }
         if (r.status === 202) {
           // SW queued it
           const data = await r.json();
@@ -1178,7 +1149,7 @@
           const entry = {
             id: Date.now() + '-' + Math.random().toString(36).slice(2),
             url, method: options.method,
-            headers: options.headers || {},
+            headers: merged.headers,
             body: options.body || '',
             timestamp: new Date().toISOString()
           };
@@ -1259,7 +1230,7 @@
       try {
         const r = await fetch(`${API_URL}/api/agent/chat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
           body: JSON.stringify({
             message: text,
             history: chatHistory.slice(-10),
@@ -1341,7 +1312,7 @@
     async function loadProposals(switchToTab = false) {
       const container = document.getElementById('proposals-container');
       try {
-        const r = await fetch(`${API_URL}/api/agent/proposals?estado=PENDIENTE`);
+        const r = await fetch(`${API_URL}/api/agent/proposals?estado=PENDIENTE`, { headers: authHeaders() });
         if (!r.ok) throw new Error('Error al cargar propuestas');
         proposals = await r.json();
 
@@ -1417,7 +1388,7 @@
       try {
         const r = await fetch(`${API_URL}/api/agent/proposals/${proposalId}/approve`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
           body: JSON.stringify({ usuario_aprobador: loggedInUser })
         });
         if (!r.ok) throw new Error(await r.text());
@@ -1438,7 +1409,7 @@
       try {
         const r = await fetch(`${API_URL}/api/agent/proposals/${proposalId}/reject`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
           body: JSON.stringify({ usuario_aprobador: loggedInUser, motivo: 'Rechazado desde app móvil' })
         });
         if (!r.ok) throw new Error(await r.text());
@@ -1456,39 +1427,42 @@
     window.addEventListener("DOMContentLoaded", async () => {
       updateOnlineStatus();
       await initOfflineDB();
+      const savedToken = localStorage.getItem("granosys_mobile_token");
       const savedUser = localStorage.getItem("granosys_mobile_user");
-      if (savedUser) {
+      if (savedToken && savedUser) {
+        authToken = savedToken;
         loggedInUser = savedUser;
         proceedToApp();
       }
     });
 
+    function cerrarSesion() {
+      authToken = null;
+      localStorage.removeItem("granosys_mobile_token");
+      localStorage.removeItem("granosys_mobile_user");
+      document.getElementById("app-container").style.display = "none";
+      document.getElementById("tab-bar").style.display = "none";
+      document.getElementById("ai-fab").style.display = "none";
+      document.getElementById("lock-screen").style.display = "flex";
+    }
+
     async function validateLogin() {
       const username = document.getElementById("login-username").value.trim();
       const password = document.getElementById("login-password").value.trim();
       const errorDiv = document.getElementById("lock-error");
-
-      if (!password) {
-        errorDiv.textContent = "Ingresá la contraseña o clave";
-        errorDiv.style.display = "block";
-        return;
-      }
-
-      // Check passcode bypass (case-insensitive and trimmed)
-      if (password.toLowerCase() === "invdelsal") {
-        loggedInUser = username || "mobile-balanza";
-        localStorage.setItem("granosys_mobile_user", loggedInUser);
-        proceedToApp();
-        return;
-      }
+      errorDiv.style.display = "none";
 
       if (!username) {
         errorDiv.textContent = "Ingresá el usuario";
         errorDiv.style.display = "block";
         return;
       }
+      if (!password) {
+        errorDiv.textContent = "Ingresá la contraseña";
+        errorDiv.style.display = "block";
+        return;
+      }
 
-      // Authenticate with server
       try {
         const r = await fetch(`${API_URL}/api/usuarios/login`, {
           method: "POST",
@@ -1501,7 +1475,10 @@
         }
 
         const data = await r.json();
-        loggedInUser = data.username || username;
+        if (!data.token) throw new Error("El servidor no devolvió un token válido.");
+        authToken = data.token;
+        loggedInUser = data.user?.usuario || username;
+        localStorage.setItem("granosys_mobile_token", authToken);
         localStorage.setItem("granosys_mobile_user", loggedInUser);
         proceedToApp();
       } catch (e) {
@@ -1525,7 +1502,9 @@
     async function initApp() {
       await fetchContrapartes();
       await fetchContratos();
-      populateProducers();
+      populateCompradores();
+      populateProductoresDatalist();
+      cargarLocalidadesConocidas();
       populateContractContrapartes();
       loadRecentMovements();
       loadProposals(); // load pending approvals count
@@ -1533,7 +1512,7 @@
 
     async function fetchContrapartes() {
       try {
-        const r = await fetch(`${API_URL}/api/contrapartes`);
+        const r = await fetch(`${API_URL}/api/contrapartes`, { headers: authHeaders() });
         contrapartes = await r.json();
       } catch (e) {
         console.error("Error fetching contrapartes:", e);
@@ -1542,23 +1521,76 @@
 
     async function fetchContratos() {
       try {
-        const r = await fetch(`${API_URL}/api/contratos`);
+        const r = await fetch(`${API_URL}/api/contratos`, { headers: authHeaders() });
         contratos = await r.json();
       } catch (e) {
         console.error("Error fetching contratos:", e);
       }
     }
 
-    function populateProducers() {
-      const select = document.getElementById("productor");
-      select.innerHTML = '<option value="">Seleccionar productor...</option>';
-      const filtered = contrapartes.filter(c => c.tipo_contraparte === "PRODUCTOR" || c.tipo_contraparte === "AMBOS");
+    function populateCompradores() {
+      const select = document.getElementById("comprador");
+      select.innerHTML = '<option value="">Seleccionar comprador...</option>';
+      const filtered = contrapartes.filter(c => c.tipo_contraparte === "COMPRADOR" || c.tipo_contraparte === "AMBOS");
       filtered.forEach(p => {
         const opt = document.createElement("option");
         opt.value = p.id;
         opt.textContent = p.razon_social;
         select.appendChild(opt);
       });
+    }
+
+    function populateProductoresDatalist() {
+      const dl = document.getElementById("lista-productores");
+      dl.innerHTML = "";
+      const filtered = contrapartes.filter(c => c.tipo_contraparte === "PRODUCTOR" || c.tipo_contraparte === "AMBOS");
+      filtered.forEach(p => {
+        const opt = document.createElement("option");
+        opt.value = p.razon_social;
+        dl.appendChild(opt);
+      });
+    }
+
+    // ========== LOCALIDADES CONOCIDAS (para sugerir "lugar de descarga") ==========
+    let localidadesConocidas = [];
+    async function cargarLocalidadesConocidas() {
+      try {
+        const r = await fetch(`${API_URL}/api/reportes-descarga/ref/localidades`, { headers: authHeaders() });
+        localidadesConocidas = await r.json();
+        const dl = document.getElementById("lista-localidades");
+        dl.innerHTML = "";
+        localidadesConocidas.forEach(l => {
+          const opt = document.createElement("option");
+          opt.value = l;
+          dl.appendChild(opt);
+        });
+      } catch (e) {
+        console.error("Error cargando localidades:", e);
+      }
+    }
+
+    // Match simple: normaliza (sin tildes/mayúsculas) y busca la localidad
+    // conocida que empiece igual o contenga el texto leído por el OCR.
+    // Es solo una sugerencia -- la persona que valida la confirma o corrige.
+    function normalizarTexto(s) {
+      return String(s || "").toLowerCase()
+        .normalize("NFD").replace(/[̀-ͯ]/g, "")
+        .replace(/[^a-z0-9\s]/g, "").trim();
+    }
+    function sugerirLocalidad(textoOcr) {
+      const norm = normalizarTexto(textoOcr);
+      if (!norm || norm.length < 3) return null;
+      let mejor = null, mejorScore = 0;
+      for (const loc of localidadesConocidas) {
+        const locNorm = normalizarTexto(loc);
+        if (!locNorm) continue;
+        let score = 0;
+        if (locNorm === norm) score = 100;
+        else if (locNorm.startsWith(norm) || norm.startsWith(locNorm)) score = 80;
+        else if (locNorm.includes(norm) || norm.includes(locNorm)) score = 60;
+        if (score > mejorScore) { mejorScore = score; mejor = loc; }
+      }
+      return mejorScore >= 60 ? mejor : null;
     }
 
     function onContractTipoChange() {
@@ -1594,55 +1626,6 @@
       document.getElementById("c_row_precio").style.display = val === "A_FIJAR" ? "none" : "flex";
     }
 
-    function onModalidadChange() {
-      const mod = document.getElementById("modalidad").value;
-      document.getElementById("group-cpe").style.display = mod === "FORMAL" ? "block" : "none";
-      updateContractsDropdown();
-    }
-
-    function onProductorChange() {
-      updateContractsDropdown();
-    }
-
-    function onEspecieChange() {
-      updateContractsDropdown();
-    }
-
-    function updateContractsDropdown() {
-      const prodId = document.getElementById("productor").value;
-      const mod = document.getElementById("modalidad").value;
-      const especie = document.getElementById("especie").value.toLowerCase();
-      
-      const select = document.getElementById("contrato");
-      select.innerHTML = '<option value="">Sin asignar (Posición abierta)</option>';
-      
-      const filtered = contratos.filter(c => {
-        // filter by type
-        if (c.tipo_contrato !== "COMPRA") return false;
-        // filter by modality
-        if (c.modalidad !== mod) return false;
-        // filter by producer (if selected)
-        if (prodId && c.id_contraparte !== parseInt(prodId)) return false;
-        // filter by especie
-        const espName = c.especie_nombre || '';
-        if (especie && !espName.toLowerCase().includes(especie)) return false;
-        return true;
-      });
-
-      filtered.forEach(c => {
-        const opt = document.createElement("option");
-        opt.value = c.id;
-        opt.textContent = `${c.numero_contrato} — ${c.contraparte_nombre || 'Contrato'} (${c.cantidad_toneladas_pactadas} tn)`;
-        select.appendChild(opt);
-      });
-    }
-
-    function calcNeto() {
-      const bruto = parseFloat(document.getElementById("bruto").value) || 0;
-      const tara = parseFloat(document.getElementById("tara").value) || 0;
-      document.getElementById("neto").value = bruto > tara ? (bruto - tara) : 0;
-    }
-
     function switchTab(tabId) {
       document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("active"));
       document.querySelectorAll(".tab-btn").forEach(el => el.classList.remove("active"));
@@ -1663,9 +1646,18 @@
     }
 
     // PROCESS THE CAPTURED IMAGE USING TESSERACT OCR
+    let fotoTicketFile = null; // archivo original elegido (para comprimir recien al enviar)
+
     function processCapture(input) {
       const file = input.files[0];
       if (!file) return;
+      fotoTicketFile = file;
+
+      const previewWrap = document.getElementById("foto-preview-wrap");
+      const preview = document.getElementById("foto-preview");
+      const previewUrl = URL.createObjectURL(file);
+      preview.src = previewUrl;
+      previewWrap.style.display = "block";
 
       const overlay = document.getElementById("ocr-overlay");
       const progressText = document.getElementById("ocr-progress");
@@ -1675,7 +1667,7 @@
       reader.onload = async function() {
         try {
           progressText.textContent = "Iniciando análisis OCR...";
-          
+
           const result = await Tesseract.recognize(
             this.result,
             'spa',
@@ -1688,53 +1680,35 @@
 
           const text = result.data.text;
           console.log("OCR parsed text:", text);
-          
-          // Parse values from OCR text using the system's regexes
+
           const parsed = parseTicketText(text);
           console.log("Extracted ticket info:", parsed);
 
-          // Autofill form
-          if (parsed.chasis) {
-            document.getElementById("patente").value = parsed.chasis.toUpperCase();
-          }
-          if (parsed.peso_bruto) {
-            document.getElementById("bruto").value = parsed.peso_bruto;
-          }
-          if (parsed.peso_tara) {
-            document.getElementById("tara").value = parsed.peso_tara;
-          }
-          if (parsed.peso_neto) {
-            document.getElementById("neto").value = parsed.peso_neto;
-          }
-          calcNeto();
+          if (parsed.chasis) document.getElementById("patente").value = parsed.chasis.toUpperCase();
+          if (parsed.peso_bruto) document.getElementById("bruto").value = parsed.peso_bruto;
+          if (parsed.peso_tara) document.getElementById("tara").value = parsed.peso_tara;
 
+          if (parsed.productor && !document.getElementById("contraparte_texto").value) {
+            document.getElementById("contraparte_texto").value = parsed.productor;
+          }
+
+          // Sugerir lugar de descarga comparando lo leido contra localidades conocidas
           if (parsed.destino) {
-            document.getElementById("localidad_destino").value = parsed.destino;
-          }
-
-          // Try to match Especie
-          if (parsed.especie) {
-            const especieSelect = document.getElementById("especie");
-            for (let i = 0; i < especieSelect.options.length; i++) {
-              if (especieSelect.options[i].value.toLowerCase().includes(parsed.especie.toLowerCase())) {
-                especieSelect.selectedIndex = i;
-                break;
-              }
-            }
-          }
-
-          // Try to match Productor by name
-          if (parsed.productor) {
-            const prodName = parsed.productor.toLowerCase();
-            const matchedProd = contrapartes.find(c => c.razon_social.toLowerCase().includes(prodName));
-            if (matchedProd) {
-              document.getElementById("productor").value = matchedProd.id;
-              onProductorChange();
+            const sugerida = sugerirLocalidad(parsed.destino);
+            const sugerenciaDiv = document.getElementById("lugar-sugerencia");
+            if (sugerida) {
+              document.getElementById("lugar_descarga").value = sugerida;
+              sugerenciaDiv.style.display = "block";
+              sugerenciaDiv.textContent = `Sugerido a partir del ticket ("${parsed.destino}") — verificá que sea correcto.`;
+            } else {
+              document.getElementById("lugar_descarga").value = parsed.destino;
+              sugerenciaDiv.style.display = "block";
+              sugerenciaDiv.textContent = `El ticket dice "${parsed.destino}" — no encontré una localidad conocida parecida, revisalo.`;
             }
           }
 
           overlay.style.display = "none";
-          alert("✓ Imagen escaneada exitosamente. Se completaron las patentes, pesos y datos disponibles. Por favor verifique los campos.");
+          showToast("✓ Ticket leído — revisá y completá los datos.", "success");
 
         } catch (err) {
           overlay.style.display = "none";
@@ -1743,6 +1717,27 @@
         }
       };
       reader.readAsDataURL(file);
+    }
+
+    // Comprime la foto (redimensiona + JPEG) antes de mandarla, para no
+    // guardar imagenes pesadas ni siquiera temporalmente.
+    function comprimirFoto(file, maxDim = 1400, calidad = 0.6) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > height && width > maxDim) { height = height * (maxDim / width); width = maxDim; }
+          else if (height > maxDim) { width = width * (maxDim / height); height = maxDim; }
+          const canvas = document.createElement("canvas");
+          canvas.width = width; canvas.height = height;
+          canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+          URL.revokeObjectURL(url);
+          resolve(canvas.toDataURL("image/jpeg", calidad));
+        };
+        img.onerror = reject;
+        img.src = url;
+      });
     }
 
     // REGEX TICKET PARSING ENGINE
@@ -1811,122 +1806,89 @@
       return result;
     };
 
-    // SUBMIT MOVEMENT TO BACKEND
+    // SUBMIT REPORTE DE DESCARGA (queda pendiente hasta que la oficina lo procese)
     let isSubmitting = false;
-    async function submitMovement() {
+    async function submitReporte() {
       if (isSubmitting) return;
 
-      const prodId = document.getElementById("productor").value;
+      if (!fotoTicketFile) return alert("Sacale primero la foto al ticket.");
+      const idComprador = document.getElementById("comprador").value;
+      if (!idComprador) return alert("Elegí el comprador.");
+
+      const contraparteTexto = document.getElementById("contraparte_texto").value.trim();
+      const lugarDescarga = document.getElementById("lugar_descarga").value.trim();
+      const patente = document.getElementById("patente").value.trim().toUpperCase();
       const bruto = document.getElementById("bruto").value;
       const tara = document.getElementById("tara").value;
-      
-      if (!prodId) return alert("Por favor seleccione un productor.");
-      if (!bruto || !tara) return alert("Por favor ingrese Bruto y Tara.");
-
-      const prod = contrapartes.find(c => c.id === parseInt(prodId));
-      const contratoId = document.getElementById("contrato").value;
-      const mod = document.getElementById("modalidad").value;
-      const cpe = document.getElementById("nro_cpe").value;
-      const patente = document.getElementById("patente").value.toUpperCase();
-      const humedad = document.getElementById("humedad").value;
-      const destinoNombre = document.getElementById("destino_nombre").value;
-      const localidadDestino = document.getElementById("localidad_destino").value;
-      const especie = document.getElementById("especie").value;
-      const campana = document.getElementById("campana").value;
-
-      const ESPECIES_LIST = ["Soja", "Trigo", "Maíz", "Girasol", "Sorgo", "Cebada", "Pellet de Cáscara de Soja"];
-      const espId = ESPECIES_LIST.indexOf(especie) + 1;
-      
-      const CAMPANAS_LIST = ["2024/2025", "2025/2026"];
-      const campId = CAMPANAS_LIST.indexOf(campana) + 1;
-
-      const payload = {
-        modalidad: mod,
-        id_contrato_compra: contratoId ? parseInt(contratoId) : null,
-        nro_cpe: cpe || null,
-        titular_cpe_cuit: prod.cuit || null,
-        titular_cpe_nombre: prod.razon_social || null,
-        remitente_comercial_productor_cuit: prod.cuit || null,
-        remitente_comercial_productor_nombre: prod.razon_social || null,
-        destinatario_cuit: "30111111118",
-        destinatario_nombre: "BIOGEN21",
-        flete_pagador_cuit: prod.cuit || null,
-        flete_pagador_nombre: prod.razon_social || null,
-        id_especie: espId > 0 ? espId : 1,
-        id_campana: campId > 0 ? campId : 2,
-        patente_chasis: patente || null,
-        peso_bruto_salida_kg: parseFloat(bruto),
-        peso_tara_salida_kg: parseFloat(tara),
-        humedad_salida_pct: humedad ? parseFloat(humedad) : 13.5,
-        destino_nombre: destinoNombre || null,
-        localidad_destino: localidadDestino || null,
-        usuario_carga: loggedInUser
-      };
+      const observaciones = document.getElementById("observaciones").value.trim();
 
       const btn = document.getElementById("btn-submit");
       btn.disabled = true;
-      btn.textContent = "Registrando...";
+      btn.textContent = "Enviando...";
       isSubmitting = true;
 
       try {
-        const r = await apiFetch(`${API_URL}/api/movimientos`, {
+        const fotoBase64 = await comprimirFoto(fotoTicketFile);
+
+        const payload = {
+          foto_base64: fotoBase64,
+          mime_type: "image/jpeg",
+          contraparte_texto: contraparteTexto || null,
+          id_comprador: parseInt(idComprador),
+          lugar_descarga_sugerido: lugarDescarga || null,
+          patente_chasis: patente || null,
+          peso_bruto_kg: bruto ? parseFloat(bruto) : null,
+          peso_tara_kg: tara ? parseFloat(tara) : null,
+          observaciones: observaciones || null
+        };
+
+        const r = await apiFetch(`${API_URL}/api/reportes-descarga`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
+
         if (r && r.queued) {
-          // Queued offline — reset form optimistically
-          document.getElementById("patente").value = "";
-          document.getElementById("bruto").value = "";
-          document.getElementById("tara").value = "";
-          document.getElementById("neto").value = "";
-          document.getElementById("humedad").value = "";
-          document.getElementById("destino_nombre").value = "";
-          document.getElementById("localidad_destino").value = "";
-          document.getElementById("nro_cpe").value = "";
-          document.getElementById("contrato").value = "";
+          resetReporteForm();
           btn.disabled = false;
-          btn.textContent = "Registrar Salida de Camión";
+          btn.textContent = "Enviar Reporte de Descarga";
           isSubmitting = false;
           return;
         }
 
-        if (!r.ok) {
-          throw new Error(await r.text());
-        }
+        if (!r.ok) throw new Error(await r.text());
 
-        const data = await r.json();
-        alert(`✓ Salida de camión registrada con éxito.\nMovimiento N°: ${data.numero_movimiento}`);
-        
-        // Reset form
-        document.getElementById("patente").value = "";
-        document.getElementById("bruto").value = "";
-        document.getElementById("tara").value = "";
-        document.getElementById("neto").value = "";
-        document.getElementById("humedad").value = "";
-        document.getElementById("destino_nombre").value = "";
-        document.getElementById("localidad_destino").value = "";
-        document.getElementById("nro_cpe").value = "";
-        document.getElementById("contrato").value = "";
-        
-        // Redirect to list
-        switchTab("list");
+        showToast("✓ Reporte enviado — queda pendiente de que la oficina lo confirme.", "success");
+        resetReporteForm();
 
       } catch (err) {
         console.error(err);
-        alert("Error al guardar salida: " + err.message);
+        alert("Error al enviar el reporte: " + err.message);
       } finally {
         btn.disabled = false;
-        btn.textContent = "Registrar Salida de Camión";
+        btn.textContent = "Enviar Reporte de Descarga";
         isSubmitting = false;
       }
+    }
+
+    function resetReporteForm() {
+      document.getElementById("patente").value = "";
+      document.getElementById("bruto").value = "";
+      document.getElementById("tara").value = "";
+      document.getElementById("contraparte_texto").value = "";
+      document.getElementById("lugar_descarga").value = "";
+      document.getElementById("observaciones").value = "";
+      document.getElementById("comprador").value = "";
+      document.getElementById("foto-preview-wrap").style.display = "none";
+      document.getElementById("lugar-sugerencia").style.display = "none";
+      fotoTicketFile = null;
     }
 
     // LOAD RECENT MOVEMENTS
     async function loadRecentMovements() {
       const container = document.getElementById("movements-list-container");
       try {
-        const r = await fetch(`${API_URL}/api/movimientos`);
+        const r = await fetch(`${API_URL}/api/movimientos?vista=recientes`, { headers: authHeaders() });
         const data = await r.json();
         
         container.innerHTML = "";

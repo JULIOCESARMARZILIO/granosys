@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3000;
 
 // Frontend y API se sirven desde el mismo origen (este mismo Express),
 // asi que no hace falta CORS abierto para el uso normal de la app.
-app.use(express.json());
+app.use(express.json({ limit: '8mb' }));
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', version: '2.0.0', time: new Date() }));
@@ -38,6 +38,7 @@ app.use('/api/kpis',         require('./routes/kpis'));
 app.use('/api/regularizacion', require('./routes/regularizacion'));
 app.use('/api/retiros-productor', require('./routes/retiros'));
 app.use('/api/certificados-1116', require('./routes/certificados1116'));
+app.use('/api/reportes-descarga', require('./routes/reportesDescarga'));
 
 // Frontend - VA AL FINAL
 app.get('/mobile', (req, res) => {
