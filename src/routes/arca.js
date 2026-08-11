@@ -90,6 +90,21 @@ router.post('/sync/granos-por-coe', async (req, res) => {
   }
 });
 
+// Descarga masiva y en segundo plano de los PDF oficiales WSLPG ya emitidos.
+// El prefijo del COE determina el servicio: 330=LPG, 331=LSG, 332=certificado.
+router.post('/sync/granos-pdf-por-coe', async (req, res) => {
+  try {
+    const job = await arcaOfficialClient.iniciarSyncWslpgPdfPorCoe({
+      coes: req.body?.coes || [],
+      desde: req.body?.desde || '2026-01-01',
+      userId: req.user?.id || null
+    });
+    res.status(202).json({ ok: true, job, soloConsulta: true });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
 // Persiste una CPE/CPEDG ya consultada oficialmente. CTG es la clave idempotente;
 // vincula o crea maestros formales por CUIT y número de planta sin emitir acciones en ARCA.
 router.post('/sync/cpe-normalizada', async (req, res) => {

@@ -672,10 +672,36 @@ function signoComprobanteWsfe(cbteTipo) {
   return new Set([3, 8, 13, 53, 203, 208, 213]).has(Number(cbteTipo)) ? -1 : 1;
 }
 
-async function guardarDocumentoOficial(fuente, externalKey, documentDate, payload) {
-  const serialized = JSON.stringify(payload);
+function decodificarPdfWslpg(pdfBase64) {
+  if (!pdfBase64) return null;
+  const content = Buffer.from(String(pdfBase64).replace(/\s/g, ''), 'base64');
+  if (content.length < 5 || content.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    throw new Error('ARCA devolvi\u00f3 un PDF WSLPG inv\u00e1lido.');
+  }
+  return content;
+}
+
+function omitirPdfXml(xml) {
+  return String(xml || '').replace(
+    /<((?:[A-Za-z_][\w.-]*:)?pdf)(?:\s[^>]*)?>[\s\S]*?<\/\1>/gi,
+    '<pdf>[ALMACENADO_COMO_ARCHIVO]</pdf>'
+  );
+}
+
+function payloadOficialSinPdf(payload = {}) {
+  const limpio = { ...payload };
+  delete limpio.pdfBase64;
+  delete limpio.pdfBuffer;
+  if (limpio.rawXml) limpio.rawXml = omitirPdfXml(limpio.rawXml);
+  return limpio;
+}
+
+async function guardarDocumentoOficial(fuente, externalKey, documentDate, payload, pdfBuffer = null) {
+  if (pdfBuffer) await ensureCpeMasterTables();
+  const payloadPersistido = payloadOficialSinPdf(payload);
+  const serialized = JSON.stringify(payloadPersistido);
   const hash = crypto.createHash('sha256').update(serialized).digest('hex');
-  const { rowCount } = await pool.query(`
+  const { rows, rowCount } = await pool.query(`
     INSERT INTO arca_official_documents
       (fuente, external_key, document_date, payload, payload_hash)
     VALUES ($1,$2,$3,$4::jsonb,$5)
@@ -684,8 +710,26 @@ async function guardarDocumentoOficial(fuente, externalKey, documentDate, payloa
       payload=EXCLUDED.payload,
       payload_hash=EXCLUDED.payload_hash,
       last_seen_at=NOW()
+    RETURNING id
   `, [fuente, externalKey, documentDate, serialized, hash]);
-  return rowCount > 0;
+  const documentId = rows[0]?.id || null;
+  let pdfGuardado = false;
+  let pdfHash = null;
+  if (pdfBuffer && documentId) {
+    const content = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+    if (content.length < 5 || content.subarray(0, 5).toString('ascii') !== '%PDF-') {
+      throw new Error(`ARCA devolvi\u00f3 un PDF inv\u00e1lido para ${fuente} ${externalKey}.`);
+    }
+    pdfHash = crypto.createHash('sha256').update(content).digest('hex');
+    await pool.query(`
+      INSERT INTO arca_official_files
+        (document_id,file_type,mime_type,content,content_hash,size_bytes)
+      VALUES ($1,'PDF','application/pdf',$2,$3,$4)
+      ON CONFLICT(document_id,file_type,content_hash) DO UPDATE SET last_seen_at=NOW()
+    `, [documentId, content, pdfHash, content.length]);
+    pdfGuardado = true;
+  }
+  return { actualizado: rowCount > 0, documentId, pdfGuardado, pdfHash };
 }
 
 async function importarCpeNormalizada({ ctg, tipoCpe, fecha, payload, intervinientes = [], plantas = [], pdfBuffer = null, jobId = null, userId = null }) {
@@ -1148,6 +1192,25 @@ const WSLPG_DOCUMENT_TYPES = Object.freeze([
   { id: 'CERTIFICACION', fuente: 'WSLPG_CERTIFICACION', ultimo: 'cgConsultarUltimoNroOrdenReq', consultar: 'cgConsultarXNroOrdenReq', resultTags: ['oReturn'] }
 ]);
 
+const WSLPG_COE_DOCUMENT_TYPES = Object.freeze({
+  330: { id: 'LPG', fuente: 'WSLPG_LPG_COE', consultar: 'liqConsXCoeReq', resultTag: 'liqConsReturn' },
+  331: { id: 'LSG', fuente: 'WSLPG_LSG_COE', consultar: 'lsgConsultarXCoeReq', resultTag: 'oReturn' },
+  332: { id: 'CERTIFICACION', fuente: 'WSLPG_CERTIFICACION_COE', consultar: 'cgConsultarXCoeReq', resultTag: 'oReturn' }
+});
+
+function tipoWslpgPorCoe(coe) {
+  const safeCoe = String(coe || '').replace(/\D/g, '');
+  if (!/^\d{12}$/.test(safeCoe)) throw new Error(`COE WSLPG inv\u00e1lido: ${coe}`);
+  const definition = WSLPG_COE_DOCUMENT_TYPES[safeCoe.slice(0, 3)];
+  if (!definition) throw new Error(`El prefijo del COE ${safeCoe} no corresponde a LPG, LSG ni certificaci\u00f3n.`);
+  return { ...definition, coe: safeCoe };
+}
+
+function solicitudWslpgPorCoe(coe) {
+  const definition = tipoWslpgPorCoe(coe);
+  return { definition, requestXml: `<coe>${definition.coe}</coe><pdf>S</pdf>` };
+}
+
 function fechaWslpg(xml) {
   const value = tag(xml, 'fechaLiquidacion') || tag(xml, 'fechaCertificacion') || tag(xml, 'fechaProceso');
   const match = String(value || '').match(/^(\d{4}-\d{2}-\d{2})/);
@@ -1192,15 +1255,17 @@ async function wslpgConsultarNroOrden(type, ptoEmision, nroOrden) {
 }
 
 async function wslpgConsultarCoe(coe) {
-  const safeCoe = String(coe || '').replace(/\D/g, '');
+  const { definition, requestXml } = solicitudWslpgPorCoe(coe);
+  const safeCoe = definition.coe;
   if (!/^\d{12}$/.test(safeCoe)) throw new Error(`COE WSLPG invÃƒÂ¡lido: ${coe}`);
-  const xml = await wslpgCall('liqConsXCoeReq', `<coe>${safeCoe}</coe>`);
+  const xml = await wslpgCall(definition.consultar, requestXml);
   const error = wslpgBusinessError(xml);
   if (error) throw new Error(error);
-  const result = tag(xml, 'liqConsReturn');
+  const result = tag(xml, definition.resultTag);
   if (!result) throw new Error(`WSLPG no devolviÃƒÂ³ datos para el COE ${safeCoe}.`);
   return {
-    tipoDocumento: 'LPG',
+    tipoDocumento: definition.id,
+    fuente: definition.fuente,
     coe: tag(result, 'coe') || safeCoe,
     estado: tag(result, 'estado'),
     fecha: fechaWslpg(result),
@@ -1223,15 +1288,24 @@ async function importarWslpgPorCoe(coes) {
   for (const coe of unicos) {
     try {
       const document = await wslpgConsultarCoe(coe);
-      await guardarDocumentoOficial('WSLPG_LPG_COE', coe, document.fecha, document);
+      const pdfBuffer = decodificarPdfWslpg(document.pdfBase64);
+      const persistencia = await guardarDocumentoOficial(
+        document.fuente,
+        coe,
+        document.fecha,
+        document,
+        pdfBuffer
+      );
       resultados.push({
         coe,
         ok: true,
+        tipoDocumento: document.tipoDocumento,
         fecha: document.fecha,
         estado: document.estado,
         ptoEmision: document.ptoEmision,
         nroOrden: document.nroOrden,
-        incluyePdf: Boolean(document.pdfBase64)
+        documentId: persistencia.documentId,
+        incluyePdf: persistencia.pdfGuardado
       });
     } catch (error) {
       resultados.push({ coe, ok: false, error: error.message });
@@ -1243,6 +1317,92 @@ async function importarWslpgPorCoe(coes) {
     conPdf: resultados.filter(item => item.ok && item.incluyePdf).length,
     errores: resultados.filter(item => !item.ok),
     resultados
+  };
+}
+
+async function ejecutarSyncWslpgPdfPorCoe(jobId, coes) {
+  await ensureSyncTables();
+  await pool.query(
+    "UPDATE arca_sync_jobs SET estado='EJECUTANDO', started_at=NOW() WHERE id=$1",
+    [jobId]
+  );
+
+  let revisados = 0;
+  let importados = 0;
+  const errores = [];
+  try {
+    validateCredentials(getConfig());
+    for (const coe of coes) {
+      revisados += 1;
+      const lote = await importarWslpgPorCoe([coe]);
+      const resultado = lote.resultados[0];
+      if (resultado?.ok && resultado.incluyePdf) {
+        importados += 1;
+      } else {
+        errores.push({
+          coe,
+          error: resultado?.error || 'ARCA no devolvió el PDF oficial.'
+        });
+      }
+
+      if (revisados % 10 === 0 || revisados === coes.length) {
+        await pool.query(`
+          UPDATE arca_sync_jobs
+          SET total_importados=$1, total_revisados=$2
+          WHERE id=$3
+        `, [importados, revisados, jobId]);
+      }
+    }
+
+    const estado = importados === coes.length
+      ? 'COMPLETADO'
+      : (importados > 0 ? 'PARCIAL' : 'ERROR');
+    const detalleError = errores.length
+      ? JSON.stringify({ total: errores.length, primeros: errores.slice(0, 25) })
+      : null;
+    await pool.query(`
+      UPDATE arca_sync_jobs
+      SET estado=$1, total_importados=$2, total_revisados=$3,
+          error=$4, finished_at=NOW()
+      WHERE id=$5
+    `, [estado, importados, revisados, detalleError, jobId]);
+  } catch (error) {
+    await pool.query(`
+      UPDATE arca_sync_jobs
+      SET estado='ERROR', total_importados=$1, total_revisados=$2,
+          error=$3, finished_at=NOW()
+      WHERE id=$4
+    `, [importados, revisados, error.message, jobId]);
+  }
+}
+
+async function iniciarSyncWslpgPdfPorCoe({ coes = [], desde = '2026-01-01', userId = null } = {}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(desde)) {
+    throw new Error('La fecha desde debe usar formato AAAA-MM-DD.');
+  }
+  const unicos = [...new Set((Array.isArray(coes) ? coes : [])
+    .map(value => String(value || '').replace(/\D/g, ''))
+    .filter(value => /^\d{12}$/.test(value)))];
+  if (!unicos.length) throw new Error('Debe indicar al menos un COE WSLPG válido.');
+  if (unicos.length > 2000) throw new Error('El trabajo no puede superar 2000 COE.');
+  unicos.forEach(tipoWslpgPorCoe);
+
+  await ensureSyncTables();
+  const id = crypto.randomUUID();
+  await pool.query(`
+    INSERT INTO arca_sync_jobs(id, fuente, desde, estado, solicitado_por)
+    VALUES($1,'WSLPG_PDF_COE',$2,'PENDIENTE',$3)
+  `, [id, desde, userId]);
+  setImmediate(() => {
+    void ejecutarSyncWslpgPdfPorCoe(id, unicos);
+  });
+  return {
+    id,
+    fuente: 'WSLPG_PDF_COE',
+    desde,
+    totalCoes: unicos.length,
+    documentos: [...new Set(unicos.map(coe => tipoWslpgPorCoe(coe).id))],
+    estado: 'PENDIENTE'
   };
 }
 
@@ -2009,6 +2169,7 @@ module.exports = {
   consultarPadronA13,
   iniciarSyncFacturasEmitidas,
   iniciarSyncWslpg,
+  iniciarSyncWslpgPdfPorCoe,
   importarWslpgPorCoe,
   iniciarSyncCpePorCtg,
   iniciarSyncCpeDestino,
@@ -2031,6 +2192,10 @@ module.exports = {
     decodeXml,
     tag,
     tags,
+    tipoWslpgPorCoe,
+    solicitudWslpgPorCoe,
+    decodificarPdfWslpg,
+    payloadOficialSinPdf,
     fechaWslpg,
     wslpgBusinessError,
     detalleFiscalWsfe,

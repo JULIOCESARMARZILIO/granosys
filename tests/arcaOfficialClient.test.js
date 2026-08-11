@@ -30,6 +30,39 @@ describe('arcaOfficialClient XML helpers', () => {
     expect(client._internal.tag(result, 'pdf')).toBe('JVBERi0xLjQ=');
   });
 
+  test.each([
+    ['330231771067', 'LPG', 'liqConsXCoeReq', 'liqConsReturn'],
+    ['331008719641', 'LSG', 'lsgConsultarXCoeReq', 'oReturn'],
+    ['332023497375', 'CERTIFICACION', 'cgConsultarXCoeReq', 'oReturn']
+  ])('routes COE %s through the official %s query', (coe, id, consultar, resultTag) => {
+    const { definition, requestXml } = client._internal.solicitudWslpgPorCoe(coe);
+    expect(definition).toEqual(expect.objectContaining({ id, consultar, resultTag, coe }));
+    expect(requestXml).toBe(`<coe>${coe}</coe><pdf>S</pdf>`);
+  });
+
+  test('rejects COE prefixes outside the official WSLPG document families', () => {
+    expect(() => client._internal.solicitudWslpgPorCoe('333000000001'))
+      .toThrow('no corresponde a LPG, LSG ni certificación');
+  });
+
+  test('validates and decodes the official WSLPG PDF', () => {
+    expect(client._internal.decodificarPdfWslpg('JVBERi0xLjQ=').subarray(0, 5).toString('ascii'))
+      .toBe('%PDF-');
+    expect(() => client._internal.decodificarPdfWslpg('bm8gZXMgcGRm'))
+      .toThrow('PDF WSLPG inválido');
+  });
+
+  test('removes the PDF body from the JSON audit payload', () => {
+    expect(client._internal.payloadOficialSinPdf({
+      coe: '331008719641',
+      pdfBase64: 'JVBERi0xLjQ=',
+      rawXml: '<oReturn><coe>331008719641</coe><pdf>JVBERi0xLjQ=</pdf></oReturn>'
+    })).toEqual({
+      coe: '331008719641',
+      rawXml: '<oReturn><coe>331008719641</coe><pdf>[ALMACENADO_COMO_ARCHIVO]</pdf></oReturn>'
+    });
+  });
+
   test('extracts the complete WSFE tax breakdown', () => {
     const payload = {
       rawXml: [
@@ -110,11 +143,11 @@ describe('arcaOfficialClient XML helpers', () => {
     expect(client._internal.tipoContrapartePorRol('DESTINATARIO')).toBe('COMPRADOR');
   });
 
-  test('splits the historical WSCPE query into inclusive 31-day ranges', () => {
-    expect(client._internal.rangosWscpe('2026-02-01', '2026-04-05')).toEqual([
-      { desde: '2026-02-01', hasta: '2026-03-03' },
-      { desde: '2026-03-04', hasta: '2026-04-03' },
-      { desde: '2026-04-04', hasta: '2026-04-05' }
+  test('splits the historical WSCPE query into inclusive 3-day ranges', () => {
+    expect(client._internal.rangosWscpe('2026-02-01', '2026-02-08')).toEqual([
+      { desde: '2026-02-01', hasta: '2026-02-03' },
+      { desde: '2026-02-04', hasta: '2026-02-06' },
+      { desde: '2026-02-07', hasta: '2026-02-08' }
     ]);
   });
 
