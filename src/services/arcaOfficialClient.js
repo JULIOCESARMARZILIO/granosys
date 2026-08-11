@@ -1211,6 +1211,22 @@ function solicitudWslpgPorCoe(coe) {
   return { definition, requestXml: `<coe>${definition.coe}</coe><pdf>S</pdf>` };
 }
 
+// Los ajustes LPG tienen un metodo de consulta propio en WSLPG. Se mantiene
+// separado de solicitudWslpgPorCoe para no alterar la descarga de liquidaciones.
+function solicitudAjusteWslpgPorCoe(coe) {
+  const safeCoe = String(coe || '').replace(/\D/g, '');
+  if (!/^330\d{9}$/.test(safeCoe)) {
+    throw new Error(`COE de ajuste WSLPG invalido: ${coe}`);
+  }
+  return {
+    coe: safeCoe,
+    operation: 'ajusteXCoeConsReq',
+    resultTag: 'ajusteConsReturn',
+    payloadTag: 'ajusteUnificado',
+    requestXml: `<coe>${safeCoe}</coe><pdf>S</pdf>`
+  };
+}
+
 function fechaWslpg(xml) {
   const value = tag(xml, 'fechaLiquidacion') || tag(xml, 'fechaCertificacion') || tag(xml, 'fechaProceso');
   const match = String(value || '').match(/^(\d{4}-\d{2}-\d{2})/);
@@ -1273,6 +1289,82 @@ async function wslpgConsultarCoe(coe) {
     nroOrden: Number(tag(result, 'nroOrden') || 0) || null,
     pdfBase64: tag(result, 'pdf') || null,
     rawXml: result
+  };
+}
+
+function parsearAjusteWslpg(xml, coe) {
+  const definition = solicitudAjusteWslpgPorCoe(coe);
+  const error = wslpgBusinessError(xml);
+  if (error) throw new Error(error);
+  const result = tag(xml, definition.resultTag);
+  if (!result) throw new Error(`WSLPG no devolvio datos para el ajuste ${definition.coe}.`);
+  const ajuste = tag(result, definition.payloadTag);
+  if (!ajuste) throw new Error(`WSLPG no devolvio el ajuste unificado para el COE ${definition.coe}.`);
+  return {
+    tipoDocumento: 'LPG_AJUSTE',
+    fuente: 'WSLPG_AJUSTE_COE',
+    coe: tag(ajuste, 'coe') || definition.coe,
+    coeAjustado: tag(ajuste, 'coeAjustado') || null,
+    estado: tag(ajuste, 'estado'),
+    fecha: fechaWslpg(ajuste),
+    ptoEmision: Number(tag(ajuste, 'ptoEmision') || 0) || null,
+    nroOrden: Number(tag(ajuste, 'nroOrden') || 0) || null,
+    nroContrato: tag(ajuste, 'nroContrato') || null,
+    pdfBase64: tag(result, 'pdf') || null,
+    rawXml: result
+  };
+}
+
+async function wslpgConsultarAjusteCoe(coe) {
+  const definition = solicitudAjusteWslpgPorCoe(coe);
+  const xml = await wslpgCall(definition.operation, definition.requestXml);
+  return parsearAjusteWslpg(xml, definition.coe);
+}
+
+async function importarWslpgAjustesPorCoe(coes) {
+  await ensureSyncTables();
+  const unicos = [...new Set((Array.isArray(coes) ? coes : [])
+    .map(value => String(value || '').replace(/\D/g, ''))
+    .filter(value => /^330\d{9}$/.test(value)))];
+  if (!unicos.length) throw new Error('Debe indicar al menos un COE de ajuste WSLPG valido.');
+  if (unicos.length > 1000) throw new Error('El lote de ajustes no puede superar 1000 COE.');
+
+  const resultados = [];
+  for (const coe of unicos) {
+    try {
+      const document = await wslpgConsultarAjusteCoe(coe);
+      const pdfBuffer = decodificarPdfWslpg(document.pdfBase64);
+      if (!pdfBuffer) throw new Error('ARCA no devolvio el PDF oficial del ajuste.');
+      const persistencia = await guardarDocumentoOficial(
+        document.fuente,
+        coe,
+        document.fecha,
+        document,
+        pdfBuffer
+      );
+      resultados.push({
+        coe,
+        ok: true,
+        tipoDocumento: document.tipoDocumento,
+        coeAjustado: document.coeAjustado,
+        fecha: document.fecha,
+        estado: document.estado,
+        ptoEmision: document.ptoEmision,
+        nroOrden: document.nroOrden,
+        nroContrato: document.nroContrato,
+        documentId: persistencia.documentId,
+        incluyePdf: persistencia.pdfGuardado
+      });
+    } catch (error) {
+      resultados.push({ coe, ok: false, error: error.message });
+    }
+  }
+  return {
+    total: resultados.length,
+    importados: resultados.filter(item => item.ok).length,
+    conPdf: resultados.filter(item => item.ok && item.incluyePdf).length,
+    errores: resultados.filter(item => !item.ok),
+    resultados
   };
 }
 
@@ -1402,6 +1494,92 @@ async function iniciarSyncWslpgPdfPorCoe({ coes = [], desde = '2026-01-01', user
     desde,
     totalCoes: unicos.length,
     documentos: [...new Set(unicos.map(coe => tipoWslpgPorCoe(coe).id))],
+    estado: 'PENDIENTE'
+  };
+}
+
+async function ejecutarSyncWslpgAjustesPorCoe(jobId, coes) {
+  await ensureSyncTables();
+  await pool.query(
+    "UPDATE arca_sync_jobs SET estado='EJECUTANDO', started_at=NOW() WHERE id=$1",
+    [jobId]
+  );
+
+  let revisados = 0;
+  let importados = 0;
+  const errores = [];
+  try {
+    validateCredentials(getConfig());
+    for (const coe of coes) {
+      revisados += 1;
+      const lote = await importarWslpgAjustesPorCoe([coe]);
+      const resultado = lote.resultados[0];
+      if (resultado?.ok && resultado.incluyePdf) {
+        importados += 1;
+      } else {
+        errores.push({
+          coe,
+          error: resultado?.error || 'ARCA no devolvio el PDF oficial del ajuste.'
+        });
+      }
+
+      if (revisados % 10 === 0 || revisados === coes.length) {
+        await pool.query(`
+          UPDATE arca_sync_jobs
+          SET total_importados=$1, total_revisados=$2
+          WHERE id=$3
+        `, [importados, revisados, jobId]);
+      }
+    }
+
+    const estado = importados === coes.length
+      ? 'COMPLETADO'
+      : (importados > 0 ? 'PARCIAL' : 'ERROR');
+    const detalleError = errores.length
+      ? JSON.stringify({ total: errores.length, primeros: errores.slice(0, 25) })
+      : null;
+    await pool.query(`
+      UPDATE arca_sync_jobs
+      SET estado=$1, total_importados=$2, total_revisados=$3,
+          error=$4, finished_at=NOW()
+      WHERE id=$5
+    `, [estado, importados, revisados, detalleError, jobId]);
+  } catch (error) {
+    await pool.query(`
+      UPDATE arca_sync_jobs
+      SET estado='ERROR', total_importados=$1, total_revisados=$2,
+          error=$3, finished_at=NOW()
+      WHERE id=$4
+    `, [importados, revisados, error.message, jobId]);
+  }
+}
+
+async function iniciarSyncWslpgAjustesPorCoe({ coes = [], desde = '2026-01-01', userId = null } = {}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(desde)) {
+    throw new Error('La fecha desde debe usar formato AAAA-MM-DD.');
+  }
+  const unicos = [...new Set((Array.isArray(coes) ? coes : [])
+    .map(value => String(value || '').replace(/\D/g, ''))
+    .filter(value => /^330\d{9}$/.test(value)))];
+  if (!unicos.length) throw new Error('Debe indicar al menos un COE de ajuste WSLPG valido.');
+  if (unicos.length > 2000) throw new Error('El trabajo de ajustes no puede superar 2000 COE.');
+  unicos.forEach(solicitudAjusteWslpgPorCoe);
+
+  await ensureSyncTables();
+  const id = crypto.randomUUID();
+  await pool.query(`
+    INSERT INTO arca_sync_jobs(id, fuente, desde, estado, solicitado_por)
+    VALUES($1,'WSLPG_AJUSTE_PDF_COE',$2,'PENDIENTE',$3)
+  `, [id, desde, userId]);
+  setImmediate(() => {
+    void ejecutarSyncWslpgAjustesPorCoe(id, unicos);
+  });
+  return {
+    id,
+    fuente: 'WSLPG_AJUSTE_PDF_COE',
+    desde,
+    totalCoes: unicos.length,
+    documentos: ['LPG_AJUSTE'],
     estado: 'PENDIENTE'
   };
 }
@@ -2171,6 +2349,8 @@ module.exports = {
   iniciarSyncWslpg,
   iniciarSyncWslpgPdfPorCoe,
   importarWslpgPorCoe,
+  iniciarSyncWslpgAjustesPorCoe,
+  importarWslpgAjustesPorCoe,
   iniciarSyncCpePorCtg,
   iniciarSyncCpeDestino,
   consultarPlantasWscpe,
@@ -2194,6 +2374,8 @@ module.exports = {
     tags,
     tipoWslpgPorCoe,
     solicitudWslpgPorCoe,
+    solicitudAjusteWslpgPorCoe,
+    parsearAjusteWslpg,
     decodificarPdfWslpg,
     payloadOficialSinPdf,
     fechaWslpg,

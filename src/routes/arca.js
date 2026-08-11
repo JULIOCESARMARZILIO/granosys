@@ -105,6 +105,21 @@ router.post('/sync/granos-pdf-por-coe', async (req, res) => {
   }
 });
 
+// Descarga independiente de los PDF de ajustes LPG ya emitidos. ARCA exige
+// ajusteXCoeConsReq para estos COE; no se modifica el circuito de liquidaciones.
+router.post('/sync/ajustes-pdf-por-coe', async (req, res) => {
+  try {
+    const job = await arcaOfficialClient.iniciarSyncWslpgAjustesPorCoe({
+      coes: req.body?.coes || [],
+      desde: req.body?.desde || '2026-01-01',
+      userId: req.user?.id || null
+    });
+    res.status(202).json({ ok: true, job, soloConsulta: true });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
 // Persiste una CPE/CPEDG ya consultada oficialmente. CTG es la clave idempotente;
 // vincula o crea maestros formales por CUIT y número de planta sin emitir acciones en ARCA.
 router.post('/sync/cpe-normalizada', async (req, res) => {

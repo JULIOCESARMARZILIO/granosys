@@ -45,6 +45,39 @@ describe('arcaOfficialClient XML helpers', () => {
       .toThrow('no corresponde a LPG, LSG ni certificación');
   });
 
+  test('builds the official independent WSLPG adjustment request', () => {
+    expect(client._internal.solicitudAjusteWslpgPorCoe('330100007082')).toEqual({
+      coe: '330100007082',
+      operation: 'ajusteXCoeConsReq',
+      resultTag: 'ajusteConsReturn',
+      payloadTag: 'ajusteUnificado',
+      requestXml: '<coe>330100007082</coe><pdf>S</pdf>'
+    });
+    expect(() => client._internal.solicitudAjusteWslpgPorCoe('331008719641'))
+      .toThrow('COE de ajuste WSLPG invalido');
+  });
+
+  test('parses adjustment data and PDF without using the liquidation response', () => {
+    const xml = [
+      '<ajusteXcoeConsResp><ajusteConsReturn><ajusteUnificado>',
+      '<ptoEmision>40</ptoEmision><nroOrden>21</nroOrden><nroContrato>100001052</nroContrato>',
+      '<coeAjustado>330100000001</coeAjustado><ajusteCredito><fechaLiquidacion>2026-06-26</fechaLiquidacion></ajusteCredito>',
+      '<coe>330100007082</coe><estado>AC</estado></ajusteUnificado>',
+      '<pdf>JVBERi0xLjQ=</pdf></ajusteConsReturn></ajusteXcoeConsResp>'
+    ].join('');
+    expect(client._internal.parsearAjusteWslpg(xml, '330100007082')).toEqual(expect.objectContaining({
+      tipoDocumento: 'LPG_AJUSTE',
+      fuente: 'WSLPG_AJUSTE_COE',
+      coe: '330100007082',
+      coeAjustado: '330100000001',
+      fecha: '2026-06-26',
+      ptoEmision: 40,
+      nroOrden: 21,
+      nroContrato: '100001052',
+      pdfBase64: 'JVBERi0xLjQ='
+    }));
+  });
+
   test('validates and decodes the official WSLPG PDF', () => {
     expect(client._internal.decodificarPdfWslpg('JVBERi0xLjQ=').subarray(0, 5).toString('ascii'))
       .toBe('%PDF-');
