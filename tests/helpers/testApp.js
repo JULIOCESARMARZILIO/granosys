@@ -18,6 +18,7 @@ async function buildTestApp() {
   app.use('/api/movimientos', require('../../src/routes/movimientos'));
   app.use('/api/liquidaciones', require('../../src/routes/liquidaciones'));
   app.use('/api/cc', require('../../src/routes/cuentacorriente'));
+  app.use('/api/tesoreria', require('../../src/routes/tesoreria'));
   app.use('/api/stock', require('../../src/routes/stock'));
   app.use('/api/reportes', require('../../src/routes/reportes'));
 

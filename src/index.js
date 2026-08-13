@@ -24,6 +24,7 @@ app.use('/api/contratos',    require('./routes/contratos'));
 app.use('/api/movimientos',  require('./routes/movimientos'));
 app.use('/api/liquidaciones',require('./routes/liquidaciones'));
 app.use('/api/cc',           require('./routes/cuentacorriente'));
+app.use('/api/tesoreria',    require('./routes/tesoreria'));
 app.use('/api/stock',        require('./routes/stock'));
 app.use('/api/reportes',     require('./routes/reportes'));
 app.use('/api/arca',         require('./routes/arca'));
