@@ -363,6 +363,94 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       );
 
+      -- Tesoreria se modela separada de la cuenta corriente: el movimiento
+      -- registra como se movio el dinero y la aplicacion indica que deuda o
+      -- credito cancela. Los identificadores externos dejan preparada la
+      -- integracion bancaria sin guardar credenciales en esta base.
+      CREATE TABLE IF NOT EXISTS cuentas_bancarias (
+        id SERIAL PRIMARY KEY,
+        nombre VARCHAR(100) NOT NULL,
+        banco VARCHAR(100) NOT NULL,
+        tipo_cuenta VARCHAR(30),
+        numero_cuenta VARCHAR(50),
+        cbu VARCHAR(22),
+        alias VARCHAR(100),
+        moneda VARCHAR(10) NOT NULL DEFAULT 'PESOS',
+        proveedor_conexion VARCHAR(50),
+        external_account_id VARCHAR(150),
+        conexion_estado VARCHAR(20) NOT NULL DEFAULT 'NO_CONFIGURADA',
+        ultima_sincronizacion TIMESTAMPTZ,
+        activa BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (conexion_estado IN ('NO_CONFIGURADA','PENDIENTE','CONECTADA','ERROR'))
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_cuentas_bancarias_cbu
+        ON cuentas_bancarias(cbu) WHERE cbu IS NOT NULL AND cbu <> '';
+
+      CREATE TABLE IF NOT EXISTS movimientos_tesoreria (
+        id BIGSERIAL PRIMARY KEY,
+        id_contraparte INTEGER REFERENCES contrapartes(id) ON DELETE RESTRICT,
+        id_cuenta_bancaria INTEGER REFERENCES cuentas_bancarias(id) ON DELETE RESTRICT,
+        id_cc_movimiento INTEGER UNIQUE REFERENCES cc_contrapartes(id) ON DELETE RESTRICT,
+        fecha DATE NOT NULL,
+        fecha_valor DATE,
+        tipo VARCHAR(10) NOT NULL CHECK (tipo IN ('PAGO','COBRO')),
+        medio_pago VARCHAR(25) NOT NULL CHECK (medio_pago IN ('TRANSFERENCIA','CHEQUE_PROPIO','CHEQUE_TERCEROS','EFECTIVO','OTRO')),
+        importe NUMERIC(14,4) NOT NULL CHECK (importe > 0),
+        moneda VARCHAR(10) NOT NULL DEFAULT 'PESOS',
+        cotizacion NUMERIC(14,6),
+        referencia VARCHAR(150),
+        estado VARCHAR(20) NOT NULL DEFAULT 'REGISTRADO' CHECK (estado IN ('REGISTRADO','PENDIENTE','ACREDITADO','RECHAZADO','ANULADO')),
+        external_transaction_id VARCHAR(150),
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        creado_por INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_movimientos_tesoreria_contraparte_fecha
+        ON movimientos_tesoreria(id_contraparte, fecha DESC, id DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_movimientos_tesoreria_externo
+        ON movimientos_tesoreria(id_cuenta_bancaria, external_transaction_id)
+        WHERE external_transaction_id IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS aplicaciones_tesoreria (
+        id BIGSERIAL PRIMARY KEY,
+        id_movimiento_tesoreria BIGINT NOT NULL REFERENCES movimientos_tesoreria(id) ON DELETE RESTRICT,
+        id_liquidacion INTEGER NOT NULL REFERENCES liquidaciones(id) ON DELETE RESTRICT,
+        importe NUMERIC(14,4) NOT NULL CHECK (importe > 0),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(id_movimiento_tesoreria, id_liquidacion)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_aplicaciones_tesoreria_liquidacion
+        ON aplicaciones_tesoreria(id_liquidacion);
+
+      CREATE TABLE IF NOT EXISTS cheques_tesoreria (
+        id BIGSERIAL PRIMARY KEY,
+        id_movimiento_tesoreria BIGINT NOT NULL UNIQUE REFERENCES movimientos_tesoreria(id) ON DELETE RESTRICT,
+        tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('PROPIO','TERCERO','ECHEQ')),
+        numero VARCHAR(50) NOT NULL,
+        banco VARCHAR(100) NOT NULL,
+        librador VARCHAR(150),
+        cuit_librador VARCHAR(11),
+        fecha_emision DATE,
+        fecha_pago DATE NOT NULL,
+        importe NUMERIC(14,4) NOT NULL CHECK (importe > 0),
+        moneda VARCHAR(10) NOT NULL DEFAULT 'PESOS',
+        estado VARCHAR(20) NOT NULL DEFAULT 'EN_CARTERA'
+          CHECK (estado IN ('EMITIDO','EN_CARTERA','ENDOSADO','DEPOSITADO','ACREDITADO','RECHAZADO','ANULADO')),
+        observaciones VARCHAR(500),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(banco, numero, tipo)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_cheques_tesoreria_estado_fecha
+        ON cheques_tesoreria(estado, fecha_pago);
+
       CREATE TABLE IF NOT EXISTS stock (
         id SERIAL PRIMARY KEY,
         id_ubicacion INTEGER REFERENCES ubicaciones(id),
