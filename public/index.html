@@ -11022,7 +11022,7 @@ const DocumentosArca = () => {
   const [ccConciliaciones,setCcConciliaciones]=useState({total:0,pendientesSinContraparte:0,posiblesDuplicados:0,conciliaciones:[]});
   const [syncJobs,setSyncJobs]=useState([]);
   const [sincronizando,setSincronizando]=useState(false);
-  const [syncError,setSyncError]=useState("");
+  const [syncError,setSyncError]=useState("");\n  const [loteCtgs,setLoteCtgs]=useState("");
   const [buscar,setBuscar]=useState("");
   const [desde,setDesde]=useState("2026-01-01");
   const [hasta,setHasta]=useState("");
@@ -11216,18 +11216,15 @@ const DocumentosArca = () => {
   };
 
   const importarCtgPegados = async () => {
-    const entrada=window.prompt("Pegá los CTG/CTDG separados por espacio, coma o salto de línea. GranoSYS solo consultará detalle y PDF oficial.");
-    if(entrada===null) return;
-    const ctgs=[...new Set((entrada.match(/\d{8,20}/g)||[]).map(valor=>valor.trim()))];
+    const ctgs=[...new Set((loteCtgs.match(/\d{8,20}/g)||[]).map(valor=>valor.trim()))];
     if(!ctgs.length) {
-      alert("No se encontraron CTG/CTDG válidos.");
+      setSyncError("Pegá al menos un CTG/CTDG válido.");
       return;
     }
     if(ctgs.length>5000) {
-      alert("El máximo por lote es 5.000 CTG/CTDG.");
+      setSyncError("El máximo por lote es 5.000 CTG/CTDG.");
       return;
     }
-    if(!window.confirm(`Se encontraron ${ctgs.length} CTG/CTDG únicos. GranoSYS consultará detalle y PDF por WSCPE sin modificar ARCA. ¿Continuar?`)) return;
     setSincronizando(true);
     setSyncError("");
     setSyncJobs([]);
@@ -11240,6 +11237,7 @@ const DocumentosArca = () => {
       setFuente("WSCPE_CPE");
       setPagina(1);
       await cargar(1,"WSCPE_CPE");
+      if(terminado.estado==="COMPLETADO") setLoteCtgs("");
     } catch(e) {
       setSyncError(e.message||"No se pudo importar el lote de CTG/CTDG.");
     } finally {
@@ -11340,7 +11338,8 @@ const DocumentosArca = () => {
           <div style={{fontSize:11,color:"#8890a8",marginTop:3}}>{esCpe?`Consulta WSCPE por plantas activas y destino desde ${desde}. Consolida CPE/CPEDG por CTG y guarda detalle, intervinientes, plantas y PDF.`:`Consulta desde ${desde}. Importa facturas emitidas por WSFE y documentos disponibles por WSLPG. No emite, anula ni contabiliza.`}</div>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
-          {esCpe&&<Btn variant="secondary" onClick={importarCtgPegados} disabled={sincronizando}>Pegar lote CTG/CTDG</Btn>}\n          {esCpe&&<Btn variant="secondary" onClick={importarListadoCtgArca} disabled={sincronizando}>Importar listado ARCA (CTG)</Btn>}
+          {esCpe&&<textarea value={loteCtgs} onChange={e=>setLoteCtgs(e.target.value)} placeholder="Pegá CTG/CTDG separados por espacio, coma o salto de línea" rows={3} style={{width:330,minHeight:62,resize:"vertical",background:"#11141d",color:"#e8eaf0",border:"1px solid #3a4050",borderRadius:7,padding:"8px 10px",fontSize:12}}/>}
+          {esCpe&&<Btn variant="secondary" onClick={importarCtgPegados} disabled={sincronizando||!loteCtgs.trim()}>Procesar lote CTG/CTDG</Btn>}\n          {esCpe&&<Btn variant="secondary" onClick={importarListadoCtgArca} disabled={sincronizando}>Importar listado ARCA (CTG)</Btn>}
           <Btn onClick={esCpe?sincronizarCpeDesdeArca:sincronizarDesdeArca} disabled={sincronizando}>{sincronizando?"Sincronizando...":esCpe?"Bajar CPE por destino":"Sincronizar desde ARCA"}</Btn>
         </div>
       </div>
@@ -12431,7 +12430,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.7.6 — GranoSYS - INVDELSAL</div>
+          v2.7.7 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -13842,7 +13841,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.7.6 — GranoSYS - <span
+            v2.7.7 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
