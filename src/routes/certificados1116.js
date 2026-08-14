@@ -1,6 +1,7 @@
 ﻿const router = require('express').Router();
 const { pool } = require('../db');
 const { registrarAuditoria } = require('../services/auditoria');
+const { generateTraceProposals, listTraceLinks, reviewTraceLink } = require('../services/arcaTraceability');
 
 // GET /api/certificados-1116 - listado, mas reciente primero, con sus CTGs
 router.get('/', async (req, res) => {
@@ -105,6 +106,41 @@ router.post('/', async (req, res) => {
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
+  }
+});
+
+// POST /api/certificados-1116/trazabilidad/generar - solo genera evidencia y propuestas internas.
+// No emite, anula ni modifica documentos fiscales en ARCA.
+router.post('/trazabilidad/generar', async (req, res) => {
+  try {
+    const result = await generateTraceProposals();
+    await registrarAuditoria(req, { accion: 'GENERAR_PROPUESTAS', modulo: 'arca_trazabilidad', datos_despues: result });
+    res.json({ ok: true, resultado: result, soloConsulta: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/certificados-1116/trazabilidad?certificado_id=123
+router.get('/trazabilidad', async (req, res) => {
+  try {
+    const certificateId = req.query.certificado_id ? Number(req.query.certificado_id) : null;
+    if (req.query.certificado_id && !Number.isInteger(certificateId)) return res.status(400).json({ error: 'certificado_id inválido' });
+    res.json({ ok: true, vinculos: await listTraceLinks(certificateId) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/certificados-1116/trazabilidad/:id/revisar
+router.post('/trazabilidad/:id/revisar', async (req, res) => {
+  try {
+    const estado = String(req.body.estado || '').toUpperCase();
+    const link = await reviewTraceLink(req.params.id, estado, req.user?.id || null);
+    await registrarAuditoria(req, { accion: estado, modulo: 'arca_trazabilidad', registro_id: link.id, datos_despues: link });
+    res.json({ ok: true, vinculo: link });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
