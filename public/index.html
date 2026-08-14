@@ -11648,11 +11648,17 @@ const Certificados1116 = () => {
   });
   const [ctgsForm, setCtgsForm] = useState([""]);
   const [guardando, setGuardando] = useState(false);
+  const [trazabilidad, setTrazabilidad] = useState([]);
+  const [generandoTrazabilidad, setGenerandoTrazabilidad] = useState(false);
 
   const cargar = async () => {
     setCargando(true);
-    const res = await api.get("/api/certificados-1116");
+    const [res, trace] = await Promise.all([
+      api.get("/api/certificados-1116"),
+      api.get("/api/certificados-1116/trazabilidad").catch(()=>({vinculos:[]}))
+    ]);
     setLista(res || []);
+    setTrazabilidad(trace?.vinculos || []);
     setCargando(false);
   };
   useEffect(()=>{ cargar(); },[]);
@@ -11695,6 +11701,25 @@ const Certificados1116 = () => {
     cargar();
   };
 
+  const generarTrazabilidad = async () => {
+    setGenerandoTrazabilidad(true);
+    try {
+      const result = await api.post("/api/certificados-1116/trazabilidad/generar", {});
+      if (result?.error) throw new Error(result.error);
+      await cargar();
+      alert(`Conciliación terminada. Certificados: ${result?.resultado?.processedCertificates || 0}; CPE evaluadas: ${result?.resultado?.evaluatedCpes || 0}; liquidaciones evaluadas: ${result?.resultado?.evaluatedLiquidations || 0}.`);
+    } catch (err) { alert("No se pudo generar la trazabilidad: " + err.message); }
+    finally { setGenerandoTrazabilidad(false); }
+  };
+
+  const revisarVinculo = async (id, estado) => {
+    const action = estado === "CONFIRMADO" ? "confirmar" : "rechazar";
+    if (!confirm(`¿Querés ${action} este vínculo documental?`)) return;
+    const result = await api.post(`/api/certificados-1116/trazabilidad/${id}/revisar`, {estado});
+    if (result?.error) return alert(result.error);
+    cargar();
+  };
+
   return (
     <div className="fade-in">
       <div style={{marginBottom:20}}>
@@ -11702,6 +11727,34 @@ const Certificados1116 = () => {
         <p style={{color:"#8890a8",fontSize:13,marginTop:2}}>
           Carga manual a partir del PDF real (ARCA no permite listar estos certificados por API cuando los emite un corredor). El dato clave es el C.O.E. Un mismo certificado puede consolidar hasta {MAX_CTGS_1116} cartas de porte/CTG.
         </p>
+      </div>
+
+      <div className="card" style={{marginBottom:20}}>
+        <div className="card-header">
+          <div>
+            <div style={{fontWeight:700}}>Trazabilidad ARCA</div>
+            <div style={{fontSize:12,color:"#8890a8",marginTop:3}}>CTG exacto primero. Si falta, propone por suma de kilos, CUIT, especie, campaña, planta y fechas. Las coincidencias dudosas requieren decisión humana.</div>
+          </div>
+          <Btn onClick={generarTrazabilidad} disabled={generandoTrazabilidad}>{generandoTrazabilidad?"Conciliando...":"Conciliar CPE y liquidaciones"}</Btn>
+        </div>
+        {trazabilidad.length===0 ? <div style={{padding:16,color:"#8890a8",fontSize:12}}>Todavía no hay vínculos calculados.</div> : (
+          <div style={{maxHeight:320,overflow:"auto"}}>
+            <table>
+              <thead><tr><th>Certificado</th><th>Documento relacionado</th><th>Método</th><th>Kilos certificado</th><th>Kilos vinculados</th><th>Diferencia</th><th>Confianza</th><th>Estado</th><th></th></tr></thead>
+              <tbody>{trazabilidad.map(link=><tr key={link.id}>
+                <td className="mono">{link.certificate_coe || link.numero_certificado}</td>
+                <td>{link.link_type==="CERTIFICADO_CPE" ? <span className="mono">CTG {link.ctg}</span> : <span>Liquidación {link.liquidation_external_key}</span>}</td>
+                <td style={{fontSize:11}}>{link.method.replaceAll("_"," ")}</td>
+                <td className="mono">{link.certificate_kg ? Number(link.certificate_kg).toLocaleString("es-AR") : "—"}</td>
+                <td className="mono">{link.linked_kg ? Number(link.linked_kg).toLocaleString("es-AR") : "—"}</td>
+                <td className="mono" style={{color:Math.abs(Number(link.kg_difference||0))>50?"#e74c3c":"#27ae60"}}>{link.kg_difference!==null ? Number(link.kg_difference).toLocaleString("es-AR") : "—"}</td>
+                <td><Badge label={`${link.score}%`} color={link.score>=90?"green":link.score>=65?"orange":"red"}/></td>
+                <td><Badge label={link.status.replaceAll("_"," ")} color={link.status.startsWith("CONFIRMADO")?"green":link.status==="RECHAZADO"?"red":"orange"}/></td>
+                <td>{link.status==="PROPUESTO" && <div style={{display:"flex",gap:4}}><Btn size="sm" variant="success" onClick={()=>revisarVinculo(link.id,"CONFIRMADO")}>Confirmar</Btn><Btn size="sm" variant="danger" onClick={()=>revisarVinculo(link.id,"RECHAZADO")}>Rechazar</Btn></div>}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="card" style={{marginBottom:20}}>
@@ -12431,7 +12484,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.7.7 — GranoSYS - INVDELSAL</div>
+          v2.7.8 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -13842,7 +13895,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.7.7 — GranoSYS - <span
+            v2.7.8 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
