@@ -62,3 +62,13 @@
 - WSLPG recupera por punto de emisión y número de orden los documentos emitidos por la CUIT representada.
 - Los documentos recibidos no disponen de un listado masivo equivalente en WSFE/WSCDC. Se integrarán mediante Portal IVA / Libro IVA Digital y luego se validarán contra los servicios oficiales.
 - WSCPE no publica una consulta historica general por CUIT/rol. `consultarCPEPorDestino` solo enumera la calidad destino para planta y rango de fechas; remitente comercial y otros roles requieren obtener los CTG del listado oficial interactivo y luego consultar cada documento por WSCPE.
+
+
+## Trazabilidad CPE → certificado → liquidación (v2.7.8)
+
+- Los vínculos por CTG exacto se confirman automáticamente porque constituyen una referencia oficial determinística.
+- Cuando el certificado no informa CTG, el sistema genera propuestas usando CUIT de intervinientes, especie, campaña, cercanía de fechas y una combinación de CPE cuya suma de kilos concilie el peso certificado.
+- La tolerancia por defecto para kilos es el mayor valor entre 50 kg y 1% del certificado; la diferencia siempre queda visible.
+- Las propuestas heurísticas nunca producen efectos fiscales ni quedan confirmadas sin intervención humana.
+- La vinculación certificado–liquidación usa la referencia oficial exacta al COE o número de certificado dentro del documento WSLPG.
+- La tabla `arca_trace_links` conserva método, puntaje, kilos comparados, diferencia, evidencia, estado y usuario revisor para auditoría.
