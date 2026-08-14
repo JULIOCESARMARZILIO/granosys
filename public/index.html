@@ -11215,6 +11215,38 @@ const DocumentosArca = () => {
     }
   };
 
+  const importarCtgPegados = async () => {
+    const entrada=window.prompt("Pegá los CTG/CTDG separados por espacio, coma o salto de línea. GranoSYS solo consultará detalle y PDF oficial.");
+    if(entrada===null) return;
+    const ctgs=[...new Set((entrada.match(/\d{8,20}/g)||[]).map(valor=>valor.trim()))];
+    if(!ctgs.length) {
+      alert("No se encontraron CTG/CTDG válidos.");
+      return;
+    }
+    if(ctgs.length>5000) {
+      alert("El máximo por lote es 5.000 CTG/CTDG.");
+      return;
+    }
+    if(!window.confirm(`Se encontraron ${ctgs.length} CTG/CTDG únicos. GranoSYS consultará detalle y PDF por WSCPE sin modificar ARCA. ¿Continuar?`)) return;
+    setSincronizando(true);
+    setSyncError("");
+    setSyncJobs([]);
+    try {
+      const respuesta=await api.post("/api/arca/sync/cpe-por-ctg",{ctgs,desde:desde<"2026-02-01"?"2026-02-01":desde});
+      if(!respuesta?.job) throw new Error("No se pudo iniciar la consulta masiva por CTG/CTDG.");
+      setSyncJobs([respuesta.job]);
+      const terminado=await esperarSync(respuesta.job);
+      if(terminado.estado==="ERROR"||terminado.estado==="PARCIAL") setSyncError(terminado.error||"ARCA devolvió observaciones para algunos CTG/CTDG.");
+      setFuente("WSCPE_CPE");
+      setPagina(1);
+      await cargar(1,"WSCPE_CPE");
+    } catch(e) {
+      setSyncError(e.message||"No se pudo importar el lote de CTG/CTDG.");
+    } finally {
+      setSincronizando(false);
+    }
+  };
+
   const importarListadoCtgArca = () => {
     const input=document.createElement("input");
     input.type="file";
@@ -11308,7 +11340,7 @@ const DocumentosArca = () => {
           <div style={{fontSize:11,color:"#8890a8",marginTop:3}}>{esCpe?`Consulta WSCPE por plantas activas y destino desde ${desde}. Consolida CPE/CPEDG por CTG y guarda detalle, intervinientes, plantas y PDF.`:`Consulta desde ${desde}. Importa facturas emitidas por WSFE y documentos disponibles por WSLPG. No emite, anula ni contabiliza.`}</div>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
-          {esCpe&&<Btn variant="secondary" onClick={importarListadoCtgArca} disabled={sincronizando}>Importar listado ARCA (CTG)</Btn>}
+          {esCpe&&<Btn variant="secondary" onClick={importarCtgPegados} disabled={sincronizando}>Pegar lote CTG/CTDG</Btn>}\n          {esCpe&&<Btn variant="secondary" onClick={importarListadoCtgArca} disabled={sincronizando}>Importar listado ARCA (CTG)</Btn>}
           <Btn onClick={esCpe?sincronizarCpeDesdeArca:sincronizarDesdeArca} disabled={sincronizando}>{sincronizando?"Sincronizando...":esCpe?"Bajar CPE por destino":"Sincronizar desde ARCA"}</Btn>
         </div>
       </div>
@@ -12399,7 +12431,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.7.5 — GranoSYS - INVDELSAL</div>
+          v2.7.6 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -13810,7 +13842,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.7.5 — GranoSYS - <span
+            v2.7.6 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
