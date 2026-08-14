@@ -2522,8 +2522,6 @@ const AsignacionMovimientos = ({modulo}) => {
   const [contratoSel, setContratoSel] = useState("");
   const [kgSel, setKgSel] = useState("");
   const [guardando, setGuardando] = useState(false);
-  const [trazabilidad, setTrazabilidad] = useState([]);
-  const [generandoTrazabilidad, setGenerandoTrazabilidad] = useState(false);
 
   const cargar = async () => {
     setCargando(true);
@@ -11650,6 +11648,8 @@ const Certificados1116 = () => {
   });
   const [ctgsForm, setCtgsForm] = useState([""]);
   const [guardando, setGuardando] = useState(false);
+  const [trazabilidad, setTrazabilidad] = useState([]);
+  const [generandoTrazabilidad, setGenerandoTrazabilidad] = useState(false);
 
   const cargar = async () => {
     setCargando(true);
