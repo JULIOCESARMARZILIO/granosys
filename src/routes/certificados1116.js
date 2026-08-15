@@ -109,6 +109,80 @@ router.post('/', async (req, res) => {
   }
 });
 
+// POST /api/certificados-1116/importar-inventario-arca
+// Importa exclusivamente metadatos previamente consultados en ARCA. Es idempotente por COE
+// y no ejecuta ninguna operacion fiscal. Los campos aun no disponibles quedan nulos para
+// enriquecimiento posterior por PDF/detalle oficial y revision humana.
+router.post('/importar-inventario-arca', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const documentos = Array.isArray(req.body.documentos) ? req.body.documentos : [];
+    if (!documentos.length) return res.status(400).json({ error: 'documentos debe contener al menos un registro' });
+    if (documentos.length > 1000) return res.status(400).json({ error: 'El lote no puede superar 1000 documentos' });
+
+    const normalizados = documentos.map((d, indice) => {
+      const coe = String(d.coe || '').replace(/\D/g, '');
+      const tipo = String(d.tipo_formulario || 'A').trim().toUpperCase();
+      const cuit = String(d.cuit_productor || '').replace(/\D/g, '');
+      if (!/^\d{8,20}$/.test(coe)) throw new Error(`COE invalido en fila ${indice + 1}`);
+      if (!['A', 'B', 'C'].includes(tipo)) throw new Error(`tipo_formulario invalido en fila ${indice + 1}`);
+      if (cuit && !/^\d{11}$/.test(cuit)) throw new Error(`CUIT invalido en fila ${indice + 1}`);
+      const fecha = d.fecha_emision ? new Date(d.fecha_emision) : null;
+      if (fecha && Number.isNaN(fecha.getTime())) throw new Error(`fecha_emision invalida en fila ${indice + 1}`);
+      return {
+        coe,
+        tipo,
+        numero: String(d.numero_certificado || '').trim() || null,
+        cuit: cuit || null,
+        nombre: String(d.nombre_productor || '').trim() || null,
+        fecha,
+        direccion: String(d.direccion || '').trim().slice(0, 80) || null
+      };
+    });
+
+    const unicos = [...new Map(normalizados.map(d => [d.coe, d])).values()];
+    await client.query('BEGIN');
+    let creados = 0;
+    let existentes = 0;
+
+    for (const d of unicos) {
+      const previo = await client.query('SELECT id FROM certificados_1116 WHERE coe = $1 LIMIT 1', [d.coe]);
+      if (previo.rows[0]) {
+        existentes += 1;
+        continue;
+      }
+      await client.query(`
+        INSERT INTO certificados_1116
+          (tipo_formulario, numero_certificado, coe, cuit_productor, nombre_productor,
+           fecha_emision, direccion, origen_carga)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,'INVENTARIO_ARCA')
+      `, [d.tipo, d.numero, d.coe, d.cuit, d.nombre, d.fecha, d.direccion]);
+      creados += 1;
+    }
+
+    await client.query('COMMIT');
+    const resultado = {
+      recibidos: documentos.length,
+      unicos: unicos.length,
+      creados,
+      existentes,
+      duplicados_en_lote: documentos.length - unicos.length,
+      pendientes_enriquecimiento: creados
+    };
+    await registrarAuditoria(req, {
+      accion: 'IMPORTAR_INVENTARIO',
+      modulo: 'certificados_1116',
+      datos_despues: resultado
+    });
+    res.json({ ok: true, resultado, soloConsultaArca: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(400).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // POST /api/certificados-1116/trazabilidad/generar - solo genera evidencia y propuestas internas.
 // No emite, anula ni modifica documentos fiscales en ARCA.
 router.post('/trazabilidad/generar', async (req, res) => {
