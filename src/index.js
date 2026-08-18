@@ -98,6 +98,11 @@ async function start() {
     app.listen(PORT, () => console.log(`GranoSYS v2.0 corriendo en puerto ${PORT}`));
     iniciarBackfillCertificadosDeposito();
     setImmediate(() => {
+      arcaOfficialClient.materializarCertificadosCtg()
+        .then(resultado => console.log('Vinculacion certificados a CTG existentes completada:', resultado))
+        .catch(error => console.error('Vinculacion certificados a CTG pendiente:', error.message));
+    });
+    setImmediate(() => {
       arcaOfficialClient.materializarMovimientosCpe({ desde: '2026-02-01' })
         .then(resultado => console.log('Backfill CPE/CPEDG a Movimientos completado:', resultado))
         .catch(error => console.error('Backfill CPE/CPEDG a Movimientos pendiente:', error.message));
