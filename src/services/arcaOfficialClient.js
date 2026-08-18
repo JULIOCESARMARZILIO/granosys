@@ -1860,7 +1860,32 @@ const GRANOS_ARCA = Object.freeze({
   '107': 'Colza'
 });
 
-function productoCpeOficial(tipoCpe, datosCarga = {}) {
+function descripcionEspecificaDerivado(payload = {}) {
+  const texto = JSON.stringify(payload || {})
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  const reglas = [
+    [/pellets? de cascara de soja/, 'Pellets de cáscara de soja'],
+    [/cascara de soja/, 'Cáscara de soja'],
+    [/harina de soja/, 'Harina de soja'],
+    [/aceite crudo de soja/, 'Aceite crudo de soja'],
+    [/aceite de soja/, 'Aceite de soja'],
+    [/expeller de soja/, 'Expeller de soja'],
+    [/extrujado de soja/, 'Extrujado de soja'],
+    [/pellets? de soja/, 'Pellets de soja'],
+    [/aceite crudo de girasol/, 'Aceite crudo de girasol'],
+    [/expeller de girasol/, 'Expeller de girasol'],
+    [/pellets? de girasol/, 'Pellets de girasol'],
+    [/aceite crudo de maiz/, 'Aceite crudo de maíz'],
+    [/pellets? de maiz/, 'Pellets de maíz'],
+    [/pellets? de sorgo/, 'Pellets de sorgo'],
+    [/pellets? de cebada/, 'Pellets de cebada']
+  ];
+  return reglas.find(([patron]) => patron.test(texto))?.[1] || null;
+}
+
+function productoCpeOficial(tipoCpe, datosCarga = {}, payload = {}) {
   const esDerivado = /_DG$/i.test(String(tipoCpe || '')) ||
     datosCarga.codDerivadoGranario !== undefined ||
     datosCarga.codigoDerivadoGranario !== undefined;
@@ -1875,7 +1900,10 @@ function productoCpeOficial(tipoCpe, datosCarga = {}) {
       datosCarga.derivadoGranario ||
       ''
     ).trim();
-    const nombre = descripcionInformada || DERIVADOS_GRANARIOS_ARCA[codigoDerivado] || null;
+    const nombre = descripcionEspecificaDerivado(payload) ||
+      descripcionInformada ||
+      DERIVADOS_GRANARIOS_ARCA[codigoDerivado] ||
+      null;
     return {
       codigo: codigoDerivado ? `ARCA-DG-${codigoDerivado}` : null,
       codigoArca: codigoDerivado || null,
@@ -1998,7 +2026,7 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null 
       if (!datosCarga.codDerivadoGranario) {
         datosCarga.codDerivadoGranario = primerTag(rawXml, ['codDerivadoGranario', 'codigoDerivadoGranario']);
       }
-      const producto = productoCpeOficial(doc.tipo_cpe, datosCarga);
+      const producto = productoCpeOficial(doc.tipo_cpe, datosCarga, payload);
       const especie = await asegurarEspecieProductoCpe(client, producto);
 
       const { rows: ya } = await client.query('SELECT id,id_especie,observaciones FROM movimientos WHERE nro_ctg=$1 LIMIT 1', [doc.ctg]);
@@ -2662,6 +2690,8 @@ module.exports = {
   productoCpeOficial,
   diagnosticarCredenciales,
   _internal: {
+    productoCpeOficial,
+    descripcionEspecificaDerivado,
     xmlEscape,
     decodeXml,
     tag,
