@@ -2638,6 +2638,43 @@ async function decidirConciliacionCuentaCorriente({
 }
 
 
+
+async function importarCertificadoInteractivo({ coe, metadata = {}, pdfBuffer }) {
+  await ensureSyncTables();
+  const safeCoe = String(coe || '').replace(/\D/g, '');
+  if (!/^332\d{9}$/.test(safeCoe)) {
+    throw new Error('COE de certificado invalido.');
+  }
+  if (!Buffer.isBuffer(pdfBuffer) || pdfBuffer.length < 5 ||
+      pdfBuffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    throw new Error('El archivo no es un PDF valido.');
+  }
+  const fechaTexto = String(metadata.fecha_emision || '');
+  const fechaMatch = fechaTexto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const fecha = fechaMatch
+    ? `${fechaMatch[3]}-${fechaMatch[2]}-${fechaMatch[1]}`
+    : null;
+  const payload = {
+    ...metadata,
+    coe: safeCoe,
+    origen: 'SERVICIO_INTERACTIVO_ARCA',
+    soloConsulta: true
+  };
+  const resultado = await guardarDocumentoOficial(
+    'ARCA_CEG_INTERACTIVO',
+    safeCoe,
+    fecha,
+    payload,
+    pdfBuffer
+  );
+  return {
+    coe: safeCoe,
+    documentId: resultado.documentId,
+    pdfGuardado: resultado.pdfGuardado,
+    ctgs: Array.isArray(metadata.ctgs) ? metadata.ctgs.length : 0
+  };
+}
+
 async function materializarCertificadosCtg() {
   await ensureSyncTables();
   await pool.query(`
@@ -2663,7 +2700,7 @@ async function materializarCertificadosCtg() {
   const { rows: certificados } = await pool.query(`
     SELECT id, external_key AS coe, payload
     FROM arca_official_documents
-    WHERE fuente IN ('WSLPG_CERTIFICACION', 'WSLPG_CERTIFICACION_COE')
+    WHERE fuente IN ('WSLPG_CERTIFICACION', 'WSLPG_CERTIFICACION_COE', 'ARCA_CEG_INTERACTIVO')
     ORDER BY id
   `);
   let certificadosConCtg = 0;
@@ -2673,7 +2710,10 @@ async function materializarCertificadosCtg() {
 
   for (const certificado of certificados) {
     const rawXml = String(certificado.payload?.rawXml || '');
-    const ctgs = [...new Set(tags(rawXml, 'ctg')
+    const ctgsPayload = Array.isArray(certificado.payload?.ctgs)
+      ? certificado.payload.ctgs
+      : [];
+    const ctgs = [...new Set([...ctgsPayload, ...tags(rawXml, 'ctg')]
       .map(value => String(value || '').replace(/\D/g, ''))
       .filter(value => /^\d{8,20}$/.test(value)))];
     if (ctgs.length) certificadosConCtg += 1;
@@ -2769,6 +2809,7 @@ module.exports = {
   importarCpeNormalizada,
   materializarMovimientosCpe,
   materializarCertificadosCtg,
+  importarCertificadoInteractivo,
   productoCpeOficial,
   diagnosticarCredenciales,
   _internal: {
