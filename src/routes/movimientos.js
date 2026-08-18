@@ -396,19 +396,12 @@ router.post('/', async (req, res) => {
     let final_id_contrato_compra = id_contrato_compra || null;
     let final_id_contrato_venta = id_contrato_venta || null;
 
-    // Si es INFORMAL y tiene CPE, buscar contrato "INVERSIONES CP" si no viene uno especificado
-    if (modalidad === 'INFORMAL' && nro_cpe && !final_id_contrato_compra) {
-      const { rows: contractSearch } = await pool.query(
-        `SELECT c.id FROM contratos c
-         LEFT JOIN contrapartes cp ON c.id_contraparte = cp.id
-         WHERE c.tipo_contrato = 'COMPRA' AND c.modalidad = 'INFORMAL' AND c.activo = true
-         AND (c.numero_contrato ILIKE '%INVERSIONES CP%' OR cp.razon_social ILIKE '%INVERSIONES CP%' OR c.observaciones ILIKE '%INVERSIONES CP%')
-         LIMIT 1`
-      );
-      if (contractSearch[0]) {
-        final_id_contrato_compra = contractSearch[0].id;
-      }
-    }
+    // Antes, un Informal con CPE y sin contrato elegido caia solo en un
+    // contrato de compra "INVERSIONES CP" -- pero esa contraparte es la
+    // empresa misma, nunca el productor real, asi que quedaba mal asignado
+    // sin que nadie lo eligiera y desaparecia de "Asignacion de movimientos"
+    // (que solo lista lo que todavia tiene kg sin repartir). Si no se
+    // especifica contrato, ahora queda sin asignar como cualquier otro.
 
     // Generar número de movimiento para el primero
     const { rows: last1 } = await pool.query(
