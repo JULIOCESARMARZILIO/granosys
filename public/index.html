@@ -11033,6 +11033,8 @@ const DocumentosArca = () => {
   const [pagina,setPagina]=useState(1);
   const [cargando,setCargando]=useState(false);
   const [detalle,setDetalle]=useState(null);
+  const [reporteCertificados,setReporteCertificados]=useState(null);
+  const [filtroReporte,setFiltroReporte]=useState('SIN_CERTIFICADO');
   const [error,setError]=useState("");
 
   const cargar = async (paginaSolicitada=pagina, fuenteSolicitada=fuente) => {
@@ -11337,12 +11339,24 @@ const DocumentosArca = () => {
     }
   };
 
+  const abrirReporteCertificados = async () => {
+    setCargando(true);
+    try {
+      const respuesta=await api.get('/api/arca/reportes/cpe-certificados');
+      if(!respuesta?.ok) throw new Error(respuesta?.error||'No se pudo cargar el reporte.');
+      setReporteCertificados(respuesta);
+      setFiltroReporte('SIN_CERTIFICADO');
+    } catch(e) { setError(e.message||'No se pudo cargar el reporte de certificados.'); }
+    finally { setCargando(false); }
+  };
+
   return <div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18,gap:12}}>
       <div><h2 style={{fontSize:20,fontWeight:700,marginBottom:4}}>Documentos ARCA</h2><div style={{fontSize:12,color:"#8890a8"}}>{esCpe?"Cartas de Porte Electronicas de granos y derivados vinculadas a Inversiones del Salado S.A. · Solo consulta":"Comprobantes oficiales emitidos por Inversiones del Salado S.A. · Solo consulta"}</div></div>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
         <Btn variant={esCpe?"secondary":"primary"} onClick={()=>{setFuente("WSFE_EMITIDA");setDesde("2026-01-01");setPagina(1);}}>Facturas</Btn>
         <Btn variant={esCpe?"primary":"secondary"} onClick={()=>{setFuente("WSCPE_CPE");setDesde("2026-02-01");setPagina(1);}}>CPE / CPEDG</Btn>
+        {esCpe&&<Btn variant="secondary" onClick={abrirReporteCertificados}>Reporte certificados</Btn>}
         <Btn onClick={()=>cargar(pagina)} disabled={cargando}>{cargando?"Actualizando...":"Actualizar"}</Btn>
       </div>
     </div>
@@ -11466,6 +11480,15 @@ const DocumentosArca = () => {
         <FF label="Exento / no gravado"><div>{money(detalle.payload?.ImpOpEx)} / {money(detalle.payload?.ImpTotConc)}</div></FF><FF label="Otros tributos"><div>{money(detalle.payload?.ImpTrib)}</div></FF>
         <FF label="Contraparte"><div>{detalle.contraparte_razon_social||"Pendiente de alta"}</div></FF><FF label="Código de autorización"><div style={{fontFamily:"monospace"}}>{detalle.payload?.CodAutorizacion||"-"}</div></FF>
       </div><div style={{marginTop:14,fontSize:11,color:"#565d7a"}}>Hash SHA-256: {detalle.payload_hash}</div></React.Fragment>}
+    </Modal>}
+    {reporteCertificados&&<Modal title="CPE 101 y certificados de depósito" onClose={()=>setReporteCertificados(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:14}}>
+        {[["Total",reporteCertificados.resumen.total],["Vinculadas",reporteCertificados.resumen.vinculadas],["Sin certificado",reporteCertificados.resumen.sinCertificado],["Traslado propio",reporteCertificados.resumen.trasladosPropiosSinCertificado],["Desde terceros",reporteCertificados.resumen.tercerosSinCertificado]].map(([l,v])=><div key={l} style={{padding:10,background:"#11141d",borderRadius:7}}><div style={{fontSize:10,color:"#8890a8"}}>{l}</div><div style={{fontSize:20,fontWeight:700}}>{v||0}</div></div>)}
+      </div>
+      <div style={{marginBottom:12}}><select value={filtroReporte} onChange={e=>setFiltroReporte(e.target.value)}><option value="SIN_CERTIFICADO">Sin certificado</option><option value="VINCULADO">Con certificado</option><option value="TODOS">Todos</option></select></div>
+      <div style={{maxHeight:500,overflow:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}><thead><tr>{["CTG","Fecha","Clasificación","Origen","Destino / planta","Certificado"].map(h=><th key={h} style={{padding:7,textAlign:"left",borderBottom:"1px solid #2a2d3e"}}>{h}</th>)}</tr></thead><tbody>
+        {reporteCertificados.detalle.filter(item=>filtroReporte==='TODOS'||item.estadoCertificado===filtroReporte).map(item=>{const origen=item.intervinientes.find(p=>p.rol==='ORIGEN');const destino=item.intervinientes.find(p=>p.rol==='DESTINO');const planta=item.plantas.find(p=>p.rol==='DESTINO');return <tr key={item.ctg} style={{borderBottom:"1px solid #252837"}}><td style={{padding:7,fontFamily:"monospace"}}>{item.ctg}</td><td style={{padding:7}}>{String(item.fecha||'').slice(0,10)}</td><td style={{padding:7}}>{item.clasificacion==='TRASLADO_PROPIO'?'Traslado propio':'Tercero a planta propia'}</td><td style={{padding:7}}>{origen?.nombre||origen?.cuit||'-'}</td><td style={{padding:7}}>{destino?.nombre||destino?.cuit||'-'}{planta?.planta?` · Planta ${planta.planta}`:''}</td><td style={{padding:7}}>{item.certificados.map(c=>c.coe).join(', ')||'Pendiente'}</td></tr>;})}
+      </tbody></table></div>
     </Modal>}
   </div>;
 };
