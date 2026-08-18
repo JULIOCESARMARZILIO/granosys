@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const { initDB } = require('./db');
+const arcaOfficialClient = require('./services/arcaOfficialClient');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -54,6 +55,11 @@ async function start() {
   try {
     await initDB();
     app.listen(PORT, () => console.log(`GranoSYS v2.0 corriendo en puerto ${PORT}`));
+    setImmediate(() => {
+      arcaOfficialClient.materializarMovimientosCpe({ desde: '2026-02-01' })
+        .then(resultado => console.log('Backfill CPE/CPEDG a Movimientos completado:', resultado))
+        .catch(error => console.error('Backfill CPE/CPEDG a Movimientos pendiente:', error.message));
+    });
   } catch (err) {
     console.error('Error al iniciar:', err);
     process.exit(1);
