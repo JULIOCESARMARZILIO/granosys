@@ -247,6 +247,23 @@ async function start() {
     app.listen(PORT, () => console.log(`GranoSYS v2.0 corriendo en puerto ${PORT}`));
     iniciarBackfillCertificadosDeposito();
     iniciarBackfillCpeConfirmadas();
+    if (String(process.env.ARCA_REFRESH_DERIVADOS_PENDIENTES || '').toLowerCase() === 'true') {
+      setImmediate(async () => {
+        try {
+          const job = await arcaOfficialClient.iniciarRefreshDerivadosPendientes();
+          if (!job) return console.log('Refresh CPEDG: no hay pendientes.');
+          console.log('Refresh CPEDG iniciado:', { jobId: job.id, total: job.totalCtgs });
+          for (let intento=0; intento<720; intento+=1) {
+            await new Promise(resolve=>setTimeout(resolve,10000));
+            const estado=await arcaOfficialClient.obtenerSyncJob(job.id);
+            if (!estado || !['COMPLETADO','PARCIAL','ERROR'].includes(estado.estado)) continue;
+            console.log('Refresh CPEDG finalizado:', { estado:estado.estado,revisados:estado.total_revisados,importados:estado.total_importados,error:estado.error||null });
+            console.log('DIAGNOSTICO_DERIVADOS_ARCA=' + JSON.stringify(await arcaOfficialClient.diagnosticarDerivadosPendientes()));
+            return;
+          }
+        } catch (error) { console.error('Refresh CPEDG pendiente:', error.message); }
+      });
+    }
     setImmediate(() => {
       arcaOfficialClient.materializarCertificadosCtg()
         .then(resultado => console.log('Vinculacion certificados a CTG existentes completada:', resultado))
