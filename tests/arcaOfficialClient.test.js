@@ -194,4 +194,40 @@ describe('arcaOfficialClient XML helpers', () => {
       expect.objectContaining({ url: 'https://cpea-ws.arca.gob.ar/wscpe/services/soap' })
     ]));
   });
+
+  test('uses the exact official derivative as the CPEDG product', () => {
+    expect(client.productoCpeOficial('AUTOMOTOR_DG', {
+      codGrano: '23',
+      codDerivadoGranario: '145'
+    })).toEqual(expect.objectContaining({
+      nombre: 'Expeller de soja',
+      codigo: 'ARCA-DG-145',
+      tipoProducto: 'SUBPRODUCTO',
+      esDerivado: true
+    }));
+  });
+
+  test('does not label an unknown CPEDG derivative as soybean grain', () => {
+    expect(client.productoCpeOficial('AUTOMOTOR_DG', {
+      codGrano: '23',
+      codDerivadoGranario: '999'
+    })).toEqual(expect.objectContaining({
+      nombre: null,
+      codigo: 'ARCA-DG-999',
+      tipoProducto: 'SUBPRODUCTO',
+      esDerivado: true
+    }));
+  });
+
+  test('keeps the base grain only for ordinary CPE', () => {
+    expect(client.productoCpeOficial('AUTOMOTOR', {
+      codGrano: '23'
+    })).toEqual(expect.objectContaining({
+      nombre: 'Soja',
+      codigo: 'ARCA-GR-23',
+      tipoProducto: 'GRANO',
+      esDerivado: false
+    }));
+  });
+
 });
