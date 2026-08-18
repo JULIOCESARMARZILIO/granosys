@@ -1791,6 +1791,9 @@ async function iniciarSyncCpePorCtg({ ctgs = [], desde = '2026-02-01', userId = 
   return { id, fuente: 'WSCPE_CPE', desde, totalCtgs: safeCtgs.length, estado: 'PENDIENTE' };
 }
 
+  return { id, fuente: 'WSCPE_CPE', desde, totalCtgs: safeCtgs.length, estado: 'PENDIENTE' };
+}
+
 function primerTag(xml, nombres) {
   for (const nombre of nombres) {
     const value = tag(xml || '', nombre);
