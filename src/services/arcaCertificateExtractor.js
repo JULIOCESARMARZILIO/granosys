@@ -310,8 +310,15 @@ async function extractAllCertificates({ limit = 1000 } = {}) {
     SELECT d.id,d.fuente,d.external_key,d.document_date,d.payload,
       EXISTS(SELECT 1 FROM arca_official_files f WHERE f.document_id=d.id AND f.file_type='PDF') has_pdf
     FROM arca_official_documents d
-    WHERE d.fuente LIKE 'WSLPG_%'
-      AND (d.fuente ILIKE '%CERT%' OR d.payload::text ILIKE '%certific%deposit%')
+    WHERE (
+      d.fuente LIKE 'WSLPG_%'
+      OR d.fuente = 'ARCA_CEG_INTERACTIVO'
+    )
+      AND (
+        d.fuente ILIKE '%CERT%'
+        OR d.fuente = 'ARCA_CEG_INTERACTIVO'
+        OR d.payload::text ILIKE '%certific%deposit%'
+      )
     ORDER BY d.document_date,d.id
     LIMIT $1
   `, [Math.max(1, Math.min(10000, Number(limit) || 1000))]);

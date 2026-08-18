@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { initDB } = require('./db');
 const arcaOfficialClient = require('./services/arcaOfficialClient');
+const arcaCertificateExtractor = require('./services/arcaCertificateExtractor');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -186,18 +187,72 @@ function iniciarBackfillCertificadosDeposito() {
   });
 }
 
+function iniciarBackfillCpeConfirmadas() {
+  const configuracion = String(process.env.ARCA_CPE_CONFIRMADAS_BACKFILL || '').trim();
+  if (!configuracion) return;
+  const [desde, hasta] = configuracion.split(':');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(desde || '') || !/^\d{4}-\d{2}-\d{2}$/.test(hasta || '')) {
+    console.error('Backfill CPE/CPEDG confirmadas no iniciado: use AAAA-MM-DD:AAAA-MM-DD');
+    return;
+  }
+
+  setImmediate(async () => {
+    try {
+      const job = await arcaOfficialClient.iniciarSyncCpeDestino({
+        desde,
+        hasta,
+        soloConfirmadas: true
+      });
+      console.log('Backfill CPE/CPEDG confirmadas iniciado:', { jobId: job.id, desde, hasta });
+
+      for (let intento = 0; intento < 2160; intento += 1) {
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        const estado = await arcaOfficialClient.obtenerSyncJob(job.id);
+        if (!estado || !['COMPLETADO', 'PARCIAL', 'ERROR'].includes(estado.estado)) continue;
+        console.log('Backfill CPE/CPEDG confirmadas finalizado:', {
+          jobId: job.id,
+          estado: estado.estado,
+          revisados: estado.total_revisados,
+          importados: estado.total_importados,
+          detalle: estado.error || null
+        });
+        if (estado.total_importados > 0) {
+          const movimientos = await arcaOfficialClient.materializarMovimientosCpe({
+            desde,
+            soloConfirmadas: true
+          });
+          const certificados = await arcaOfficialClient.materializarCertificadosCtg();
+          const extraccionCertificados = await arcaCertificateExtractor.extractAllCertificates({ limit: 10000 });
+          const calidades = await arcaCertificateExtractor.assignExistingCpesAndQualities();
+          console.log('CPE/CPEDG confirmadas materializadas:', {
+            movimientos,
+            certificados,
+            extraccionCertificados,
+            calidades
+          });
+        }
+        return;
+      }
+      console.error('Backfill CPE/CPEDG confirmadas pendiente: tiempo de espera agotado', { jobId: job.id });
+    } catch (error) {
+      console.error('Backfill CPE/CPEDG confirmadas no iniciado:', error.message);
+    }
+  });
+}
+
 async function start() {
   try {
     await initDB();
     app.listen(PORT, () => console.log(`GranoSYS v2.0 corriendo en puerto ${PORT}`));
     iniciarBackfillCertificadosDeposito();
+    iniciarBackfillCpeConfirmadas();
     setImmediate(() => {
       arcaOfficialClient.materializarCertificadosCtg()
         .then(resultado => console.log('Vinculacion certificados a CTG existentes completada:', resultado))
         .catch(error => console.error('Vinculacion certificados a CTG pendiente:', error.message));
     });
     setImmediate(() => {
-      arcaOfficialClient.materializarMovimientosCpe({ desde: '2026-02-01' })
+      arcaOfficialClient.materializarMovimientosCpe({ desde: '2026-02-01', soloConfirmadas: true })
         .then(resultado => console.log('Backfill CPE/CPEDG a Movimientos completado:', resultado))
         .catch(error => console.error('Backfill CPE/CPEDG a Movimientos pendiente:', error.message));
     });

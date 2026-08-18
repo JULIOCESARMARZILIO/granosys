@@ -184,6 +184,27 @@ describe('arcaOfficialClient XML helpers', () => {
     ]);
   });
 
+  test('recognizes only the official CN state as confirmed', () => {
+    expect(client._internal.esEstadoConfirmadoCpe('CN')).toBe(true);
+    expect(client._internal.esEstadoConfirmadoCpe(' cn ')).toBe(true);
+    expect(client._internal.esEstadoConfirmadoCpe('AC')).toBe(false);
+    expect(client._internal.esEstadoConfirmadoCpe('AN')).toBe(false);
+  });
+
+  test('extracts the official state from the persisted WSCPE payload', () => {
+    expect(client._internal.estadoCpeDesdePayload({
+      rawXml: '<respuesta><cabecera><estado>CN</estado></cabecera></respuesta>'
+    })).toBe('CN');
+  });
+
+  test.each([
+    ['10134183216', 'PRODUCTOR', 'PROPIA'],
+    ['10234183216', 'PLANTA', 'ACOPIO'],
+    ['99934183216', null, null]
+  ])('classifies CTG %s by its official origin prefix', (ctg, tipoOrigenCpe, origenProduccion) => {
+    expect(client._internal.clasificarOrigenCtg(ctg)).toEqual({ tipoOrigenCpe, origenProduccion });
+  });
+
   test('preserves the proven WSCPE target and includes ARCA domain compatibility', () => {
     const targets = client._internal.wscpeTargets(true);
     expect(targets[0]).toEqual({
