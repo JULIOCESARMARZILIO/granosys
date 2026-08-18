@@ -2299,57 +2299,6 @@ async function diagnosticarDerivadosPendientes() {
   }));
 }
 
-async function auditarCertificadosInversionesDelSalado() {
-  const { rows: identidades } = await pool.query(`
-    SELECT DISTINCT cuit, razon_social_oficial AS razon_social
-    FROM arca_cpe_participants
-    WHERE razon_social_oficial ILIKE '%INVERSIONES%DEL%SALADO%'
-    UNION
-    SELECT DISTINCT cuit, razon_social
-    FROM contrapartes
-    WHERE razon_social ILIKE '%INVERSIONES%DEL%SALADO%'
-  `);
-  const cuits = [...new Set(identidades.map(item => normalizarCuit(item.cuit)).filter(Boolean))];
-  if (!cuits.length) return { cuits: [], total: 0, vinculadas: 0, sinCertificado: 0, detalle: [] };
-
-  const { rows } = await pool.query(`
-    SELECT r.ctg,
-      jsonb_agg(DISTINCT jsonb_build_object(
-        'rol', p.rol, 'cuit', p.cuit, 'razonSocial', p.razon_social_oficial
-      )) FILTER (WHERE p.id IS NOT NULL) AS intervinientes,
-      array_remove(array_agg(DISTINCT l.certificado_coe), NULL) AS certificados,
-      EXISTS (
-        SELECT 1 FROM arca_certificado_ctg_links lx
-        WHERE lx.ctg=r.ctg AND lx.cpe_document_id=r.document_id
-      ) AS vinculado
-    FROM arca_cpe_registry r
-    JOIN arca_cpe_participants objetivo
-      ON objetivo.document_id=r.document_id AND objetivo.cuit=ANY($1::varchar[])
-    LEFT JOIN arca_cpe_participants p ON p.document_id=r.document_id
-    LEFT JOIN arca_certificado_ctg_links l ON l.ctg=r.ctg
-    WHERE r.ctg LIKE '101%'
-    GROUP BY r.ctg,r.document_id
-    ORDER BY r.ctg
-  `, [cuits]);
-
-  const detalle = rows.map(item => ({
-    ctg: item.ctg,
-    rolesInversiones: (item.intervinientes || [])
-      .filter(p => cuits.includes(normalizarCuit(p.cuit)))
-      .map(p => p.rol),
-    certificados: item.certificados || [],
-    vinculado: Boolean(item.vinculado)
-  }));
-  return {
-    cuits,
-    total: detalle.length,
-    vinculadas: detalle.filter(item => item.vinculado).length,
-    sinCertificado: detalle.filter(item => !item.vinculado).length,
-    detalleSinCertificado: detalle.filter(item => !item.vinculado),
-    detalleVinculado: detalle.filter(item => item.vinculado)
-  };
-}
-
 async function iniciarRefreshDerivadosPendientes() {
   const { rows } = await pool.query(`
     SELECT ctg FROM arca_cpe_movement_pending
@@ -3081,7 +3030,6 @@ module.exports = {
   importarCpeNormalizada,
   materializarMovimientosCpe,
   diagnosticarDerivadosPendientes,
-  auditarCertificadosInversionesDelSalado,
   iniciarRefreshDerivadosPendientes,
   materializarCertificadosCtg,
   importarCertificadoInteractivo,
