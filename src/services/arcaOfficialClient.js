@@ -2810,6 +2810,47 @@ async function importarCertificadoInteractivo({ coe, metadata = {}, pdfBuffer })
   };
 }
 
+
+function camposEscalaresDiagnostico(value, path = '', salida = [], visitados = new Set()) {
+  if (value === null || value === undefined || salida.length >= 300 || visitados.has(value)) return salida;
+  if (typeof value === 'object') {
+    visitados.add(value);
+    for (const [clave, contenido] of Object.entries(value)) {
+      if (/rawxml|raw_xml|pdf|token|sign|cert|key/i.test(clave)) continue;
+      camposEscalaresDiagnostico(contenido, path ? `${path}.${clave}` : clave, salida, visitados);
+    }
+    return salida;
+  }
+  const texto = String(value).trim();
+  if (!texto || texto.length > 120 || /^\d{11,20}$/.test(texto)) return salida;
+  salida.push({ path, value: texto });
+  return salida;
+}
+
+async function diagnosticarDerivadosPendientes() {
+  const { rows } = await pool.query(`
+    SELECT p.ctg,d.payload FROM arca_cpe_movement_pending p
+    JOIN arca_official_documents d ON d.id=p.document_id
+    WHERE p.motivos @> '["DERIVADO_SIN_MAPEO"]'::jsonb ORDER BY p.ctg LIMIT 5
+  `);
+  return rows.map(row => ({
+    ctg: row.ctg,
+    campos: camposEscalaresDiagnostico(row.payload).filter(item =>
+      /producto|grano|deriv|mercader|especie|carga|cod|desc/i.test(item.path)
+    )
+  }));
+}
+
+async function iniciarRefreshDerivadosPendientes() {
+  const { rows } = await pool.query(`
+    SELECT ctg FROM arca_cpe_movement_pending
+    WHERE motivos @> '["DERIVADO_SIN_MAPEO"]'::jsonb ORDER BY ctg
+  `);
+  const ctgs = rows.map(row => row.ctg);
+  if (!ctgs.length) return null;
+  return iniciarSyncCpePorCtg({ ctgs, desde: '2026-02-01' });
+}
+
 async function materializarCertificadosCtg() {
   await ensureSyncTables();
   await pool.query(`
@@ -2947,6 +2988,8 @@ module.exports = {
   decidirConciliacionCuentaCorriente,
   importarCpeNormalizada,
   materializarMovimientosCpe,
+  diagnosticarDerivadosPendientes,
+  iniciarRefreshDerivadosPendientes,
   materializarCertificadosCtg,
   importarCertificadoInteractivo,
   productoCpeOficial,
