@@ -4333,7 +4333,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
               }}>{label}</button>
             ))}
           </div>
-          <Btn variant="secondary" size="sm" onClick={()=>setSubTab("vinculacion")}>🔗 Vinculación Formal/Informal</Btn>
+          {modulo==="INFORMAL" && <Btn variant="secondary" size="sm" onClick={()=>setSubTab("vinculacion")}>🔗 Vinculación Formal/Informal</Btn>}
           <Btn variant="secondary" size="sm" onClick={()=>setSubTab("reportes")}>📋 Reportes pendientes{reportesPendientesCount>0?` (${reportesPendientesCount})`:""}</Btn>
         </div>
         <div style={{display:"flex",gap:8}}>
