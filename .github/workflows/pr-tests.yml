@@ -11,7 +11,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,8 +19,16 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm test -- --runInBand
-      - run: |
+      - name: Run each Jest suite in an isolated process
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r test_file; do
+            echo "Running ${test_file}"
+            npm test -- --runInBand "${test_file}"
+          done < <(find tests -name '*.test.js' -type f | sort)
+      - name: Syntax checks
+        run: |
           node --check src/index.js
           node --check src/db.js
           node --check src/routes/arca.js
