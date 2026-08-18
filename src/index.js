@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
+const crypto = require('crypto');
 const { initDB } = require('./db');
 const arcaOfficialClient = require('./services/arcaOfficialClient');
 
@@ -13,6 +14,99 @@ app.use(express.json({ limit: '8mb' }));
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', version: '2.0.0', time: new Date() }));
+
+
+function tokenImportacionValido(req) {
+  const esperado = Buffer.from(String(process.env.ARCA_INTERACTIVE_IMPORT_TOKEN || ''));
+  const recibido = Buffer.from(String(req.get('x-import-token') || req.query.token || ''));
+  return esperado.length > 20 &&
+    esperado.length === recibido.length &&
+    crypto.timingSafeEqual(esperado, recibido);
+}
+
+app.get('/internal/arca/certificados', (req, res) => {
+  if (!tokenImportacionValido(req)) return res.status(404).end();
+  res.type('html').send(`<!doctype html><meta charset="utf-8">
+  <title>Importar certificados ARCA</title>
+  <h1>Importar certificados oficiales ARCA</h1>
+  <p>Solo consulta. Los archivos se guardan por COE y no crean CTG.</p>
+  <label>Manifiesto JSON <input id="manifest" type="file" accept=".json"></label><br><br>
+  <label>PDF por COE <input id="pdfs" type="file" accept=".pdf" multiple></label><br><br>
+  <button id="start">Importar</button>
+  <pre id="status"></pre>
+  <script>
+    const token = new URLSearchParams(location.search).get('token');
+    const status = document.getElementById('status');
+    const toBase64 = buffer => {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      }
+      return btoa(binary);
+    };
+    document.getElementById('start').onclick = async () => {
+      const manifestFile = document.getElementById('manifest').files[0];
+      const files = [...document.getElementById('pdfs').files];
+      if (!manifestFile || !files.length) throw new Error('Faltan archivos.');
+      const manifest = JSON.parse(await manifestFile.text());
+      const byCoe = new Map(manifest.map(item => [String(item.coe), item]));
+      let ok = 0;
+      const errors = [];
+      for (const file of files) {
+        const coe = (file.name.match(/\d{12}/) || [])[0];
+        try {
+          if (!coe || !byCoe.has(coe)) throw new Error('COE sin manifiesto');
+          const response = await fetch('/internal/arca/certificados', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json','x-import-token':token},
+            body: JSON.stringify({
+              coe,
+              metadata: byCoe.get(coe),
+              pdfBase64: toBase64(await file.arrayBuffer())
+            })
+          });
+          const body = await response.json();
+          if (!response.ok) throw new Error(body.error || response.status);
+          ok += 1;
+        } catch (error) {
+          errors.push({file:file.name,error:error.message});
+        }
+        status.textContent = JSON.stringify({procesados:ok+errors.length,ok,errores:errors.length}, null, 2);
+      }
+      const linkResponse = await fetch('/internal/arca/certificados/vincular', {
+        method:'POST',
+        headers:{'x-import-token':token}
+      });
+      const vinculacion = await linkResponse.json();
+      status.textContent = JSON.stringify({total:files.length,ok,errors,vinculacion}, null, 2);
+    };
+  </script>`);
+});
+
+app.post('/internal/arca/certificados', async (req, res) => {
+  if (!tokenImportacionValido(req)) return res.status(404).end();
+  try {
+    const pdfBuffer = Buffer.from(String(req.body.pdfBase64 || ''), 'base64');
+    const resultado = await arcaOfficialClient.importarCertificadoInteractivo({
+      coe: req.body.coe,
+      metadata: req.body.metadata || {},
+      pdfBuffer
+    });
+    res.json({ ok: true, resultado });
+  } catch (error) {
+    res.status(400).json({ ok: false, error: error.message });
+  }
+});
+
+app.post('/internal/arca/certificados/vincular', async (req, res) => {
+  if (!tokenImportacionValido(req)) return res.status(404).end();
+  try {
+    res.json({ ok: true, resultado: await arcaOfficialClient.materializarCertificadosCtg() });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
 
 // Autenticación - protege todo /api salvo /api/usuarios/login
 app.use('/api', require('./middleware/requireAuth'));
