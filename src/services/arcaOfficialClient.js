@@ -2299,6 +2299,49 @@ async function diagnosticarDerivadosPendientes() {
   }));
 }
 
+async function auditarIntervinientesCpe101SinCertificado() {
+  const cuitInversiones = '30710183992';
+  const { rows } = await pool.query(`
+    SELECT r.ctg,
+      COALESCE(jsonb_agg(DISTINCT jsonb_build_object(
+        'rol',p.rol,'cuit',p.cuit,'nombre',p.razon_social_oficial
+      )) FILTER (WHERE p.id IS NOT NULL),'[]'::jsonb) AS participantes,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object(
+        'rol',pl.rol,'planta',pl.nro_planta,'cuit',pl.cuit_titular,
+        'nombre',pl.nombre_oficial,'localidad',pl.localidad,'provincia',pl.provincia
+      ) ORDER BY pl.rol,pl.nro_planta) FROM arca_cpe_plants pl
+        WHERE pl.document_id=r.document_id),'[]'::jsonb) AS plantas
+    FROM arca_cpe_registry r
+    JOIN arca_cpe_participants objetivo
+      ON objetivo.document_id=r.document_id AND objetivo.cuit=$1
+    LEFT JOIN arca_cpe_participants p ON p.document_id=r.document_id
+    WHERE r.ctg LIKE '101%'
+      AND NOT EXISTS (
+        SELECT 1 FROM arca_certificado_ctg_links l
+        WHERE l.ctg=r.ctg AND l.cpe_document_id=r.document_id
+      )
+    GROUP BY r.ctg,r.document_id
+    ORDER BY r.ctg
+  `, [cuitInversiones]);
+
+  const rolesInteres = /^(ORIGEN|SOLICITANTE|TITULAR_PLANTA|DESTINO|DESTINATARIO|REMITENTE_COMERCIAL(?:_VENTA_(?:PRIMARIA|SECUNDARIA)(?:_2)?)?)$/;
+  const detalle = rows.map(row => ({
+    ctg: row.ctg,
+    intervinientes: (row.participantes || []).filter(item => rolesInteres.test(String(item.rol || ''))),
+    plantas: row.plantas || []
+  }));
+  const agrupado = new Map();
+  for (const item of detalle) {
+    const receptores = item.intervinientes.filter(p => /^(DESTINO|DESTINATARIO|TITULAR_PLANTA)$/.test(p.rol));
+    const clave = JSON.stringify(receptores.map(p => `${p.rol}:${p.cuit}:${p.nombre || ''}`).sort());
+    const actual = agrupado.get(clave) || { cantidad: 0, receptores, ctgs: [] };
+    actual.cantidad += 1;
+    actual.ctgs.push(item.ctg);
+    agrupado.set(clave, actual);
+  }
+  return { total: detalle.length, gruposDestino: [...agrupado.values()], detalle };
+}
+
 async function iniciarRefreshDerivadosPendientes() {
   const { rows } = await pool.query(`
     SELECT ctg FROM arca_cpe_movement_pending
@@ -3030,6 +3073,7 @@ module.exports = {
   importarCpeNormalizada,
   materializarMovimientosCpe,
   diagnosticarDerivadosPendientes,
+  auditarIntervinientesCpe101SinCertificado,
   iniciarRefreshDerivadosPendientes,
   materializarCertificadosCtg,
   importarCertificadoInteractivo,
