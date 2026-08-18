@@ -1791,6 +1791,150 @@ async function iniciarSyncCpePorCtg({ ctgs = [], desde = '2026-02-01', userId = 
   return { id, fuente: 'WSCPE_CPE', desde, totalCtgs: safeCtgs.length, estado: 'PENDIENTE' };
 }
 
+  return { id, fuente: 'WSCPE_CPE', desde, totalCtgs: safeCtgs.length, estado: 'PENDIENTE' };
+}
+
+function primerTag(xml, nombres) {
+  for (const nombre of nombres) {
+    const value = tag(xml || '', nombre);
+    if (value !== null && value !== undefined && String(value).trim() !== '') return String(value).trim();
+  }
+  return null;
+}
+
+function numeroCpe(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  return digits || null;
+}
+
+async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null } = {}) {
+  const fechaDesde = validarFechaIso(desde, 'La fecha desde');
+  await ensureCpeMasterTables();
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS arca_cpe_movement_links (
+      ctg VARCHAR(20) PRIMARY KEY REFERENCES arca_cpe_registry(ctg) ON DELETE RESTRICT,
+      document_id BIGINT NOT NULL REFERENCES arca_official_documents(id) ON DELETE RESTRICT,
+      movimiento_id INTEGER NOT NULL UNIQUE REFERENCES movimientos(id) ON DELETE RESTRICT,
+      created_by INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS arca_cpe_movement_pending (
+      ctg VARCHAR(20) PRIMARY KEY REFERENCES arca_cpe_registry(ctg) ON DELETE CASCADE,
+      document_id BIGINT NOT NULL REFERENCES arca_official_documents(id) ON DELETE CASCADE,
+      motivos JSONB NOT NULL DEFAULT '[]'::jsonb,
+      payload_hash VARCHAR(64),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  const client = await pool.connect();
+  const resultado = { revisadas: 0, creadas: 0, existentes: 0, pendientes: 0, detallePendientes: [] };
+  try {
+    await client.query('BEGIN');
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('granosys:arca-cpe-movimientos'))");
+    const { rows: documentos } = await client.query(`
+      SELECT r.ctg, r.tipo_cpe, d.id AS document_id, d.document_date, d.payload, d.payload_hash,
+             COALESCE((SELECT jsonb_agg(to_jsonb(p) ORDER BY p.id) FROM arca_cpe_participants p WHERE p.document_id=d.id), '[]'::jsonb) participantes,
+             COALESCE((SELECT jsonb_agg(to_jsonb(pl) ORDER BY pl.id) FROM arca_cpe_plants pl WHERE pl.document_id=d.id), '[]'::jsonb) plantas
+      FROM arca_cpe_registry r
+      JOIN arca_official_documents d ON d.id=r.document_id
+      WHERE d.document_date >= $1::date AND r.ctg ~ '^\\d{8,20}$'
+      ORDER BY d.document_date, r.ctg
+    `, [fechaDesde]);
+
+    const { rows: secuencia } = await client.query(`
+      SELECT COALESCE(MAX((regexp_match(numero_movimiento, '^MOV-([0-9]+)$'))[1]::bigint),0) AS ultimo
+      FROM movimientos WHERE numero_movimiento ~ '^MOV-[0-9]+$'
+    `);
+    let siguiente = Number(secuencia[0]?.ultimo || 0) + 1;
+
+    const pickRol = (items, patrones) => items.find(item => patrones.some(pattern => pattern.test(String(item.rol || '')))) || null;
+    for (const doc of documentos) {
+      resultado.revisadas += 1;
+      const { rows: ya } = await client.query('SELECT id FROM movimientos WHERE nro_ctg=$1 LIMIT 1', [doc.ctg]);
+      if (ya[0]) {
+        await client.query(`INSERT INTO arca_cpe_movement_links(ctg,document_id,movimiento_id,created_by)
+          VALUES($1,$2,$3,$4) ON CONFLICT(ctg) DO NOTHING`, [doc.ctg, doc.document_id, ya[0].id, userId]);
+        await client.query('DELETE FROM arca_cpe_movement_pending WHERE ctg=$1', [doc.ctg]);
+        resultado.existentes += 1;
+        continue;
+      }
+
+      const payload = doc.payload || {};
+      const rawXml = String(payload.rawXml || payload.raw_xml || '');
+      const especieCodigo = primerTag(rawXml, ['codGrano', 'codigoGrano', 'codEspecie', 'codigoEspecie']);
+      const especieNombre = primerTag(rawXml, ['descGrano', 'descripcionGrano', 'nombreGrano', 'especie', 'producto']);
+      let especie = null;
+      if (especieCodigo) {
+        const { rows } = await client.query('SELECT id,nombre FROM especies WHERE activa=true AND (upper(codigo)=upper($1) OR regexp_replace(codigo,\'[^0-9]\',\'\',\'g\')=$1) LIMIT 1', [especieCodigo.replace(/\s/g, '')]);
+        especie = rows[0] || null;
+      }
+      if (!especie && especieNombre) {
+        const { rows } = await client.query('SELECT id,nombre FROM especies WHERE activa=true AND lower(nombre)=lower($1) LIMIT 1', [especieNombre]);
+        especie = rows[0] || null;
+      }
+      const motivos = [];
+      if (!doc.document_date) motivos.push('FECHA_CPE_FALTANTE');
+      if (!especie) motivos.push('ESPECIE_SIN_MAPEO');
+      if (motivos.length) {
+        await client.query(`INSERT INTO arca_cpe_movement_pending(ctg,document_id,motivos,payload_hash)
+          VALUES($1,$2,$3::jsonb,$4) ON CONFLICT(ctg) DO UPDATE SET document_id=EXCLUDED.document_id,motivos=EXCLUDED.motivos,payload_hash=EXCLUDED.payload_hash,updated_at=NOW()`,
+          [doc.ctg, doc.document_id, JSON.stringify(motivos), doc.payload_hash]);
+        resultado.pendientes += 1;
+        if (resultado.detallePendientes.length < 50) resultado.detallePendientes.push({ ctg: doc.ctg, motivos });
+        continue;
+      }
+
+      const participantes = Array.isArray(doc.participantes) ? doc.participantes : [];
+      const plantas = Array.isArray(doc.plantas) ? doc.plantas : [];
+      const persona = item => ({ cuit: item?.cuit || null, nombre: item?.razon_social_oficial || null });
+      const titular = persona(pickRol(participantes, [/SOLICITANTE/i, /TITULAR/i, /^ORIGEN$/i]));
+      const remitente = persona(pickRol(participantes, [/REMITENTE_COMERCIAL_VENTA_PRIMARIA/i, /^REMITENTE_COMERCIAL$/i, /^ORIGEN$/i]));
+      const remitenteVenta = persona(pickRol(participantes, [/REMITENTE_COMERCIAL_VENTA_PRIMARIA/i]));
+      const destinatario = persona(pickRol(participantes, [/^DESTINATARIO$/i]));
+      const destino = persona(pickRol(participantes, [/^DESTINO$/i, /TITULAR_PLANTA/i]));
+      const pagador = persona(pickRol(participantes, [/PAGADOR_FLETE/i]));
+      const plantaDestino = plantas.find(item => /DESTINO/i.test(String(item.rol || ''))) || null;
+      const plantaOrigen = plantas.find(item => /ORIGEN/i.test(String(item.rol || ''))) || null;
+      const bruto = Number(primerTag(rawXml, ['pesoBruto', 'pesoBrutoOrigen', 'pesoBrutoSalida']) || 0) || null;
+      const tara = Number(primerTag(rawXml, ['pesoTara', 'tara', 'pesoTaraOrigen']) || 0) || null;
+      const neto = Number(primerTag(rawXml, ['pesoNeto', 'pesoNetoCarga', 'pesoNetoOrigen', 'kilosNetos']) || 0) || (bruto && tara ? bruto - tara : null);
+      const estadoArca = primerTag(rawXml, ['estado', 'estadoCartaPorte']) || '';
+      const estado = /ANUL/i.test(estadoArca) ? 'ANULADO' : /RECHAZ/i.test(estadoArca) ? 'RECHAZADO' : 'EN_TRANSITO';
+      const numeroMovimiento = `MOV-${String(siguiente++).padStart(4, '0')}`;
+      const { rows: creadas } = await client.query(`
+        INSERT INTO movimientos(
+          numero_movimiento,modalidad,estado,estado_liquidacion,nro_cpe,nro_ctg,fecha_cpe,
+          titular_cpe_cuit,titular_cpe_nombre,remitente_comercial_productor_cuit,remitente_comercial_productor_nombre,
+          rte_comercial_venta_primaria_cuit,rte_comercial_venta_primaria_nombre,destinatario_cuit,destinatario_nombre,
+          destino_cuit,destino_nombre,flete_pagador_cuit,flete_pagador_nombre,id_especie,
+          localidad_origen,provincia_origen,nro_planta_destino,localidad_destino,provincia_destino,
+          id_ubicacion_origen,id_ubicacion_destino,patente_chasis,patente_acoplado,fecha_partida,km_a_recorrer,
+          peso_bruto_salida_kg,peso_tara_salida_kg,peso_neto_salida_kg,observaciones,usuario_carga
+        ) VALUES($1,'FORMAL',$2,'SIN_ASIGNAR',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
+          $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34) RETURNING id
+      `, [numeroMovimiento,estado,numeroCpe(primerTag(rawXml,['nroCartaPorte','nroCPE','numeroCartaPorte'])),doc.ctg,doc.document_date,
+        titular.cuit,titular.nombre,remitente.cuit,remitente.nombre,remitenteVenta.cuit,remitenteVenta.nombre,
+        destinatario.cuit,destinatario.nombre,destino.cuit,destino.nombre,pagador.cuit,pagador.nombre,especie.id,
+        plantaOrigen?.localidad||null,plantaOrigen?.provincia||null,plantaDestino?.nro_planta||null,plantaDestino?.localidad||null,plantaDestino?.provincia||null,
+        plantaOrigen?.ubicacion_id||null,plantaDestino?.ubicacion_id||null,primerTag(rawXml,['patenteChasis','dominioAutomotor','patenteCamion']),
+        primerTag(rawXml,['patenteAcoplado','dominioAcoplado']),primerTag(rawXml,['fechaPartida','fechaInicioViaje']),
+        Number(primerTag(rawXml,['kmRecorrer','kilometros','distanciaKm'])||0)||null,bruto,tara,neto,
+        `Importado de ARCA ${doc.tipo_cpe}; CTG ${doc.ctg}. Documento oficial ${doc.document_id}.`,userId]);
+      await client.query(`INSERT INTO arca_cpe_movement_links(ctg,document_id,movimiento_id,created_by) VALUES($1,$2,$3,$4)`, [doc.ctg,doc.document_id,creadas[0].id,userId]);
+      await client.query('DELETE FROM arca_cpe_movement_pending WHERE ctg=$1', [doc.ctg]);
+      resultado.creadas += 1;
+    }
+    await client.query('COMMIT');
+    return resultado;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function ejecutarSyncCpeDestino(jobId, { desde, hasta, userId = null }) {
   await pool.query("UPDATE arca_sync_jobs SET estado='EJECUTANDO', started_at=NOW() WHERE id=$1", [jobId]);
   const errores = [];
@@ -2366,6 +2510,7 @@ module.exports = {
   listarConciliacionesCuentaCorriente,
   decidirConciliacionCuentaCorriente,
   importarCpeNormalizada,
+  materializarMovimientosCpe,
   diagnosticarCredenciales,
   _internal: {
     xmlEscape,
