@@ -12,7 +12,9 @@ function number(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   const raw = String(value || '').trim();
   if (!raw) return null;
-  const normalized = raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw;
+  const normalized = raw.includes(',')
+    ? raw.replace(/\./g, '').replace(',', '.')
+    : /^-?\d{1,3}(?:\.\d{3})+$/.test(raw) ? raw.replace(/\./g, '') : raw;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
 }
