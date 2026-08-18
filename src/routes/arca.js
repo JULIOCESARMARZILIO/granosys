@@ -191,6 +191,22 @@ router.get('/documentos/:id/pdf', async (req, res) => {
   }
 });
 
+// Reporte operativo de CPE 101 y su certificado. Solo consulta datos ya importados.
+router.get('/reportes/cpe-certificados', async (req, res) => {
+  try {
+    const resultado = await arcaOfficialClient.listarReporteCpeCertificados();
+    const estado = String(req.query.estado || 'TODOS').toUpperCase();
+    const clasificacion = String(req.query.clasificacion || 'TODAS').toUpperCase();
+    const detalle = resultado.detalle.filter(item =>
+      (estado === 'TODOS' || item.estadoCertificado === estado) &&
+      (clasificacion === 'TODAS' || item.clasificacion === clasificacion)
+    );
+    res.json({ ok: true, resumen: resultado.resumen, detalle });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/sync/resumen/documentos', async (req, res) => {
   try {
     const fuentes = await arcaOfficialClient.obtenerResumenDocumentos();
