@@ -2299,10 +2299,10 @@ async function diagnosticarDerivadosPendientes() {
   }));
 }
 
-async function auditarIntervinientesCpe101SinCertificado() {
+async function listarReporteCpeCertificados() {
   const cuitInversiones = '30710183992';
   const { rows } = await pool.query(`
-    SELECT r.ctg,
+    SELECT r.ctg,d.document_date,
       COALESCE(jsonb_agg(DISTINCT jsonb_build_object(
         'rol',p.rol,'cuit',p.cuit,'nombre',p.razon_social_oficial
       )) FILTER (WHERE p.id IS NOT NULL),'[]'::jsonb) AS participantes,
@@ -2310,36 +2310,46 @@ async function auditarIntervinientesCpe101SinCertificado() {
         'rol',pl.rol,'planta',pl.nro_planta,'cuit',pl.cuit_titular,
         'nombre',pl.nombre_oficial,'localidad',pl.localidad,'provincia',pl.provincia
       ) ORDER BY pl.rol,pl.nro_planta) FROM arca_cpe_plants pl
-        WHERE pl.document_id=r.document_id),'[]'::jsonb) AS plantas
+        WHERE pl.document_id=r.document_id),'[]'::jsonb) AS plantas,
+      COALESCE((SELECT jsonb_agg(DISTINCT jsonb_build_object(
+        'coe',l.certificado_coe,'estado',l.estado
+      )) FROM arca_certificado_ctg_links l WHERE l.ctg=r.ctg AND l.cpe_document_id=r.document_id),'[]'::jsonb) AS certificados
     FROM arca_cpe_registry r
+    JOIN arca_official_documents d ON d.id=r.document_id
     JOIN arca_cpe_participants objetivo
       ON objetivo.document_id=r.document_id AND objetivo.cuit=$1
     LEFT JOIN arca_cpe_participants p ON p.document_id=r.document_id
     WHERE r.ctg LIKE '101%'
-      AND NOT EXISTS (
-        SELECT 1 FROM arca_certificado_ctg_links l
-        WHERE l.ctg=r.ctg AND l.cpe_document_id=r.document_id
-      )
-    GROUP BY r.ctg,r.document_id
+    GROUP BY r.ctg,r.document_id,d.document_date
     ORDER BY r.ctg
   `, [cuitInversiones]);
 
   const rolesInteres = /^(ORIGEN|SOLICITANTE|TITULAR_PLANTA|DESTINO|DESTINATARIO|REMITENTE_COMERCIAL(?:_VENTA_(?:PRIMARIA|SECUNDARIA)(?:_2)?)?)$/;
-  const detalle = rows.map(row => ({
-    ctg: row.ctg,
-    intervinientes: (row.participantes || []).filter(item => rolesInteres.test(String(item.rol || ''))),
-    plantas: row.plantas || []
-  }));
-  const agrupado = new Map();
-  for (const item of detalle) {
-    const receptores = item.intervinientes.filter(p => /^(DESTINO|DESTINATARIO|TITULAR_PLANTA)$/.test(p.rol));
-    const clave = JSON.stringify(receptores.map(p => `${p.rol}:${p.cuit}:${p.nombre || ''}`).sort());
-    const actual = agrupado.get(clave) || { cantidad: 0, receptores, ctgs: [] };
-    actual.cantidad += 1;
-    actual.ctgs.push(item.ctg);
-    agrupado.set(clave, actual);
-  }
-  return { total: detalle.length, gruposDestino: [...agrupado.values()], detalle };
+  const detalle = rows.map(row => {
+    const intervinientes=(row.participantes || []).filter(item => rolesInteres.test(String(item.rol || '')));
+    const origenPropio=intervinientes.some(p=>p.rol==='ORIGEN'&&p.cuit===cuitInversiones);
+    const destinoPropio=intervinientes.some(p=>/^(DESTINO|DESTINATARIO)$/.test(p.rol)&&p.cuit===cuitInversiones);
+    const certificados=row.certificados||[];
+    return {
+      ctg:row.ctg,
+      fecha:row.document_date,
+      estadoCertificado:certificados.length?'VINCULADO':'SIN_CERTIFICADO',
+      clasificacion:origenPropio&&destinoPropio?'TRASLADO_PROPIO':destinoPropio?'TERCERO_A_PLANTA_PROPIA':'REVISAR',
+      intervinientes,
+      plantas:row.plantas||[],
+      certificados
+    };
+  });
+  return {
+    resumen:{
+      total:detalle.length,
+      vinculadas:detalle.filter(item=>item.estadoCertificado==='VINCULADO').length,
+      sinCertificado:detalle.filter(item=>item.estadoCertificado==='SIN_CERTIFICADO').length,
+      trasladosPropiosSinCertificado:detalle.filter(item=>item.estadoCertificado==='SIN_CERTIFICADO'&&item.clasificacion==='TRASLADO_PROPIO').length,
+      tercerosSinCertificado:detalle.filter(item=>item.estadoCertificado==='SIN_CERTIFICADO'&&item.clasificacion==='TERCERO_A_PLANTA_PROPIA').length
+    },
+    detalle
+  };
 }
 
 async function iniciarRefreshDerivadosPendientes() {
@@ -3073,7 +3083,7 @@ module.exports = {
   importarCpeNormalizada,
   materializarMovimientosCpe,
   diagnosticarDerivadosPendientes,
-  auditarIntervinientesCpe101SinCertificado,
+  listarReporteCpeCertificados,
   iniciarRefreshDerivadosPendientes,
   materializarCertificadosCtg,
   importarCertificadoInteractivo,
