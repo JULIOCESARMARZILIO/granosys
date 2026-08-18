@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { pool } = require('../db');
 
 function key(value) {
@@ -137,6 +138,17 @@ async function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_cert_liq_certificado
       ON certificado_1116_liquidaciones(id_certificado_1116, fecha_liquidacion, id);
+    CREATE TABLE IF NOT EXISTS arca_certificate_rebuild_jobs (
+      id UUID PRIMARY KEY,
+      estado VARCHAR(20) NOT NULL CHECK (estado IN ('PENDIENTE','PROCESANDO','COMPLETADO','ERROR')),
+      etapa VARCHAR(40) NOT NULL DEFAULT 'PENDIENTE',
+      solicitado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+      resultado JSONB,
+      error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ
+    );
   `);
 }
 
@@ -377,4 +389,77 @@ async function listCertificateAccounts() {
   return rows;
 }
 
-module.exports = { extractCertificate, extractLiquidationApplication, extractAllCertificates, applyAllLiquidations, listCertificateAccounts, ensureSchema };
+async function assignCpesToCertificates() {
+  await ensureSchema();
+  const result = await pool.query(`
+    UPDATE certificado_1116_ctgs cc SET
+      cpe_document_id=r.document_id,
+      id_movimiento=COALESCE(m.id,cc.id_movimiento),
+      kg_brutos_aplicados=COALESCE(m.peso_neto_llegada_kg,cc.kg_brutos_aplicados),
+      kg_netos_acondicionados=COALESCE(m.kg_liquidables,cc.kg_netos_acondicionados),
+      origen_vinculacion='CTG_EXACTO',
+      estado_revision='CONFIRMADO'
+    FROM arca_cpe_registry r
+    LEFT JOIN LATERAL (
+      SELECT id,peso_neto_llegada_kg,kg_liquidables
+      FROM movimientos
+      WHERE regexp_replace(COALESCE(nro_ctg,''),'[^0-9]','','g')=r.ctg
+      ORDER BY id LIMIT 1
+    ) m ON TRUE
+    WHERE regexp_replace(cc.nro_ctg,'[^0-9]','','g')=r.ctg
+  `);
+  const { rows } = await pool.query(`
+    SELECT COUNT(*)::integer total,
+      COUNT(*) FILTER (WHERE cpe_document_id IS NOT NULL)::integer asignadas,
+      COUNT(*) FILTER (WHERE cpe_document_id IS NULL)::integer pendientes,
+      COUNT(*) FILTER (WHERE cpe_document_id IS NOT NULL AND id_movimiento IS NULL)::integer sin_movimiento
+    FROM certificado_1116_ctgs
+  `);
+  return { actualizadas: result.rowCount, ...rows[0] };
+}
+
+async function runRebuildJob(id) {
+  try {
+    await pool.query("UPDATE arca_certificate_rebuild_jobs SET estado='PROCESANDO',etapa='EXTRAER_CERTIFICADOS',started_at=NOW() WHERE id=$1", [id]);
+    const certificados = await extractAllCertificates({ limit: 10000 });
+    await pool.query("UPDATE arca_certificate_rebuild_jobs SET etapa='ASIGNAR_CPE' WHERE id=$1", [id]);
+    const cpes = await assignCpesToCertificates();
+    await pool.query("UPDATE arca_certificate_rebuild_jobs SET etapa='APLICAR_LIQUIDACIONES' WHERE id=$1", [id]);
+    const liquidaciones = await applyAllLiquidations({ limit: 20000 });
+    const resultado = { certificados, cpes, liquidaciones };
+    await pool.query(`
+      UPDATE arca_certificate_rebuild_jobs SET estado='COMPLETADO',etapa='FINALIZADO',
+        resultado=$2::jsonb,finished_at=NOW() WHERE id=$1
+    `, [id, JSON.stringify(resultado)]);
+  } catch (error) {
+    await pool.query(`
+      UPDATE arca_certificate_rebuild_jobs SET estado='ERROR',error=$2,finished_at=NOW() WHERE id=$1
+    `, [id, error.message]);
+  }
+}
+
+async function startRebuildJob(userId = null) {
+  await ensureSchema();
+  const { rows: active } = await pool.query(
+    "SELECT id,estado,etapa FROM arca_certificate_rebuild_jobs WHERE estado IN ('PENDIENTE','PROCESANDO') ORDER BY created_at DESC LIMIT 1"
+  );
+  if (active[0]) return { ...active[0], alreadyRunning: true };
+  const id = crypto.randomUUID();
+  await pool.query(`
+    INSERT INTO arca_certificate_rebuild_jobs(id,estado,etapa,solicitado_por)
+    VALUES($1,'PENDIENTE','PENDIENTE',$2)
+  `, [id, userId]);
+  setImmediate(() => void runRebuildJob(id));
+  return { id, estado: 'PENDIENTE', etapa: 'PENDIENTE', alreadyRunning: false };
+}
+
+async function getRebuildJob(id) {
+  await ensureSchema();
+  const { rows } = await pool.query(
+    'SELECT id,estado,etapa,resultado,error,created_at,started_at,finished_at FROM arca_certificate_rebuild_jobs WHERE id=$1',
+    [id]
+  );
+  return rows[0] || null;
+}
+
+module.exports = { extractCertificate, extractLiquidationApplication, extractAllCertificates, assignCpesToCertificates, applyAllLiquidations, listCertificateAccounts, startRebuildJob, getRebuildJob, ensureSchema };
