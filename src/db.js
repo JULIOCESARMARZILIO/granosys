@@ -643,6 +643,8 @@ async function initDB() {
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_ubicacion_origen INTEGER REFERENCES ubicaciones(id);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_ubicacion_destino INTEGER REFERENCES ubicaciones(id);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS origen_produccion VARCHAR(20);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS tipo_origen_cpe VARCHAR(20);
+      ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS nro_planta_origen VARCHAR(20);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS kg_asignados_contrato_compra DECIMAL(12,3);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS kg_asignados_contrato_venta DECIMAL(12,3);
       ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS km_a_referencia DECIMAL(8,2);

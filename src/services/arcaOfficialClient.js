@@ -1037,6 +1037,35 @@ function esRespuestaSinResultadosWscpe(errors) {
   );
 }
 
+function normalizarEstadoCpe(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function esEstadoConfirmadoCpe(value) {
+  return normalizarEstadoCpe(value) === 'CN';
+}
+
+function estadoCpeDesdePayload(payload = {}) {
+  const rawXml = String(payload.rawXml || payload.raw_xml || '');
+  return normalizarEstadoCpe(
+    payload.estado ||
+    payload.cabecera?.estado ||
+    payload.detalle?.cabecera?.estado ||
+    primerTag(rawXml, ['estado', 'estadoCartaPorte'])
+  );
+}
+
+function clasificarOrigenCtg(ctg) {
+  const normalizado = String(ctg || '').replace(/\D/g, '');
+  if (normalizado.startsWith('101')) {
+    return { tipoOrigenCpe: 'PRODUCTOR', origenProduccion: 'PROPIA' };
+  }
+  if (normalizado.startsWith('102')) {
+    return { tipoOrigenCpe: 'PLANTA', origenProduccion: 'ACOPIO' };
+  }
+  return { tipoOrigenCpe: null, origenProduccion: null };
+}
+
 async function consultarPlantasWscpe(cuitConsultar = null) {
   const config = getConfig();
   const cuit = normalizarCuit(cuitConsultar || config.cuit);
@@ -1970,7 +1999,7 @@ async function asegurarEspecieProductoCpe(client, producto) {
   return rows[0] || null;
 }
 
-async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null } = {}) {
+async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null, soloConfirmadas = true } = {}) {
   const fechaDesde = validarFechaIso(desde, 'La fecha desde');
   await ensureCpeMasterTables();
   // La clasificación oficial SUBPRODUCTO requiere 11 caracteres; la columna histórica tenía 10.
@@ -1996,7 +2025,15 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null 
   `);
 
   const client = await pool.connect();
-  const resultado = { revisadas: 0, creadas: 0, existentes: 0, pendientes: 0, detallePendientes: [] };
+  const resultado = {
+    revisadas: 0,
+    confirmadas: 0,
+    omitidasNoConfirmadas: 0,
+    creadas: 0,
+    existentes: 0,
+    pendientes: 0,
+    detallePendientes: []
+  };
   try {
     await client.query('BEGIN');
     await client.query("SELECT pg_advisory_xact_lock(hashtext('granosys:arca-cpe-movimientos'))");
@@ -2022,6 +2059,12 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null 
       resultado.revisadas += 1;
       const payload = doc.payload || {};
       const rawXml = String(payload.rawXml || payload.raw_xml || '');
+      const estadoOficial = estadoCpeDesdePayload(payload);
+      if (soloConfirmadas && !esEstadoConfirmadoCpe(estadoOficial)) {
+        resultado.omitidasNoConfirmadas += 1;
+        continue;
+      }
+      resultado.confirmadas += 1;
       const datosCarga = payload.datosCarga || payload.datos_carga || {};
       const cabecera = payload.cabecera || {};
       const transporte = payload.transporte || {};
@@ -2033,9 +2076,22 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null 
       }
       const producto = productoCpeOficial(doc.tipo_cpe, datosCarga, payload);
       const especie = await asegurarEspecieProductoCpe(client, producto);
+      const participantes = Array.isArray(doc.participantes) ? doc.participantes : [];
+      const plantas = Array.isArray(doc.plantas) ? doc.plantas : [];
+      const plantaOrigen = plantas.find(item => /ORIGEN/i.test(String(item.rol || ''))) || null;
+      const clasificacionOrigen = clasificarOrigenCtg(doc.ctg);
 
       const { rows: ya } = await client.query('SELECT id,id_especie,observaciones FROM movimientos WHERE nro_ctg=$1 LIMIT 1', [doc.ctg]);
       if (ya[0]) {
+        await client.query(`
+          UPDATE movimientos SET
+            tipo_origen_cpe=COALESCE($1,tipo_origen_cpe),
+            origen_produccion=COALESCE($2,origen_produccion),
+            nro_planta_origen=COALESCE($3,nro_planta_origen),
+            id_ubicacion_origen=COALESCE($4,id_ubicacion_origen)
+          WHERE id=$5
+        `, [clasificacionOrigen.tipoOrigenCpe, clasificacionOrigen.origenProduccion,
+          plantaOrigen?.nro_planta || null, plantaOrigen?.ubicacion_id || null, ya[0].id]);
         if (especie && Number(ya[0].id_especie) !== Number(especie.id)) {
           const notaProducto = `Producto ARCA: ${producto.nombre} (código ${producto.codigoArca}).`;
           const observacionActual = String(ya[0].observaciones || '')
@@ -2065,8 +2121,6 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null 
         continue;
       }
 
-      const participantes = Array.isArray(doc.participantes) ? doc.participantes : [];
-      const plantas = Array.isArray(doc.plantas) ? doc.plantas : [];
       const persona = item => ({ cuit: item?.cuit || null, nombre: item?.razon_social_oficial || null });
       const titular = persona(pickRol(participantes, [/SOLICITANTE/i, /TITULAR/i, /^ORIGEN$/i]));
       const remitente = persona(pickRol(participantes, [/REMITENTE_COMERCIAL_VENTA_PRIMARIA/i, /^REMITENTE_COMERCIAL$/i, /^ORIGEN$/i]));
@@ -2075,7 +2129,6 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null 
       const destino = persona(pickRol(participantes, [/^DESTINO$/i, /TITULAR_PLANTA/i]));
       const pagador = persona(pickRol(participantes, [/PAGADOR_FLETE/i]));
       const plantaDestino = plantas.find(item => /DESTINO/i.test(String(item.rol || ''))) || null;
-      const plantaOrigen = plantas.find(item => /ORIGEN/i.test(String(item.rol || ''))) || null;
       const bruto = Number(datosCarga.pesoBruto || datosCarga.pesoBrutoOrigen || primerTag(rawXml, ['pesoBruto', 'pesoBrutoOrigen', 'pesoBrutoSalida']) || 0) || null;
       const tara = Number(datosCarga.pesoTara || datosCarga.tara || primerTag(rawXml, ['pesoTara', 'tara', 'pesoTaraOrigen']) || 0) || null;
       const neto = Number(datosCarga.pesoNeto || datosCarga.pesoNetoCarga || primerTag(rawXml, ['pesoNeto', 'pesoNetoCarga', 'pesoNetoOrigen', 'kilosNetos']) || 0) || (bruto && tara ? bruto - tara : null);
@@ -2088,16 +2141,20 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null 
           titular_cpe_cuit,titular_cpe_nombre,remitente_comercial_productor_cuit,remitente_comercial_productor_nombre,
           rte_comercial_venta_primaria_cuit,rte_comercial_venta_primaria_nombre,destinatario_cuit,destinatario_nombre,
           destino_cuit,destino_nombre,flete_pagador_cuit,flete_pagador_nombre,id_especie,
-          localidad_origen,provincia_origen,nro_planta_destino,localidad_destino,provincia_destino,
-          id_ubicacion_origen,id_ubicacion_destino,patente_chasis,patente_acoplado,fecha_partida,km_a_recorrer,
+          localidad_origen,provincia_origen,nro_planta_origen,nro_planta_destino,localidad_destino,provincia_destino,
+          id_ubicacion_origen,id_ubicacion_destino,tipo_origen_cpe,origen_produccion,
+          patente_chasis,patente_acoplado,fecha_partida,km_a_recorrer,
           peso_bruto_salida_kg,peso_tara_salida_kg,peso_neto_salida_kg,observaciones,usuario_carga
         ) VALUES($1,'FORMAL',$2,'SIN_ASIGNAR',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-          $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34) RETURNING id
+          $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37) RETURNING id
       `, [numeroMovimiento,estado,numeroCpe(primerTag(rawXml,['nroCartaPorte','nroCPE','numeroCartaPorte'])),doc.ctg,doc.document_date,
         titular.cuit,titular.nombre,remitente.cuit,remitente.nombre,remitenteVenta.cuit,remitenteVenta.nombre,
         destinatario.cuit,destinatario.nombre,destino.cuit,destino.nombre,pagador.cuit,pagador.nombre,especie.id,
-        plantaOrigen?.localidad||null,plantaOrigen?.provincia||null,plantaDestino?.nro_planta||null,plantaDestino?.localidad||null,plantaDestino?.provincia||null,
-        plantaOrigen?.ubicacion_id||null,plantaDestino?.ubicacion_id||null,transporte.dominio||transporte.patenteChasis||primerTag(rawXml,['patenteChasis','dominioAutomotor','patenteCamion']),
+        plantaOrigen?.localidad||null,plantaOrigen?.provincia||null,plantaOrigen?.nro_planta||null,
+        plantaDestino?.nro_planta||null,plantaDestino?.localidad||null,plantaDestino?.provincia||null,
+        plantaOrigen?.ubicacion_id||null,plantaDestino?.ubicacion_id||null,
+        clasificacionOrigen.tipoOrigenCpe,clasificacionOrigen.origenProduccion,
+        transporte.dominio||transporte.patenteChasis||primerTag(rawXml,['patenteChasis','dominioAutomotor','patenteCamion']),
         transporte.dominioAcoplado||transporte.patenteAcoplado||primerTag(rawXml,['patenteAcoplado','dominioAcoplado']),
         transporte.fechaHoraPartida||transporte.fechaPartida||primerTag(rawXml,['fechaPartida','fechaInicioViaje']),
         Number(transporte.kmRecorrer||transporte.kilometros||primerTag(rawXml,['kmRecorrer','kilometros','distanciaKm'])||0)||null,bruto,tara,neto,
@@ -2116,11 +2173,13 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null 
   }
 }
 
-async function ejecutarSyncCpeDestino(jobId, { desde, hasta, userId = null }) {
+async function ejecutarSyncCpeDestino(jobId, { desde, hasta, userId = null, soloConfirmadas = true }) {
   await pool.query("UPDATE arca_sync_jobs SET estado='EJECUTANDO', started_at=NOW() WHERE id=$1", [jobId]);
   const errores = [];
   let importados = 0;
   let revisados = 0;
+  let listados = 0;
+  let omitidosNoConfirmados = 0;
   try {
     const config = getConfig();
     const plantas = await consultarPlantasWscpe(config.cuit);
@@ -2137,7 +2196,14 @@ async function ejecutarSyncCpeDestino(jobId, { desde, hasta, userId = null }) {
             desde: rango.desde,
             hasta: rango.hasta
           });
-          cartas.forEach(item => ctgs.add(item.ctg));
+          listados += cartas.length;
+          cartas.forEach(item => {
+            if (soloConfirmadas && !esEstadoConfirmadoCpe(item.estado)) {
+              omitidosNoConfirmados += 1;
+              return;
+            }
+            ctgs.add(item.ctg);
+          });
         } catch (error) {
           errores.push({
             fase: 'LISTADO',
@@ -2164,11 +2230,17 @@ async function ejecutarSyncCpeDestino(jobId, { desde, hasta, userId = null }) {
     }
 
     const estado = errores.length ? (importados ? 'PARCIAL' : 'ERROR') : 'COMPLETADO';
+    const resumen = {
+      listados,
+      ctgConfirmadosUnicos: ctgs.size,
+      omitidosNoConfirmados,
+      errores
+    };
     await pool.query(`
       UPDATE arca_sync_jobs
       SET estado=$1,total_importados=$2,total_revisados=$3,error=$4,finished_at=NOW()
       WHERE id=$5
-    `, [estado, importados, revisados, errores.length ? JSON.stringify(errores).slice(0, 20000) : null, jobId]);
+    `, [estado, importados, revisados, JSON.stringify(resumen).slice(0, 20000), jobId]);
   } catch (error) {
     await pool.query(`
       UPDATE arca_sync_jobs
@@ -2181,7 +2253,8 @@ async function ejecutarSyncCpeDestino(jobId, { desde, hasta, userId = null }) {
 async function iniciarSyncCpeDestino({
   desde = '2026-02-01',
   hasta = new Date().toISOString().slice(0, 10),
-  userId = null
+  userId = null,
+  soloConfirmadas = true
 } = {}) {
   const fechaDesde = validarFechaIso(desde, 'La fecha desde');
   const fechaHasta = validarFechaIso(hasta, 'La fecha hasta');
@@ -2192,13 +2265,19 @@ async function iniciarSyncCpeDestino({
     INSERT INTO arca_sync_jobs(id,fuente,desde,estado,solicitado_por)
     VALUES($1,'WSCPE_DESTINO',$2,'PENDIENTE',$3)
   `, [id, fechaDesde, userId]);
-  setImmediate(() => void ejecutarSyncCpeDestino(id, { desde: fechaDesde, hasta: fechaHasta, userId }));
+  setImmediate(() => void ejecutarSyncCpeDestino(id, {
+    desde: fechaDesde,
+    hasta: fechaHasta,
+    userId,
+    soloConfirmadas
+  }));
   return {
     id,
     fuente: 'WSCPE_DESTINO',
     desde: fechaDesde,
     hasta: fechaHasta,
-    estado: 'PENDIENTE'
+    estado: 'PENDIENTE',
+    soloConfirmadas
   };
 }
 
@@ -2840,6 +2919,10 @@ module.exports = {
     parsearPersonaPadronA13,
     validarFechaIso,
     rangosWscpe,
+    normalizarEstadoCpe,
+    esEstadoConfirmadoCpe,
+    estadoCpeDesdePayload,
+    clasificarOrigenCtg,
     wscpeTargets,
     getConfig,
     validateCredentials

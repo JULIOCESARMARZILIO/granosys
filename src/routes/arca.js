@@ -153,7 +153,8 @@ router.post('/sync/cpe-destino', async (req, res) => {
     const job = await arcaOfficialClient.iniciarSyncCpeDestino({
       desde: req.body?.desde || '2026-02-01',
       hasta: req.body?.hasta || new Date().toISOString().slice(0, 10),
-      userId: req.user?.id || null
+      userId: req.user?.id || null,
+      soloConfirmadas: req.body?.soloConfirmadas !== false
     });
     res.status(202).json({ ok: true, job, soloConsulta: true });
   } catch (err) {
@@ -167,7 +168,8 @@ router.post('/sync/cpe-a-movimientos', async (req, res) => {
   try {
     const resultado = await arcaOfficialClient.materializarMovimientosCpe({
       desde: req.body?.desde || '2026-02-01',
-      userId: req.user?.id || null
+      userId: req.user?.id || null,
+      soloConfirmadas: req.body?.soloConfirmadas !== false
     });
     res.status(201).json({ ok: true, resultado, accionFiscal: false });
   } catch (err) {
