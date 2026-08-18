@@ -201,7 +201,13 @@ router.get('/reportes/cpe-certificados', async (req, res) => {
       (estado === 'TODOS' || item.estadoCertificado === estado) &&
       (clasificacion === 'TODAS' || item.clasificacion === clasificacion)
     );
-    res.json({ ok: true, resumen: resultado.resumen, detalle });
+    res.json({
+      ok: true,
+      resumen: resultado.resumen,
+      detalle,
+      resumenCertificados: resultado.resumenCertificados,
+      certificados: resultado.certificados
+    });
   } catch (err) {
     res.status(422).json({ ok: false, error: err.message });
   }
