@@ -13,14 +13,14 @@ describe('ARCA certificate traceability', () => {
     expect(result.sum).toBe(65000);
   });
 
-  test('scores CUIT, species, campaign and close dates as evidence', () => {
+  test('scores CUIT, species, campaign and close dates without using plant data', () => {
     const evidence = baseEvidence(
-      { cuit_productor: '30-71018399-2', especie_nombre: 'Soja', campana_desc: '2025/2026', fecha_emision: '2026-03-05', datos_raw: { nroPlanta: '21047' } },
+      { cuit_productor: '30-71018399-2', especie_nombre: 'Soja', campana_desc: '2025/2026', fecha_emision: '2026-03-05', datos_raw: { nroPlanta: '99999' } },
       { participant_cuits: ['30710183992'], plant_numbers: ['21047'], document_date: '2026-03-03', payload: { especie: 'SOJA', campana: '2025/2026' } }
     );
-    expect(evidence.score).toBe(95);
+    expect(evidence.score).toBe(80);
     expect(evidence.cuitMatch).toBe(true);
-    expect(evidence.plantMatch).toBe(true);
+    expect(evidence).not.toHaveProperty('plantMatch');
   });
 });
 
