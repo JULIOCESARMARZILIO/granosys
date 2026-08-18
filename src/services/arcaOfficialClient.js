@@ -2637,6 +2637,122 @@ async function decidirConciliacionCuentaCorriente({
   }
 }
 
+
+
+async function importarCertificadoInteractivo({ coe, metadata = {}, pdfBuffer }) {
+  await ensureSyncTables();
+  const safeCoe = String(coe || '').replace(/\D/g, '');
+  if (!/^332\d{9}$/.test(safeCoe)) {
+    throw new Error('COE de certificado invalido.');
+  }
+  if (!Buffer.isBuffer(pdfBuffer) || pdfBuffer.length < 5 ||
+      pdfBuffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    throw new Error('El archivo no es un PDF valido.');
+  }
+  const fechaTexto = String(metadata.fecha_emision || '');
+  const fechaMatch = fechaTexto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const fecha = fechaMatch
+    ? `${fechaMatch[3]}-${fechaMatch[2]}-${fechaMatch[1]}`
+    : null;
+  const payload = {
+    ...metadata,
+    coe: safeCoe,
+    origen: 'SERVICIO_INTERACTIVO_ARCA',
+    soloConsulta: true
+  };
+  const resultado = await guardarDocumentoOficial(
+    'ARCA_CEG_INTERACTIVO',
+    safeCoe,
+    fecha,
+    payload,
+    pdfBuffer
+  );
+  return {
+    coe: safeCoe,
+    documentId: resultado.documentId,
+    pdfGuardado: resultado.pdfGuardado,
+    ctgs: Array.isArray(metadata.ctgs) ? metadata.ctgs.length : 0
+  };
+}
+
+async function materializarCertificadosCtg() {
+  await ensureSyncTables();
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS arca_certificado_ctg_links (
+      id BIGSERIAL PRIMARY KEY,
+      certificado_document_id BIGINT NOT NULL
+        REFERENCES arca_official_documents(id) ON DELETE CASCADE,
+      certificado_coe VARCHAR(20) NOT NULL,
+      ctg VARCHAR(20) NOT NULL,
+      cpe_document_id BIGINT
+        REFERENCES arca_official_documents(id) ON DELETE SET NULL,
+      estado VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(certificado_document_id, ctg)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_arca_certificado_ctg_links_ctg
+    ON arca_certificado_ctg_links(ctg)
+  `);
+
+  const { rows: certificados } = await pool.query(`
+    SELECT id, external_key AS coe, payload
+    FROM arca_official_documents
+    WHERE fuente IN ('WSLPG_CERTIFICACION', 'WSLPG_CERTIFICACION_COE', 'ARCA_CEG_INTERACTIVO')
+    ORDER BY id
+  `);
+  let certificadosConCtg = 0;
+  let relaciones = 0;
+  let vinculadas = 0;
+  let pendientes = 0;
+
+  for (const certificado of certificados) {
+    const rawXml = String(certificado.payload?.rawXml || '');
+    const ctgsPayload = Array.isArray(certificado.payload?.ctgs)
+      ? certificado.payload.ctgs
+      : [];
+    const ctgs = [...new Set([...ctgsPayload, ...tags(rawXml, 'ctg')]
+      .map(value => String(value || '').replace(/\D/g, ''))
+      .filter(value => /^\d{8,20}$/.test(value)))];
+    if (ctgs.length) certificadosConCtg += 1;
+
+    for (const ctg of ctgs) {
+      const { rows: cpes } = await pool.query(`
+        SELECT id
+        FROM arca_official_documents
+        WHERE external_key=$1
+          AND fuente IN ('WSCPE_CTG', 'WSCPE_DESTINO')
+        ORDER BY CASE WHEN fuente='WSCPE_CTG' THEN 0 ELSE 1 END, id
+        LIMIT 1
+      `, [ctg]);
+      const cpeDocumentId = cpes[0]?.id || null;
+      const estado = cpeDocumentId ? 'VINCULADO' : 'PENDIENTE';
+      await pool.query(`
+        INSERT INTO arca_certificado_ctg_links
+          (certificado_document_id, certificado_coe, ctg, cpe_document_id, estado)
+        VALUES ($1,$2,$3,$4,$5)
+        ON CONFLICT (certificado_document_id, ctg) DO UPDATE
+        SET cpe_document_id=EXCLUDED.cpe_document_id,
+            estado=EXCLUDED.estado,
+            updated_at=NOW()
+      `, [certificado.id, certificado.coe, ctg, cpeDocumentId, estado]);
+      relaciones += 1;
+      if (cpeDocumentId) vinculadas += 1;
+      else pendientes += 1;
+    }
+  }
+
+  return {
+    certificadosRevisados: certificados.length,
+    certificadosConCtg,
+    relaciones,
+    vinculadas,
+    pendientes
+  };
+}
+
 async function obtenerSyncJob(id) {
   await ensureSyncTables();
   const { rows } = await pool.query(
@@ -2692,6 +2808,8 @@ module.exports = {
   decidirConciliacionCuentaCorriente,
   importarCpeNormalizada,
   materializarMovimientosCpe,
+  materializarCertificadosCtg,
+  importarCertificadoInteractivo,
   productoCpeOficial,
   diagnosticarCredenciales,
   _internal: {
