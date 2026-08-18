@@ -51,10 +51,52 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
+function iniciarBackfillCertificadosDeposito() {
+  const coes = [...new Set(String(process.env.ARCA_CERTIFICADOS_COE_BACKFILL || '')
+    .split(',')
+    .map(value => value.replace(/\D/g, ''))
+    .filter(value => /^\d{12}$/.test(value)))];
+  if (!coes.length) return;
+
+  setImmediate(async () => {
+    try {
+      const job = await arcaOfficialClient.iniciarSyncWslpgPdfPorCoe({
+        coes,
+        desde: '2026-02-01'
+      });
+      console.log('Backfill certificados de deposito iniciado:', {
+        jobId: job.id,
+        totalCoes: coes.length
+      });
+
+      for (let intento = 0; intento < 360; intento += 1) {
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        const estado = await arcaOfficialClient.obtenerSyncJob(job.id);
+        if (estado && ['COMPLETADO', 'PARCIAL', 'ERROR'].includes(estado.estado)) {
+          console.log('Backfill certificados de deposito finalizado:', {
+            jobId: job.id,
+            estado: estado.estado,
+            revisados: estado.total_revisados,
+            importadosConPdf: estado.total_importados,
+            error: estado.error || null
+          });
+          return;
+        }
+      }
+      console.error('Backfill certificados de deposito pendiente: tiempo de espera agotado', {
+        jobId: job.id
+      });
+    } catch (error) {
+      console.error('Backfill certificados de deposito no iniciado:', error.message);
+    }
+  });
+}
+
 async function start() {
   try {
     await initDB();
     app.listen(PORT, () => console.log(`GranoSYS v2.0 corriendo en puerto ${PORT}`));
+    iniciarBackfillCertificadosDeposito();
     setImmediate(() => {
       arcaOfficialClient.materializarMovimientosCpe({ desde: '2026-02-01' })
         .then(resultado => console.log('Backfill CPE/CPEDG a Movimientos completado:', resultado))
