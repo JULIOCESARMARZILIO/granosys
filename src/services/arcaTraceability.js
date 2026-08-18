@@ -96,16 +96,13 @@ function baseEvidence(certificate, cpe) {
   const cuitMatch = Boolean(producerCuit && participantCuits.includes(producerCuit));
   const speciesMatch = Boolean(certificate.especie_nombre && containsValue(cpe.payload, certificate.especie_nombre));
   const campaignMatch = Boolean(certificate.campana_desc && containsValue(cpe.payload, certificate.campana_desc));
-  const certificateValues = collect(certificate.datos_raw || {}).values.map(digits).filter(Boolean);
-  const plantMatch = (cpe.plant_numbers || []).map(digits).some(number => certificateValues.includes(number));
   const dateDays = daysBetween(certificate.fecha_emision, cpe.document_date);
   let score = 0;
   if (cuitMatch) score += 35;
   if (speciesMatch) score += 20;
   if (campaignMatch) score += 10;
-  if (plantMatch) score += 15;
   if (dateDays !== null) score += dateDays <= 3 ? 15 : dateDays <= 15 ? 8 : dateDays <= 45 ? 3 : 0;
-  return { score, cuitMatch, speciesMatch, campaignMatch, plantMatch, dateDays };
+  return { score, cuitMatch, speciesMatch, campaignMatch, dateDays };
 }
 
 async function ensureTraceTables() {
@@ -165,12 +162,10 @@ async function generateTraceProposals() {
   `);
   const { rows: cpes } = await pool.query(`
     SELECT d.id document_id,d.document_date,d.payload,r.ctg,
-      COALESCE(array_agg(DISTINCT p.cuit) FILTER (WHERE p.cuit IS NOT NULL), '{}') participant_cuits,
-      COALESCE(array_agg(DISTINCT pl.nro_planta) FILTER (WHERE pl.nro_planta IS NOT NULL), '{}') plant_numbers
+      COALESCE(array_agg(DISTINCT p.cuit) FILTER (WHERE p.cuit IS NOT NULL), '{}') participant_cuits
     FROM arca_cpe_registry r
     JOIN arca_official_documents d ON d.id=r.document_id
     LEFT JOIN arca_cpe_participants p ON p.document_id=d.id
-    LEFT JOIN arca_cpe_plants pl ON pl.document_id=d.id
     GROUP BY d.id,r.ctg
   `);
   const { rows: liquidations } = await pool.query(`
