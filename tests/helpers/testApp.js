@@ -16,6 +16,7 @@ async function buildTestApp() {
   app.use('/api/campanas', require('../../src/routes/campanas'));
   app.use('/api/contratos', require('../../src/routes/contratos'));
   app.use('/api/movimientos', require('../../src/routes/movimientos'));
+  app.use('/api/derivados', require('../../src/routes/derivados'));
   app.use('/api/liquidaciones', require('../../src/routes/liquidaciones'));
   app.use('/api/cc', require('../../src/routes/cuentacorriente'));
   app.use('/api/tesoreria', require('../../src/routes/tesoreria'));

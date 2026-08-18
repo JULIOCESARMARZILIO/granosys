@@ -12435,12 +12435,41 @@ const OrdenesProduccion = ({modulo, usuario}) => {
   );
 };
 
+const DerivadosGranarios = ({modulo}) => {
+  const vacio={tipo_operacion:"COMPRA",fecha:new Date().toISOString().slice(0,10),id_especie:"",id_contraparte:"",kilos:"",precio:"",moneda:"PESOS",ctg:"",observaciones:""};
+  const [items,setItems]=useState([]),[especies,setEspecies]=useState([]),[contrapartes,setContrapartes]=useState([]),[form,setForm]=useState(vacio),[error,setError]=useState(""),[busy,setBusy]=useState(false);
+  const cargar=async()=>{try{setItems(await api.get(`/api/derivados?modalidad=${modulo}`)||[]);}catch(e){setError(e.message)}};
+  useEffect(()=>{cargar();api.get('/api/especies').then(x=>setEspecies((x||[]).filter(e=>e.tipo_producto==='SUBPRODUCTO')));api.get('/api/contrapartes').then(x=>setContrapartes(x||[]));},[modulo]);
+  const guardar=async()=>{setBusy(true);setError("");try{await api.post('/api/derivados',{...form,modalidad:modulo,id_especie:Number(form.id_especie),id_contraparte:form.id_contraparte?Number(form.id_contraparte):null,kilos:Number(form.kilos),precio:form.precio?Number(form.precio):null});setForm(vacio);await cargar();}catch(e){setError(e.message)}finally{setBusy(false)}};
+  const crearEspejo=async id=>{try{await api.post(`/api/derivados/${id}/crear-espejo-formal`,{});await cargar();}catch(e){setError(e.message)}};
+  const vincularEspejo=async item=>{try{const texto=window.prompt('Buscar por número, CTG, producto o contraparte:','')??null;if(texto===null)return;const candidatos=await api.get(`/api/derivados/buscar-espejo?modalidad=${modulo}&buscar=${encodeURIComponent(texto)}`);if(!candidatos?.length)throw new Error('No se encontraron operaciones disponibles del otro lado.');const detalle=candidatos.map(x=>`${x.id}: ${x.numero_operacion} · ${x.tipo_operacion} · ${x.producto_nombre} · ${Number(x.kilos).toLocaleString('es-AR')} kg`).join('\n');const id=Number(window.prompt(`Elegí el ID a vincular:\n${detalle}`,candidatos[0].id));if(!id)return;await api.put(`/api/derivados/${item.id}/vincular-espejo`,{id_espejo:id});await cargar();}catch(e){setError(e.message)}};
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}><div><h2 style={{fontSize:18,fontWeight:700}}>Derivados granarios · {modulo}</h2><div style={{fontSize:12,color:"#8890a8"}}>Carga operativa separada de Movimientos. El espejo no duplica stock.</div></div></div>
+    {error&&<div style={{padding:10,background:"rgba(231,76,60,.12)",color:"#e74c3c",borderRadius:6,marginBottom:12}}>{error}</div>}
+    <div className="card" style={{padding:16,marginBottom:16}}><div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(140px,1fr))",gap:10}}>
+      <FF label="Operación"><select value={form.tipo_operacion} onChange={e=>setForm({...form,tipo_operacion:e.target.value})}><option>COMPRA</option><option>VENTA</option></select></FF>
+      <FF label="Fecha"><input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></FF>
+      <FF label="Producto derivado"><select value={form.id_especie} onChange={e=>setForm({...form,id_especie:e.target.value})}><option value="">Seleccionar...</option>{especies.map(x=><option key={x.id} value={x.id}>{x.nombre}</option>)}</select></FF>
+      <FF label="Contraparte"><select value={form.id_contraparte} onChange={e=>setForm({...form,id_contraparte:e.target.value})}><option value="">Sin asignar</option>{contrapartes.map(x=><option key={x.id} value={x.id}>{x.razon_social}</option>)}</select></FF>
+      <FF label="Kilos"><input type="number" value={form.kilos} onChange={e=>setForm({...form,kilos:e.target.value})}/></FF>
+      <FF label="Precio"><input type="number" value={form.precio} onChange={e=>setForm({...form,precio:e.target.value})}/></FF>
+      <FF label="CTG / CPEDG"><input value={form.ctg} onChange={e=>setForm({...form,ctg:e.target.value})}/></FF>
+      <div style={{display:"flex",alignItems:"end"}}><Btn onClick={guardar} disabled={busy||!form.id_especie||!form.kilos}>{busy?'Guardando...':'Guardar derivado'}</Btn></div>
+    </div></div>
+    <div className="card"><table><thead><tr><th>Número</th><th>Fecha</th><th>Operación</th><th>Producto real</th><th>Contraparte</th><th>Kilos</th><th>CTG</th><th>Espejo</th><th></th></tr></thead><tbody>
+      {items.map(x=><tr key={x.id}><td className="mono">{x.numero_operacion}</td><td>{x.fecha?.slice(0,10)}</td><td><Badge label={x.tipo_operacion} color={x.tipo_operacion==='COMPRA'?'green':'orange'}/></td><td>{x.producto_nombre}</td><td>{x.contraparte_nombre||'—'}</td><td className="mono">{Number(x.kilos).toLocaleString('es-AR')}</td><td className="mono">{x.ctg||'—'}</td><td>{x.espejo_numero||'Sin vincular'}</td><td><div style={{display:'flex',gap:6}}>{modulo==='INFORMAL'&&!x.id_operacion_espejo&&<Btn size="sm" variant="secondary" onClick={()=>crearEspejo(x.id)}>Pasar al formal</Btn>}{!x.id_operacion_espejo&&<Btn size="sm" variant="ghost" onClick={()=>vincularEspejo(x)}>Buscar y vincular</Btn>}</div></td></tr>)}
+      {!items.length&&<tr><td colSpan="9" style={{textAlign:"center",padding:24,color:"#565d7a"}}>Sin operaciones de derivados</td></tr>}
+    </tbody></table></div>
+  </div>;
+};
+
 const MENU_FORMAL = [
   {id:"dashboard",label:"Dashboard",icon:"⊞"},
   {id:"documentos_arca",label:"Documentos ARCA",icon:"📄"},
   {id:"contrapartes",label:"Contrapartes",icon:"👤"},
   {id:"contratos",label:"Contratos",icon:"📋"},
   {id:"movimientos",label:"Movimientos",icon:"🚛"},
+  {id:"derivados",label:"Derivados granarios",icon:"🧪"},
   {id:"produccion",label:"Producción (Maquila)",icon:"🏭"},
   {id:"bolsa_zona",label:"Bolsa por Zona",icon:"🗂"},
   {id:"liquidaciones",label:"Liquidaciones",icon:"📊"},
@@ -12461,6 +12490,7 @@ const MENU_INFORMAL = [
   {id:"contrapartes",label:"Contrapartes",icon:"👤"},
   {id:"contratos",label:"Contratos",icon:"📋"},
   {id:"movimientos",label:"Movimientos",icon:"🚛"},
+  {id:"derivados",label:"Derivados granarios",icon:"🧪"},
   {id:"produccion",label:"Producción (Maquila)",icon:"🏭"},
   {id:"bolsa_zona",label:"Bolsa por Zona",icon:"🗂"},
   {id:"liquidaciones",label:"Liquidaciones",icon:"📊"},
@@ -13805,6 +13835,7 @@ function App() {
       case "contrapartes": return <Contrapartes {...p}/>;
       case "contratos": return <Contratos {...p}/>;
       case "movimientos": return <Movimientos {...p}/>;
+      case "derivados": return <DerivadosGranarios {...p}/>;
       case "produccion": return <OrdenesProduccion {...p}/>;
       case "bolsa_zona": return <BolsaPorZona {...p}/>;
       case "liquidaciones": return <Liquidaciones {...p}/>;

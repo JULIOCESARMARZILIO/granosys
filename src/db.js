@@ -643,6 +643,36 @@ async function initDB() {
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_ubicacion_origen INTEGER REFERENCES ubicaciones(id);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS id_ubicacion_destino INTEGER REFERENCES ubicaciones(id);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS origen_produccion VARCHAR(20);
+
+      CREATE TABLE IF NOT EXISTS derivados_operaciones (
+        id SERIAL PRIMARY KEY,
+        numero_operacion VARCHAR(30) NOT NULL UNIQUE,
+        grupo_operacion UUID NOT NULL,
+        tipo_operacion VARCHAR(10) NOT NULL CHECK (tipo_operacion IN ('COMPRA','VENTA')),
+        modalidad VARCHAR(10) NOT NULL CHECK (modalidad IN ('FORMAL','INFORMAL')),
+        estado VARCHAR(20) NOT NULL DEFAULT 'BORRADOR',
+        fecha DATE NOT NULL,
+        id_especie INTEGER NOT NULL REFERENCES especies(id),
+        id_campana INTEGER REFERENCES campanas(id),
+        id_contraparte INTEGER REFERENCES contrapartes(id),
+        id_contrato INTEGER REFERENCES contratos(id),
+        kilos NUMERIC(14,3) NOT NULL CHECK (kilos > 0),
+        precio NUMERIC(14,4),
+        moneda VARCHAR(20),
+        ctg VARCHAR(20),
+        cpedg_document_id BIGINT,
+        factura_compra_document_id BIGINT,
+        factura_venta_document_id BIGINT,
+        id_operacion_espejo INTEGER REFERENCES derivados_operaciones(id),
+        impacta_stock BOOLEAN NOT NULL DEFAULT TRUE,
+        observaciones TEXT,
+        created_by INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(modalidad, ctg)
+      );
+      CREATE INDEX IF NOT EXISTS idx_derivados_grupo ON derivados_operaciones(grupo_operacion);
+      CREATE INDEX IF NOT EXISTS idx_derivados_busqueda ON derivados_operaciones(modalidad,tipo_operacion,fecha DESC);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS tipo_origen_cpe VARCHAR(20);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS nro_planta_origen VARCHAR(20);
       ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS kg_asignados_contrato_compra DECIMAL(12,3);

@@ -118,6 +118,7 @@ app.use('/api/especies',     require('./routes/especies'));
 app.use('/api/campanas',     require('./routes/campanas'));
 app.use('/api/contratos',    require('./routes/contratos'));
 app.use('/api/movimientos',  require('./routes/movimientos'));
+app.use('/api/derivados',    require('./routes/derivados'));
 app.use('/api/liquidaciones',require('./routes/liquidaciones'));
 app.use('/api/cc',           require('./routes/cuentacorriente'));
 app.use('/api/tesoreria',    require('./routes/tesoreria'));
