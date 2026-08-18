@@ -666,7 +666,7 @@ async function initDB() {
         id_operacion_espejo INTEGER REFERENCES derivados_operaciones(id),
         impacta_stock BOOLEAN NOT NULL DEFAULT TRUE,
         observaciones TEXT,
-        created_by INTEGER REFERENCES usuarios(id),
+        created_by INTEGER,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE(modalidad, ctg)
