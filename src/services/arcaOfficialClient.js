@@ -936,7 +936,8 @@ async function wscpeCall(definition, requestXml) {
   const auth = `<auth><token>${xmlEscape(ticket.token)}</token><sign>${xmlEscape(ticket.sign)}</sign><cuitRepresentada>${config.cuit}</cuitRepresentada></auth>`;
   const failures = [];
   for (const target of wscpeTargets(config.production)) {
-    const envelope = `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wsc="${target.namespace}"><soapenv:Header/><soapenv:Body><wsc:${definition.element}>${auth}<solicitud>${requestXml}</solicitud></wsc:${definition.element}></soapenv:Body></soapenv:Envelope>`;
+    const solicitud = definition.sinSolicitud ? '' : `<solicitud>${requestXml}</solicitud>`;
+    const envelope = `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wsc="${target.namespace}"><soapenv:Header/><soapenv:Body><wsc:${definition.element}>${auth}${solicitud}</wsc:${definition.element}></soapenv:Body></soapenv:Envelope>`;
     try {
       return await soapPost(target.url, `${target.namespace}${definition.method}`, envelope);
     } catch (error) {
@@ -944,6 +945,28 @@ async function wscpeCall(definition, requestXml) {
     }
   }
   throw new Error(`WSCPE no respondio con ningun endpoint oficial: ${failures.join(' | ')}`);
+}
+
+function catalogoCodigoDescripcion(xml, etiqueta) {
+  return tags(tag(xml, 'respuesta') || xml, etiqueta).map(item => ({
+    codigo: textoEscalarOficial(tag(item, 'codigo')),
+    descripcion: textoEscalarOficial(tag(item, 'descripcion'))
+  })).filter(item => item.codigo && item.descripcion);
+}
+
+async function consultarTiposGranoWscpe() {
+  const xml = await wscpeCall({ method: 'consultarTiposGrano', element: 'ConsultarTiposGranoReq', sinSolicitud: true }, '');
+  const errores = erroresWscpe(xml);
+  if (errores.length) throw new Error(`WSCPE consultarTiposGrano: ${errores.join(' | ')}`);
+  return catalogoCodigoDescripcion(xml, 'grano');
+}
+
+async function consultarDerivadosGranariosWscpe() {
+  const config = getConfig();
+  const xml = await wscpeCall({ method: 'consultarDerivadosGranarios', element: 'ConsultarDerivadosGranariosReq' }, `<cuit>${xmlEscape(config.cuit)}</cuit>`);
+  const errores = erroresWscpe(xml);
+  if (errores.length) throw new Error(`WSCPE consultarDerivadosGranarios: ${errores.join(' | ')}`);
+  return catalogoCodigoDescripcion(xml, 'derivadoGranario').concat(catalogoCodigoDescripcion(xml, 'derivado'));
 }
 
 function erroresWscpe(xml) {
@@ -1953,7 +1976,7 @@ function valorAnidadoPorClaves(value, claves, visitados = new Set()) {
   return null;
 }
 
-function productoCpeOficial(tipoCpe, datosCarga = {}, payload = {}) {
+function productoCpeOficial(tipoCpe, datosCarga = {}, payload = {}, catalogos = {}) {
   const codigoDerivadoAnidado = valorAnidadoPorClaves(payload, [
     'codDerivadoGranario', 'codigoDerivadoGranario', 'codProductoDerivado', 'codigoProductoDerivado'
   ]);
@@ -1965,13 +1988,13 @@ function productoCpeOficial(tipoCpe, datosCarga = {}, payload = {}) {
     'codGrano', 'codigoGrano', 'codEspecie', 'codigoEspecie', 'codGranoOrigen', 'codigoGranoOrigen'
   ]);
   const descripcionDetectada = descripcionEspecificaDerivado(payload);
-  const esDerivado = /_DG$/i.test(String(tipoCpe || '')) ||
-    datosCarga.codDerivadoGranario !== undefined ||
-    datosCarga.codigoDerivadoGranario !== undefined ||
-    Boolean(codigoDerivadoAnidado || descripcionDerivadoAnidada || descripcionDetectada);
-  const codigoDerivado = textoEscalarOficial(
+  const codigoDerivadoInformado = textoEscalarOficial(
     datosCarga.codDerivadoGranario || datosCarga.codigoDerivadoGranario || codigoDerivadoAnidado
-  ) || '';
+  );
+  const esDerivado = /_DG$/i.test(String(tipoCpe || '')) ||
+    Boolean(codigoDerivadoInformado) ||
+    Boolean(codigoDerivadoAnidado || descripcionDerivadoAnidada || descripcionDetectada);
+  const codigoDerivado = codigoDerivadoInformado || '';
   const codigoGrano = textoEscalarOficial(
     datosCarga.codGrano || datosCarga.codigoGrano || codigoGranoAnidado
   ) || '';
@@ -1984,6 +2007,7 @@ function productoCpeOficial(tipoCpe, datosCarga = {}, payload = {}) {
     ) || '';
     const nombre = descripcionDetectada ||
       descripcionInformada ||
+      catalogos.derivados?.[codigoDerivado] ||
       DERIVADOS_GRANARIOS_ARCA[codigoDerivado] ||
       null;
     const codigoNombre = nombre
@@ -2001,7 +2025,7 @@ function productoCpeOficial(tipoCpe, datosCarga = {}, payload = {}) {
   return {
     codigo: codigoGrano ? `ARCA-GR-${codigoGrano}` : null,
     codigoArca: codigoGrano || null,
-    nombre: GRANOS_ARCA[codigoGrano] || null,
+    nombre: catalogos.granos?.[codigoGrano] || GRANOS_ARCA[codigoGrano] || null,
     tipoProducto: 'GRANO',
     codigoGrano: codigoGrano || null,
     esDerivado: false
@@ -2057,6 +2081,20 @@ async function asegurarEspecieProductoCpe(client, producto) {
 
 async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null, soloConfirmadas = true } = {}) {
   const fechaDesde = validarFechaIso(desde, 'La fecha desde');
+  const catalogos = { granos: {}, derivados: {} };
+  try {
+    const [granos, derivados] = await Promise.all([
+      consultarTiposGranoWscpe(),
+      consultarDerivadosGranariosWscpe().catch(error => {
+        console.warn('Catálogo de derivados ARCA no disponible; se conserva el catálogo local:', error.message);
+        return [];
+      })
+    ]);
+    catalogos.granos = Object.fromEntries(granos.map(item => [item.codigo, item.descripcion]));
+    catalogos.derivados = Object.fromEntries(derivados.map(item => [item.codigo, item.descripcion]));
+  } catch (error) {
+    console.warn('Catálogo de granos ARCA no disponible; se conserva el catálogo local:', error.message);
+  }
   await ensureCpeMasterTables();
   // La clasificación oficial SUBPRODUCTO requiere 11 caracteres; la columna histórica tenía 10.
   await pool.query(`
@@ -2130,7 +2168,7 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null,
       if (!datosCarga.codDerivadoGranario) {
         datosCarga.codDerivadoGranario = primerTag(rawXml, ['codDerivadoGranario', 'codigoDerivadoGranario']);
       }
-      const producto = productoCpeOficial(doc.tipo_cpe, datosCarga, payload);
+      const producto = productoCpeOficial(doc.tipo_cpe, datosCarga, payload, catalogos);
       const especie = await asegurarEspecieProductoCpe(client, producto);
       const participantes = Array.isArray(doc.participantes) ? doc.participantes : [];
       const plantas = Array.isArray(doc.plantas) ? doc.plantas : [];
@@ -2227,6 +2265,48 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null,
   } finally {
     client.release();
   }
+}
+
+function camposEscalaresDiagnostico(value, path = '', salida = [], visitados = new Set()) {
+  if (value === null || value === undefined || salida.length >= 300 || visitados.has(value)) return salida;
+  if (typeof value === 'object') {
+    visitados.add(value);
+    for (const [clave, contenido] of Object.entries(value)) {
+      if (/rawxml|raw_xml|pdf|token|sign|cert|key/i.test(clave)) continue;
+      camposEscalaresDiagnostico(contenido, path ? `${path}.${clave}` : clave, salida, visitados);
+    }
+    return salida;
+  }
+  const texto = String(value).trim();
+  if (!texto || texto.length > 120 || /^\d{11,20}$/.test(texto)) return salida;
+  salida.push({ path, value: texto });
+  return salida;
+}
+
+async function diagnosticarDerivadosPendientes() {
+  const { rows } = await pool.query(`
+    SELECT p.ctg,d.payload
+    FROM arca_cpe_movement_pending p
+    JOIN arca_official_documents d ON d.id=p.document_id
+    WHERE p.motivos @> '["DERIVADO_SIN_MAPEO"]'::jsonb
+    ORDER BY p.ctg LIMIT 5
+  `);
+  return rows.map(row => ({
+    ctg: row.ctg,
+    campos: camposEscalaresDiagnostico(row.payload).filter(item =>
+      /producto|grano|deriv|mercader|especie|carga|cod|desc/i.test(item.path)
+    )
+  }));
+}
+
+async function iniciarRefreshDerivadosPendientes() {
+  const { rows } = await pool.query(`
+    SELECT ctg FROM arca_cpe_movement_pending
+    WHERE motivos @> '["DERIVADO_SIN_MAPEO"]'::jsonb ORDER BY ctg
+  `);
+  const ctgs = rows.map(row => row.ctg);
+  if (!ctgs.length) return null;
+  return iniciarSyncCpePorCtg({ ctgs, desde: '2026-02-01' });
 }
 
 async function ejecutarSyncCpeDestino(jobId, { desde, hasta, userId = null, soloConfirmadas = true }) {
@@ -2810,47 +2890,6 @@ async function importarCertificadoInteractivo({ coe, metadata = {}, pdfBuffer })
   };
 }
 
-
-function camposEscalaresDiagnostico(value, path = '', salida = [], visitados = new Set()) {
-  if (value === null || value === undefined || salida.length >= 300 || visitados.has(value)) return salida;
-  if (typeof value === 'object') {
-    visitados.add(value);
-    for (const [clave, contenido] of Object.entries(value)) {
-      if (/rawxml|raw_xml|pdf|token|sign|cert|key/i.test(clave)) continue;
-      camposEscalaresDiagnostico(contenido, path ? `${path}.${clave}` : clave, salida, visitados);
-    }
-    return salida;
-  }
-  const texto = String(value).trim();
-  if (!texto || texto.length > 120 || /^\d{11,20}$/.test(texto)) return salida;
-  salida.push({ path, value: texto });
-  return salida;
-}
-
-async function diagnosticarDerivadosPendientes() {
-  const { rows } = await pool.query(`
-    SELECT p.ctg,d.payload FROM arca_cpe_movement_pending p
-    JOIN arca_official_documents d ON d.id=p.document_id
-    WHERE p.motivos @> '["DERIVADO_SIN_MAPEO"]'::jsonb ORDER BY p.ctg LIMIT 5
-  `);
-  return rows.map(row => ({
-    ctg: row.ctg,
-    campos: camposEscalaresDiagnostico(row.payload).filter(item =>
-      /producto|grano|deriv|mercader|especie|carga|cod|desc/i.test(item.path)
-    )
-  }));
-}
-
-async function iniciarRefreshDerivadosPendientes() {
-  const { rows } = await pool.query(`
-    SELECT ctg FROM arca_cpe_movement_pending
-    WHERE motivos @> '["DERIVADO_SIN_MAPEO"]'::jsonb ORDER BY ctg
-  `);
-  const ctgs = rows.map(row => row.ctg);
-  if (!ctgs.length) return null;
-  return iniciarSyncCpePorCtg({ ctgs, desde: '2026-02-01' });
-}
-
 async function materializarCertificadosCtg() {
   await ensureSyncTables();
   await pool.query(`
@@ -2977,6 +3016,8 @@ module.exports = {
   consultarPlantasWscpe,
   consultarCpesDestinoWscpe,
   consultarCpePorCtg,
+  consultarTiposGranoWscpe,
+  consultarDerivadosGranariosWscpe,
   importarCpePorCtg,
   obtenerPdfDocumento,
   obtenerSyncJob,
@@ -2996,6 +3037,7 @@ module.exports = {
   diagnosticarCredenciales,
   _internal: {
     productoCpeOficial,
+    catalogoCodigoDescripcion,
     descripcionEspecificaDerivado,
     xmlEscape,
     decodeXml,
