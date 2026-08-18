@@ -103,7 +103,10 @@ const authHeaders = (extra={}) => {
 const api = {
   get: async (path) => {
     try {
-      const r = await fetch(`${API_URL}${path}`, {headers:authHeaders()});
+      const r = await fetch(`${API_URL}${path}`, {
+        headers:authHeaders({"Cache-Control":"no-cache"}),
+        cache:"no-store"
+      });
       if (!r.ok) throw new Error(await r.text());
       return await r.json();
     } catch(e) {
@@ -11727,24 +11730,19 @@ const Certificados1116 = ({usuario}) => {
     throw new Error("El proceso continúa en segundo plano. Volvé a intentar en unos minutos.");
   };
 
-  const extraerCertificadosYLiquidaciones = async () => {
+  const cargarCpeHistoricas = async () => {
     if (usuario?.rol !== "ADMIN") return alert("Solo un administrador puede ejecutar este proceso.");
-    if (!confirm("¿Cargar todas las CPE desde el 01/02/2026 y luego asignar cada certificado por CTG exacto, incluyendo sus calidades? En esta etapa NO se aplicarán liquidaciones.")) return;
+    if (!confirm("¿Cargar únicamente las CPE y CPEDG existentes en ARCA desde el 01/02/2026? No se procesarán certificados, calidades ni liquidaciones.")) return;
     setExtrayendoCertificados(true);
     setResultadoExtraccion(null);
     try {
       const cpeStart = await api.post("/api/arca/sync/cpe-destino", {desde:"2026-02-01"});
-      if (!cpeStart?.job?.id) throw new Error(cpeStart?.error || "No se pudo iniciar la carga de CPE");
-      setResultadoExtraccion({etapa:"CARGANDO_CPE",cpeJob:cpeStart.job.id});
+      if (!cpeStart?.job?.id) throw new Error(cpeStart?.error || "No se pudo iniciar la carga de CPE/CPEDG");
+      setResultadoExtraccion({etapa:"CARGANDO_CPE_Y_CPEDG",cpeJob:cpeStart.job.id});
       const cpeJob = await esperarJob("/api/arca/sync",cpeStart.job.id,etapa=>setResultadoExtraccion(prev=>({...prev,etapa})));
-
-      const rebuildStart = await api.post("/api/certificados-1116/arca/reconstruir", {});
-      if (!rebuildStart?.job?.id) throw new Error(rebuildStart?.error || "No se pudo iniciar la asignación de certificados");
-      const rebuildJob = await esperarJob("/api/certificados-1116/arca/reconstruir",rebuildStart.job.id,etapa=>setResultadoExtraccion(prev=>({...prev,etapa})));
-      const resultado = {etapa:"FINALIZADO",cpe:cpeJob,certificados:rebuildJob.resultado?.certificados||{},cpes:rebuildJob.resultado?.cpes||{}};
+      const resultado = {etapa:"FINALIZADO",cpe:cpeJob};
       setResultadoExtraccion(resultado);
-      await cargar();
-      alert(`Proceso terminado sin liquidaciones. CPE asignadas: ${resultado.cpes.cpe_asignadas||0}; pendientes: ${resultado.cpes.cpe_pendientes||0}; calidades heredadas: ${resultado.cpes.calidades_heredadas||0}; certificados observados: ${resultado.certificados.observed||0}.`);
+      alert(`Carga de CPE/CPEDG terminada. Revisadas: ${cpeJob.total_revisados||0}; importadas/actualizadas: ${cpeJob.total_importados||0}. No se procesaron certificados ni liquidaciones.`);
     } catch (err) {
       alert("No se pudo completar el proceso: " + err.message);
     } finally {
@@ -11772,16 +11770,16 @@ const Certificados1116 = ({usuario}) => {
       {usuario?.rol==="ADMIN" && <div className="card" style={{marginBottom:20,border:"1px solid #2f80ed"}}>
         <div className="card-header">
           <div>
-            <div style={{fontWeight:700}}>Reconstrucción desde ARCA</div>
-            <div style={{fontSize:12,color:"#8890a8",marginTop:3}}>Carga primero todas las CPE desde el 01/02/2026. Luego asigna cada certificado por CTG exacto y hereda sus calidades a cada CPE. La planta queda exclusivamente en la CPE. Las liquidaciones se harán después.</div>
+            <div style={{fontWeight:700}}>Carga histórica de CPE y CPEDG</div>
+            <div style={{fontSize:12,color:"#8890a8",marginTop:3}}>Consulta únicamente las CPE y CPEDG existentes en ARCA desde el 01/02/2026. Conserva su tipo y CTG/CTDG sin duplicar. No asigna certificados, no copia calidades y no procesa liquidaciones.</div>
           </div>
-          <Btn onClick={extraerCertificadosYLiquidaciones} disabled={extrayendoCertificados}>
-            {extrayendoCertificados?"Procesando...":"Cargar CPE y asignar certificados"}
+          <Btn onClick={cargarCpeHistoricas} disabled={extrayendoCertificados}>
+            {extrayendoCertificados?"Cargando CPE/CPEDG...":"Cargar solamente CPE/CPEDG"}
           </Btn>
         </div>
         {resultadoExtraccion && <div style={{padding:"10px 16px",fontSize:12,color:resultadoExtraccion.etapa==="FINALIZADO"?"#27ae60":"#f5a623"}}>
           Etapa: {String(resultadoExtraccion.etapa||"INICIANDO").replaceAll("_"," ")}
-          {resultadoExtraccion.etapa==="FINALIZADO" && <> · CPE asignadas: {resultadoExtraccion.cpes?.cpe_asignadas||0} · pendientes: {resultadoExtraccion.cpes?.cpe_pendientes||0} · calidades heredadas: {resultadoExtraccion.cpes?.calidades_heredadas||0}</>}
+          {resultadoExtraccion.etapa==="FINALIZADO" && <> · Revisadas: {resultadoExtraccion.cpe?.total_revisados||0} · importadas/actualizadas: {resultadoExtraccion.cpe?.total_importados||0}</>}
         </div>}
       </div>}
 
