@@ -1914,13 +1914,35 @@ function descripcionEspecificaDerivado(payload = {}) {
   return reglas.find(([patron]) => patron.test(texto))?.[1] || null;
 }
 
+function textoEscalarOficial(value) {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const texto = textoEscalarOficial(item);
+      if (texto) return texto;
+    }
+    return null;
+  }
+  if (typeof value === 'object') {
+    for (const clave of ['_text', 'text', 'value', 'valor']) {
+      if (!Object.prototype.hasOwnProperty.call(value, clave)) continue;
+      const texto = textoEscalarOficial(value[clave]);
+      if (texto) return texto;
+    }
+    return null;
+  }
+  const texto = String(value).trim();
+  return texto || null;
+}
+
 function valorAnidadoPorClaves(value, claves, visitados = new Set()) {
   if (!value || typeof value !== 'object' || visitados.has(value)) return null;
   visitados.add(value);
   const clavesNormalizadas = new Set(claves.map(clave => String(clave).toLowerCase()));
   for (const [clave, contenido] of Object.entries(value)) {
-    if (clavesNormalizadas.has(String(clave).toLowerCase()) && contenido !== null && contenido !== undefined && String(contenido).trim()) {
-      return String(contenido).trim();
+    if (clavesNormalizadas.has(String(clave).toLowerCase())) {
+      const texto = textoEscalarOficial(contenido);
+      if (texto) return texto;
     }
   }
   for (const contenido of Object.values(value)) {
@@ -1947,20 +1969,19 @@ function productoCpeOficial(tipoCpe, datosCarga = {}, payload = {}) {
     datosCarga.codDerivadoGranario !== undefined ||
     datosCarga.codigoDerivadoGranario !== undefined ||
     Boolean(codigoDerivadoAnidado || descripcionDerivadoAnidada || descripcionDetectada);
-  const codigoDerivado = String(
-    datosCarga.codDerivadoGranario || datosCarga.codigoDerivadoGranario || codigoDerivadoAnidado || ''
-  ).trim();
-  const codigoGrano = String(
-    datosCarga.codGrano || datosCarga.codigoGrano || codigoGranoAnidado || ''
-  ).trim();
+  const codigoDerivado = textoEscalarOficial(
+    datosCarga.codDerivadoGranario || datosCarga.codigoDerivadoGranario || codigoDerivadoAnidado
+  ) || '';
+  const codigoGrano = textoEscalarOficial(
+    datosCarga.codGrano || datosCarga.codigoGrano || codigoGranoAnidado
+  ) || '';
   if (esDerivado) {
-    const descripcionInformada = String(
+    const descripcionInformada = textoEscalarOficial(
       datosCarga.descDerivadoGranario ||
       datosCarga.descripcionDerivadoGranario ||
       datosCarga.derivadoGranario ||
-      descripcionDerivadoAnidada ||
-      ''
-    ).trim();
+      descripcionDerivadoAnidada
+    ) || '';
     const nombre = descripcionDetectada ||
       descripcionInformada ||
       DERIVADOS_GRANARIOS_ARCA[codigoDerivado] ||

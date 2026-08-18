@@ -246,6 +246,18 @@ describe('arcaOfficialClient XML helpers', () => {
     }));
   });
 
+  test('unwraps XML object values when reading an official CPEDG product', () => {
+    expect(client.productoCpeOficial('AUTOMOTOR', {
+      codGrano: { _text: '23' },
+      codDerivadoGranario: { _text: '145' }
+    })).toEqual(expect.objectContaining({
+      nombre: 'Expeller de soja',
+      codigo: 'ARCA-DG-145',
+      codigoGrano: '23',
+      esDerivado: true
+    }));
+  });
+
   test('keeps the real derivative name even when ARCA does not provide a derivative code', () => {
     const producto = client.productoCpeOficial('AUTOMOTOR', {}, {
       mercaderia: { descripcionProductoDerivado: 'Harina de soja', codigoGranoOrigen: '23' }
