@@ -161,6 +161,20 @@ router.post('/sync/cpe-destino', async (req, res) => {
   }
 });
 
+// Convierte CPE oficiales ya almacenadas en movimientos FORMAL. Es idempotente
+// por CTG y deja en una bandeja pendiente solo los documentos sin mapeo minimo.
+router.post('/sync/cpe-a-movimientos', async (req, res) => {
+  try {
+    const resultado = await arcaOfficialClient.materializarMovimientosCpe({
+      desde: req.body?.desde || '2026-02-01',
+      userId: req.user?.id || null
+    });
+    res.status(201).json({ ok: true, resultado, accionFiscal: false });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/documentos/:id/pdf', async (req, res) => {
   try {
     const file = await arcaOfficialClient.obtenerPdfDocumento(req.params.id);
