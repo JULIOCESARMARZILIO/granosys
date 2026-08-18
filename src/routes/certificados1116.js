@@ -2,7 +2,7 @@
 const { pool } = require('../db');
 const { registrarAuditoria } = require('../services/auditoria');
 const { generateTraceProposals, listTraceLinks, reviewTraceLink } = require('../services/arcaTraceability');
-const { extractAllCertificates, applyAllLiquidations, listCertificateAccounts } = require('../services/arcaCertificateExtractor');
+const { extractAllCertificates, applyAllLiquidations, listCertificateAccounts, startRebuildJob, getRebuildJob } = require('../services/arcaCertificateExtractor');
 
 // GET /api/certificados-1116 - listado, mas reciente primero, con sus CTGs
 router.get('/', async (req, res) => {
@@ -219,6 +219,30 @@ router.post('/trazabilidad/:id/revisar', async (req, res) => {
   }
 });
 
+
+
+// POST /api/certificados-1116/arca/reconstruir
+// Segundo plano: certificados -> CPE por CTG exacto -> calidades heredadas. No aplica liquidaciones.
+router.post('/arca/reconstruir', async (req, res) => {
+  if (req.user?.rol !== 'ADMIN') return res.status(403).json({ error: 'Solo un administrador puede ejecutar la reconstrucción.' });
+  try {
+    const job = await startRebuildJob(req.user?.id || null);
+    res.status(202).json({ ok:true, job, aplicaLiquidaciones:false });
+  } catch (err) {
+    res.status(500).json({ error:err.message });
+  }
+});
+
+router.get('/arca/reconstruir/:id', async (req, res) => {
+  if (req.user?.rol !== 'ADMIN') return res.status(403).json({ error: 'Solo un administrador puede consultar este proceso.' });
+  try {
+    const job = await getRebuildJob(req.params.id);
+    if (!job) return res.status(404).json({ error:'Proceso no encontrado.' });
+    res.json({ ok:true, job });
+  } catch (err) {
+    res.status(500).json({ error:err.message });
+  }
+});
 
 // POST /api/certificados-1116/arca/extraer
 // Construye/actualiza una cuenta de kilos por COE de certificado y su lista de CPE.
