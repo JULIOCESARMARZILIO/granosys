@@ -145,8 +145,8 @@ router.post('/sync/cpe-por-ctg', async (req, res) => {
   }
 });
 
-// Enumera las plantas activas del CUIT representado, lista las CPE recibidas
-// como destino por rango de fechas y consolida cada CTG con su detalle y PDF.
+// Enumera las plantas activas del CUIT representado, lista las CPE y CPEDG
+// recibidas como destino por rango de fechas y consolida cada CTG/CTDG con su detalle y PDF.
 // Es una operacion exclusivamente de consulta: no acepta, rechaza ni modifica CPE.
 router.post('/sync/cpe-destino', async (req, res) => {
   try {
@@ -254,6 +254,10 @@ router.post('/cc/conciliaciones/:documentId/decidir', async (req, res) => {
 
 router.get('/sync/:id', async (req, res) => {
   try {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.removeHeader('ETag');
     const job = await arcaOfficialClient.obtenerSyncJob(req.params.id);
     if (!job) return res.status(404).json({ error: 'SincronizaciÃ³n no encontrada.' });
     res.json({ ok: true, job });
