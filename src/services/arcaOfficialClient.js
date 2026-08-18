@@ -1859,8 +1859,17 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null 
 
       const payload = doc.payload || {};
       const rawXml = String(payload.rawXml || payload.raw_xml || '');
-      const especieCodigo = primerTag(rawXml, ['codGrano', 'codigoGrano', 'codEspecie', 'codigoEspecie']);
-      const especieNombre = primerTag(rawXml, ['descGrano', 'descripcionGrano', 'nombreGrano', 'especie', 'producto']);
+      const datosCarga = payload.datosCarga || payload.datos_carga || {};
+      const cabecera = payload.cabecera || {};
+      const transporte = payload.transporte || {};
+      const especieCodigo = String(datosCarga.codGrano || datosCarga.codigoGrano || primerTag(rawXml, ['codGrano', 'codigoGrano', 'codEspecie', 'codigoEspecie']) || '').trim();
+      const observaciones = String(cabecera.observaciones || '');
+      const nombreObservado = ['soja','maiz','trigo','girasol','cebada','sorgo'].find(nombre =>
+        observaciones.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().includes(nombre)
+      );
+      const especieNombre = datosCarga.descGrano || datosCarga.descripcionGrano ||
+        primerTag(rawXml, ['descGrano', 'descripcionGrano', 'nombreGrano', 'especie', 'producto']) ||
+        (especieCodigo === '23' ? 'Soja' : nombreObservado);
       let especie = null;
       if (especieCodigo) {
         const { rows } = await client.query('SELECT id,nombre FROM especies WHERE activa=true AND (upper(codigo)=upper($1) OR regexp_replace(codigo,\'[^0-9]\',\'\',\'g\')=$1) LIMIT 1', [especieCodigo.replace(/\s/g, '')]);
@@ -1893,10 +1902,10 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null 
       const pagador = persona(pickRol(participantes, [/PAGADOR_FLETE/i]));
       const plantaDestino = plantas.find(item => /DESTINO/i.test(String(item.rol || ''))) || null;
       const plantaOrigen = plantas.find(item => /ORIGEN/i.test(String(item.rol || ''))) || null;
-      const bruto = Number(primerTag(rawXml, ['pesoBruto', 'pesoBrutoOrigen', 'pesoBrutoSalida']) || 0) || null;
-      const tara = Number(primerTag(rawXml, ['pesoTara', 'tara', 'pesoTaraOrigen']) || 0) || null;
-      const neto = Number(primerTag(rawXml, ['pesoNeto', 'pesoNetoCarga', 'pesoNetoOrigen', 'kilosNetos']) || 0) || (bruto && tara ? bruto - tara : null);
-      const estadoArca = primerTag(rawXml, ['estado', 'estadoCartaPorte']) || '';
+      const bruto = Number(datosCarga.pesoBruto || datosCarga.pesoBrutoOrigen || primerTag(rawXml, ['pesoBruto', 'pesoBrutoOrigen', 'pesoBrutoSalida']) || 0) || null;
+      const tara = Number(datosCarga.pesoTara || datosCarga.tara || primerTag(rawXml, ['pesoTara', 'tara', 'pesoTaraOrigen']) || 0) || null;
+      const neto = Number(datosCarga.pesoNeto || datosCarga.pesoNetoCarga || primerTag(rawXml, ['pesoNeto', 'pesoNetoCarga', 'pesoNetoOrigen', 'kilosNetos']) || 0) || (bruto && tara ? bruto - tara : null);
+      const estadoArca = String(cabecera.estado || primerTag(rawXml, ['estado', 'estadoCartaPorte']) || '');
       const estado = /ANUL/i.test(estadoArca) ? 'ANULADO' : /RECHAZ/i.test(estadoArca) ? 'RECHAZADO' : 'EN_TRANSITO';
       const numeroMovimiento = `MOV-${String(siguiente++).padStart(4, '0')}`;
       const { rows: creadas } = await client.query(`
@@ -1914,9 +1923,10 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null 
         titular.cuit,titular.nombre,remitente.cuit,remitente.nombre,remitenteVenta.cuit,remitenteVenta.nombre,
         destinatario.cuit,destinatario.nombre,destino.cuit,destino.nombre,pagador.cuit,pagador.nombre,especie.id,
         plantaOrigen?.localidad||null,plantaOrigen?.provincia||null,plantaDestino?.nro_planta||null,plantaDestino?.localidad||null,plantaDestino?.provincia||null,
-        plantaOrigen?.ubicacion_id||null,plantaDestino?.ubicacion_id||null,primerTag(rawXml,['patenteChasis','dominioAutomotor','patenteCamion']),
-        primerTag(rawXml,['patenteAcoplado','dominioAcoplado']),primerTag(rawXml,['fechaPartida','fechaInicioViaje']),
-        Number(primerTag(rawXml,['kmRecorrer','kilometros','distanciaKm'])||0)||null,bruto,tara,neto,
+        plantaOrigen?.ubicacion_id||null,plantaDestino?.ubicacion_id||null,transporte.dominio||transporte.patenteChasis||primerTag(rawXml,['patenteChasis','dominioAutomotor','patenteCamion']),
+        transporte.dominioAcoplado||transporte.patenteAcoplado||primerTag(rawXml,['patenteAcoplado','dominioAcoplado']),
+        transporte.fechaHoraPartida||transporte.fechaPartida||primerTag(rawXml,['fechaPartida','fechaInicioViaje']),
+        Number(transporte.kmRecorrer||transporte.kilometros||primerTag(rawXml,['kmRecorrer','kilometros','distanciaKm'])||0)||null,bruto,tara,neto,
         `Importado de ARCA ${doc.tipo_cpe}; CTG ${doc.ctg}. Documento oficial ${doc.document_id}.`,userId]);
       await client.query(`INSERT INTO arca_cpe_movement_links(ctg,document_id,movimiento_id,created_by) VALUES($1,$2,$3,$4)`, [doc.ctg,doc.document_id,creadas[0].id,userId]);
       await client.query('DELETE FROM arca_cpe_movement_pending WHERE ctg=$1', [doc.ctg]);
