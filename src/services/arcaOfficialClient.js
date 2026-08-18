@@ -2802,8 +2802,12 @@ async function materializarCertificadosCtg() {
         SELECT id
         FROM arca_official_documents
         WHERE external_key=$1
-          AND fuente IN ('WSCPE_CTG', 'WSCPE_DESTINO')
-        ORDER BY CASE WHEN fuente='WSCPE_CTG' THEN 0 ELSE 1 END, id
+          AND fuente IN ('WSCPE_CPE', 'WSCPE_CTG', 'WSCPE_DESTINO')
+        ORDER BY CASE
+          WHEN fuente='WSCPE_CPE' THEN 0
+          WHEN fuente='WSCPE_CTG' THEN 1
+          ELSE 2
+        END, id
         LIMIT 1
       `, [ctg]);
       const cpeDocumentId = cpes[0]?.id || null;
