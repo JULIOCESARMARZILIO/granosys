@@ -14,6 +14,9 @@ describe('ARCA certificate extraction', () => {
         kilosNetosAcondicionados: '59.550,000',
         mermaHumedadKg: '600',
         otrasMermasKg: '150',
+        humedad: '13,8',
+        materiaExtrana: '1,2',
+        proteina: '34,5',
         cartas: [{ nroCTG: '10134183216' }, { nroCTG: '10134183217' }]
       }
     });
@@ -25,6 +28,11 @@ describe('ARCA certificate extraction', () => {
     expect(result.totalLossKg).toBe(750);
     expect(result.ctgs).toEqual(['10134183216', '10134183217']);
     expect(result.observations).toEqual([]);
+    expect(result.qualities).toEqual(expect.arrayContaining([
+      {parameter:'HUMEDAD',value:13.8,unit:'%'},
+      {parameter:'MATERIA_EXTRANA',value:1.2,unit:'%'},
+      {parameter:'PROTEINA',value:34.5,unit:'%'}
+    ]));
     expect(result).not.toHaveProperty('plant');
   });
 
