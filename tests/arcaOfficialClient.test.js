@@ -230,4 +230,41 @@ describe('arcaOfficialClient XML helpers', () => {
     }));
   });
 
+  test.each([
+    ['101', 'Aceite crudo de girasol'],
+    ['102', 'Aceite crudo de maíz'],
+    ['103', 'Aceite crudo de soja'],
+    ['144', 'Expeller de girasol'],
+    ['187', 'Maíz quebrado-partido'],
+    ['199', 'Pellets de girasol'],
+    ['200', 'Pellets de maíz'],
+    ['202', 'Pellets de sorgo'],
+    ['226', 'Trigo quebrado-partido'],
+    ['287', 'Pellets de cebada']
+  ])('maps official CPEDG code %s across all crops', (codigo, nombre) => {
+    expect(client.productoCpeOficial('AUTOMOTOR_DG', {
+      codDerivadoGranario: codigo
+    })).toEqual(expect.objectContaining({
+      nombre,
+      codigo: `ARCA-DG-${codigo}`,
+      tipoProducto: 'SUBPRODUCTO',
+      esDerivado: true
+    }));
+  });
+
+  test.each([
+    ['Cáscara de soja', 'Cáscara de soja'],
+    ['Aceite de soja', 'Aceite de soja'],
+    ['Harina de soja', 'Harina de soja'],
+    ['Pellets de cáscara de soja', 'Pellets de cáscara de soja']
+  ])('preserves the specific ARCA derivative description %s', (descripcion, nombre) => {
+    expect(client.productoCpeOficial('AUTOMOTOR_DG', {
+      codGrano: '23',
+      codDerivadoGranario: '201'
+    }, { observaciones: descripcion })).toEqual(expect.objectContaining({
+      nombre,
+      tipoProducto: 'SUBPRODUCTO'
+    }));
+  });
+
 });
