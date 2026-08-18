@@ -120,6 +120,21 @@ async function ensureSchema() {
     ALTER TABLE certificado_1116_ctgs ADD COLUMN IF NOT EXISTS estado_revision VARCHAR(20) DEFAULT 'PENDIENTE';
     CREATE UNIQUE INDEX IF NOT EXISTS uq_certificados_1116_coe
       ON certificados_1116(coe) WHERE coe IS NOT NULL AND coe <> '';
+    CREATE TABLE IF NOT EXISTS certificado_1116_liquidaciones (
+      id BIGSERIAL PRIMARY KEY,
+      id_certificado_1116 INTEGER NOT NULL REFERENCES certificados_1116(id) ON DELETE CASCADE,
+      arca_document_id BIGINT NOT NULL REFERENCES arca_official_documents(id) ON DELETE RESTRICT,
+      coe_liquidacion VARCHAR(30),
+      fecha_liquidacion DATE,
+      kg_brutos_descargados NUMERIC(14,3) NOT NULL DEFAULT 0 CHECK (kg_brutos_descargados >= 0),
+      kg_netos_acondicionados_descargados NUMERIC(14,3) NOT NULL DEFAULT 0 CHECK (kg_netos_acondicionados_descargados >= 0),
+      datos_raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(id_certificado_1116, arca_document_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_cert_liq_certificado
+      ON certificado_1116_liquidaciones(id_certificado_1116, fecha_liquidacion, id);
   `);
 }
 
@@ -233,4 +248,131 @@ async function extractAllCertificates({ limit = 1000 } = {}) {
   return summary;
 }
 
-module.exports = { extractCertificate, extractAllCertificates, ensureSchema };
+function extractLiquidationApplication(payload, document = {}) {
+  const index = indexPayload(payload || {});
+  const certificateCoe = digits(first(index, [
+    'coeCertificado', 'coeCertificadoDeposito', 'coeCertificacion', 'coeOrigen',
+    'numeroCoeCertificado', 'nroCoeCertificado'
+  ]));
+  const liquidationCoe = digits(first(index, ['coe', 'coeLiquidacion', 'numeroCoe', 'nroCoe']) || document.external_key);
+  const grossKg = number(first(index, [
+    'kilosBrutosAplicados', 'kgBrutosAplicados', 'kilosBrutosLiquidacion',
+    'kgBrutosLiquidacion', 'pesoBruto'
+  ]));
+  const conditionedKg = number(first(index, [
+    'kilosNetosAcondicionadosAplicados', 'kgNetosAcondicionadosAplicados',
+    'kilosNetosLiquidacion', 'kgNetosLiquidacion', 'pesoNetoAcondicionado',
+    'kilosNetos', 'pesoNeto'
+  ]));
+  const dateValue = first(index, ['fechaLiquidacion', 'fechaEmision']) || document.document_date || null;
+  const date = dateValue ? new Date(dateValue) : null;
+  return {
+    certificateCoe,
+    liquidationCoe: liquidationCoe || null,
+    grossKg,
+    conditionedKg,
+    date: date && !Number.isNaN(date.getTime()) ? date : null,
+    observations: [
+      ...(!certificateCoe ? ['SIN_COE_CERTIFICADO_REFERENCIADO'] : []),
+      ...(grossKg === null ? ['SIN_KILOS_BRUTOS_LIQUIDADOS'] : []),
+      ...(conditionedKg === null ? ['SIN_KILOS_NETOS_ACONDICIONADOS_LIQUIDADOS'] : [])
+    ]
+  };
+}
+
+async function applyAllLiquidations({ limit = 5000 } = {}) {
+  await ensureSchema();
+  const { rows: documents } = await pool.query(`
+    SELECT id,fuente,external_key,document_date,payload
+    FROM arca_official_documents
+    WHERE fuente LIKE 'WSLPG_%'
+      AND fuente NOT ILIKE '%CERT%'
+      AND (fuente ILIKE '%LPG%' OR fuente ILIKE '%LSG%' OR payload::text ILIKE '%liquidacion%')
+    ORDER BY document_date,id
+    LIMIT $1
+  `, [Math.max(1, Math.min(20000, Number(limit) || 5000))]);
+  const summary = { documents: documents.length, applied: 0, observed: 0, errors: [] };
+  for (const document of documents) {
+    const application = extractLiquidationApplication(document.payload, document);
+    if (application.observations.length) {
+      summary.observed += 1;
+      continue;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: certificates } = await client.query(
+        'SELECT id,kilos_brutos_certificados,kilos_netos_acondicionados FROM certificados_1116 WHERE coe=$1 FOR UPDATE',
+        [application.certificateCoe]
+      );
+      if (!certificates[0]) {
+        await client.query('ROLLBACK');
+        summary.observed += 1;
+        continue;
+      }
+      await client.query(`
+        INSERT INTO certificado_1116_liquidaciones
+          (id_certificado_1116,arca_document_id,coe_liquidacion,fecha_liquidacion,
+           kg_brutos_descargados,kg_netos_acondicionados_descargados,datos_raw)
+        VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)
+        ON CONFLICT(id_certificado_1116,arca_document_id) DO UPDATE SET
+          coe_liquidacion=EXCLUDED.coe_liquidacion,
+          fecha_liquidacion=EXCLUDED.fecha_liquidacion,
+          kg_brutos_descargados=EXCLUDED.kg_brutos_descargados,
+          kg_netos_acondicionados_descargados=EXCLUDED.kg_netos_acondicionados_descargados,
+          datos_raw=EXCLUDED.datos_raw,updated_at=NOW()
+      `, [certificates[0].id, document.id, application.liquidationCoe, application.date,
+        application.grossKg, application.conditionedKg, JSON.stringify(document.payload || {})]);
+      const { rows: balances } = await client.query(`
+        SELECT
+          c.kilos_brutos_certificados-COALESCE(SUM(a.kg_brutos_descargados),0) saldo_bruto,
+          c.kilos_netos_acondicionados-COALESCE(SUM(a.kg_netos_acondicionados_descargados),0) saldo_neto
+        FROM certificados_1116 c
+        LEFT JOIN certificado_1116_liquidaciones a ON a.id_certificado_1116=c.id
+        WHERE c.id=$1 GROUP BY c.id
+      `, [certificates[0].id]);
+      if ((number(balances[0]?.saldo_bruto) ?? 0) < -0.001 || (number(balances[0]?.saldo_neto) ?? 0) < -0.001)
+        throw new Error('La liquidacion supera el saldo disponible del certificado.');
+      await client.query('COMMIT');
+      summary.applied += 1;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      summary.errors.push({ documentId: document.id, externalKey: document.external_key, error: error.message });
+    } finally {
+      client.release();
+    }
+  }
+  return summary;
+}
+
+async function listCertificateAccounts() {
+  await ensureSchema();
+  const { rows } = await pool.query(`
+    SELECT c.id,c.coe,c.numero_certificado,c.fecha_emision,c.cuit_productor,c.nombre_productor,
+      c.cuit_comprador_certificador,c.nombre_comprador_certificador,
+      c.kilos_brutos_certificados,c.kilos_netos_acondicionados,
+      COALESCE((SELECT SUM(a.kg_brutos_descargados) FROM certificado_1116_liquidaciones a
+                WHERE a.id_certificado_1116=c.id),0) kg_brutos_liquidados,
+      COALESCE((SELECT SUM(a.kg_netos_acondicionados_descargados) FROM certificado_1116_liquidaciones a
+                WHERE a.id_certificado_1116=c.id),0) kg_netos_liquidados,
+      c.kilos_brutos_certificados-COALESCE((SELECT SUM(a.kg_brutos_descargados)
+        FROM certificado_1116_liquidaciones a WHERE a.id_certificado_1116=c.id),0) saldo_kg_brutos,
+      c.kilos_netos_acondicionados-COALESCE((SELECT SUM(a.kg_netos_acondicionados_descargados)
+        FROM certificado_1116_liquidaciones a WHERE a.id_certificado_1116=c.id),0) saldo_kg_netos_acondicionados,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object(
+        'ctg',cc.nro_ctg,'cpe_document_id',cc.cpe_document_id,'movimiento_id',cc.id_movimiento,
+        'kg_brutos',cc.kg_brutos_aplicados,'kg_netos_acondicionados',cc.kg_netos_acondicionados)
+        ORDER BY cc.id) FROM certificado_1116_ctgs cc WHERE cc.id_certificado_1116=c.id),'[]'::jsonb) cpes,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object(
+        'arca_document_id',a.arca_document_id,'coe_liquidacion',a.coe_liquidacion,
+        'fecha',a.fecha_liquidacion,'kg_brutos',a.kg_brutos_descargados,
+        'kg_netos_acondicionados',a.kg_netos_acondicionados_descargados)
+        ORDER BY a.fecha_liquidacion,a.id) FROM certificado_1116_liquidaciones a
+        WHERE a.id_certificado_1116=c.id),'[]'::jsonb) liquidaciones
+    FROM certificados_1116 c
+    ORDER BY c.fecha_emision DESC NULLS LAST,c.id DESC
+  `);
+  return rows;
+}
+
+module.exports = { extractCertificate, extractLiquidationApplication, extractAllCertificates, applyAllLiquidations, listCertificateAccounts, ensureSchema };
