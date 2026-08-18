@@ -2301,6 +2301,48 @@ async function diagnosticarDerivadosPendientes() {
 
 async function listarReporteCpeCertificados() {
   const cuitInversiones = '30710183992';
+  const { rows: certificadosRows } = await pool.query(`
+    SELECT c.id,c.coe,c.numero_certificado,c.fecha_emision,
+      c.kilos_netos_acondicionados,
+      COUNT(cc.id)::int AS total_ctgs,
+      COUNT(cc.id) FILTER (WHERE cc.cpe_document_id IS NOT NULL)::int AS ctgs_vinculados,
+      COALESCE(SUM(cc.kg_netos_acondicionados)
+        FILTER (WHERE cc.cpe_document_id IS NOT NULL),0) AS kilos_asignados
+    FROM certificados_1116 c
+    LEFT JOIN certificado_1116_ctgs cc ON cc.id_certificado_1116=c.id
+    GROUP BY c.id,c.coe,c.numero_certificado,c.fecha_emision,c.kilos_netos_acondicionados
+    ORDER BY c.fecha_emision,c.coe,c.id
+  `);
+  const certificados = certificadosRows.map(row => {
+    const totalCtgs=Number(row.total_ctgs||0);
+    const ctgsVinculados=Number(row.ctgs_vinculados||0);
+    const kilosCertificados=row.kilos_netos_acondicionados==null?null:Number(row.kilos_netos_acondicionados);
+    const kilosAsignados=Number(row.kilos_asignados||0);
+    return {
+      id:row.id,
+      coe:row.coe,
+      numeroCertificado:row.numero_certificado,
+      fecha:row.fecha_emision,
+      totalCtgs,
+      ctgsVinculados,
+      estado:totalCtgs===0?'SIN_CTG':ctgsVinculados===totalCtgs?'COMPLETO':ctgsVinculados>0?'PARCIAL':'PENDIENTE',
+      kilosCertificados,
+      kilosAsignados,
+      saldoKilos:kilosCertificados==null?null:kilosCertificados-kilosAsignados
+    };
+  });
+  const certificadosConKilos=certificados.filter(item=>item.kilosCertificados!=null);
+  const resumenCertificados = {
+    total:certificados.length,
+    completos:certificados.filter(item=>item.estado==='COMPLETO').length,
+    parciales:certificados.filter(item=>item.estado==='PARCIAL').length,
+    pendientes:certificados.filter(item=>item.estado==='PENDIENTE').length,
+    sinCtg:certificados.filter(item=>item.estado==='SIN_CTG').length,
+    kilosCertificados:certificadosConKilos.reduce((s,item)=>s+item.kilosCertificados,0),
+    kilosAsignados:certificados.reduce((s,item)=>s+item.kilosAsignados,0),
+    saldoKilos:certificadosConKilos.reduce((s,item)=>s+item.saldoKilos,0),
+    sinKilos:certificados.length-certificadosConKilos.length
+  };
   const { rows } = await pool.query(`
     SELECT r.ctg,d.document_date,
       COALESCE(jsonb_agg(DISTINCT jsonb_build_object(
@@ -2348,7 +2390,9 @@ async function listarReporteCpeCertificados() {
       trasladosPropiosSinCertificado:detalle.filter(item=>item.estadoCertificado==='SIN_CERTIFICADO'&&item.clasificacion==='TRASLADO_PROPIO').length,
       tercerosSinCertificado:detalle.filter(item=>item.estadoCertificado==='SIN_CERTIFICADO'&&item.clasificacion==='TERCERO_A_PLANTA_PROPIA').length
     },
-    detalle
+    detalle,
+    resumenCertificados,
+    certificados
   };
 }
 
