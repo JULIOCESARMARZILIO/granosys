@@ -2,6 +2,7 @@
 const { pool } = require('../db');
 const { registrarAuditoria } = require('../services/auditoria');
 const { generateTraceProposals, listTraceLinks, reviewTraceLink } = require('../services/arcaTraceability');
+const { extractAllCertificates, applyAllLiquidations, listCertificateAccounts } = require('../services/arcaCertificateExtractor');
 
 // GET /api/certificados-1116 - listado, mas reciente primero, con sus CTGs
 router.get('/', async (req, res) => {
@@ -215,6 +216,46 @@ router.post('/trazabilidad/:id/revisar', async (req, res) => {
     res.json({ ok: true, vinculo: link });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+
+// POST /api/certificados-1116/arca/extraer
+// Construye/actualiza una cuenta de kilos por COE de certificado y su lista de CPE.
+// Es idempotente, conserva la evidencia oficial y no ejecuta acciones fiscales.
+router.post('/arca/extraer', async (req, res) => {
+  try {
+    const resultado = await extractAllCertificates({ limit: req.body?.limit });
+    await registrarAuditoria(req, {
+      accion: 'EXTRAER_CERTIFICADOS', modulo: 'certificados_1116', datos_despues: resultado
+    });
+    res.json({ ok: true, resultado, soloLecturaArca: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/certificados-1116/arca/aplicar-liquidaciones
+// Registra cuanto descargó cada liquidación de los dos saldos del certificado.
+router.post('/arca/aplicar-liquidaciones', async (req, res) => {
+  try {
+    const resultado = await applyAllLiquidations({ limit: req.body?.limit });
+    await registrarAuditoria(req, {
+      accion: 'APLICAR_LIQUIDACIONES_CERTIFICADOS', modulo: 'certificados_1116', datos_despues: resultado
+    });
+    res.json({ ok: true, resultado, soloLecturaArca: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/certificados-1116/cuentas-kilos
+// Encabezado único por COE + CPE componentes + liquidaciones + dos saldos.
+router.get('/cuentas-kilos', async (req, res) => {
+  try {
+    res.json({ ok: true, certificados: await listCertificateAccounts() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
