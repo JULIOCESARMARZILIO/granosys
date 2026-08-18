@@ -1804,6 +1804,144 @@ function numeroCpe(value) {
   return digits || null;
 }
 
+const DERIVADOS_GRANARIOS_ARCA = Object.freeze({
+  '101': 'Aceite crudo de girasol',
+  '102': 'Aceite crudo de maíz',
+  '103': 'Aceite crudo de soja',
+  '119': 'Balanceado y/o suplemento granario para aves',
+  '120': 'Balanceado y/o suplemento granario para bovinos',
+  '121': 'Balanceado y/o suplemento granario para equinos',
+  '122': 'Balanceado y/o suplemento granario para otros',
+  '123': 'Balanceado y/o suplemento granario para ovinos',
+  '124': 'Balanceado y/o suplemento granario para porcinos',
+  '125': 'Balanceado y/o suplemento granario para otras especies',
+  '136': 'Desechos de arroz',
+  '137': 'Desechos de avena',
+  '138': 'Desechos de girasol',
+  '139': 'Desechos de maíz',
+  '140': 'Desechos de soja',
+  '141': 'Desechos de sorgo',
+  '142': 'Desechos de trigo',
+  '144': 'Expeller de girasol',
+  '145': 'Expeller de soja',
+  '146': 'Extrujado de soja',
+  '152': 'Girasol quebrado-partido',
+  '187': 'Maíz quebrado-partido',
+  '199': 'Pellets de girasol',
+  '200': 'Pellets de maíz',
+  '201': 'Pellets de soja',
+  '202': 'Pellets de sorgo',
+  '204': 'Prensado de girasol',
+  '205': 'Prensado de soja',
+  '218': 'Soja desactivada',
+  '219': 'Soja quebrada-partida',
+  '220': 'Soja tostada',
+  '221': 'Sojilla',
+  '222': 'Torta de presión de lino',
+  '223': 'Torta de presión de maní',
+  '225': 'Torta de presión de colza',
+  '226': 'Trigo quebrado-partido',
+  '227': 'Triguillo',
+  '287': 'Pellets de cebada'
+});
+
+const GRANOS_ARCA = Object.freeze({
+  '1': 'Lino',
+  '2': 'Girasol',
+  '16': 'Avena',
+  '19': 'Maíz',
+  '23': 'Soja',
+  '35': 'Arroz',
+  '50': 'Otros granos',
+  '100': 'Cebada',
+  '101': 'Maní',
+  '103': 'Trigo',
+  '104': 'Sorgo',
+  '107': 'Colza'
+});
+
+function productoCpeOficial(tipoCpe, datosCarga = {}) {
+  const esDerivado = /_DG$/i.test(String(tipoCpe || '')) ||
+    datosCarga.codDerivadoGranario !== undefined ||
+    datosCarga.codigoDerivadoGranario !== undefined;
+  const codigoDerivado = String(
+    datosCarga.codDerivadoGranario || datosCarga.codigoDerivadoGranario || ''
+  ).trim();
+  const codigoGrano = String(datosCarga.codGrano || datosCarga.codigoGrano || '').trim();
+  if (esDerivado) {
+    const descripcionInformada = String(
+      datosCarga.descDerivadoGranario ||
+      datosCarga.descripcionDerivadoGranario ||
+      datosCarga.derivadoGranario ||
+      ''
+    ).trim();
+    const nombre = descripcionInformada || DERIVADOS_GRANARIOS_ARCA[codigoDerivado] || null;
+    return {
+      codigo: codigoDerivado ? `ARCA-DG-${codigoDerivado}` : null,
+      codigoArca: codigoDerivado || null,
+      nombre,
+      tipoProducto: 'SUBPRODUCTO',
+      codigoGrano: codigoGrano || null,
+      esDerivado: true
+    };
+  }
+  return {
+    codigo: codigoGrano ? `ARCA-GR-${codigoGrano}` : null,
+    codigoArca: codigoGrano || null,
+    nombre: GRANOS_ARCA[codigoGrano] || null,
+    tipoProducto: 'GRANO',
+    codigoGrano: codigoGrano || null,
+    esDerivado: false
+  };
+}
+
+async function asegurarEspecieProductoCpe(client, producto) {
+  if (!producto?.codigo || !producto?.nombre) return null;
+  const { rows: existente } = await client.query(
+    'SELECT id,nombre FROM especies WHERE activa=true AND (codigo=$1 OR lower(nombre)=lower($2)) ORDER BY codigo=$1 DESC LIMIT 1',
+    [producto.codigo, producto.nombre]
+  );
+  if (existente[0]) {
+    await client.query(
+      `UPDATE especies
+       SET tipo_producto=$1,
+           codigo=CASE WHEN codigo LIKE 'ARCA-%' OR codigo IS NULL THEN $2 ELSE codigo END,
+           activa=true
+       WHERE id=$3`,
+      [producto.tipoProducto, producto.codigo, existente[0].id]
+    );
+    return existente[0];
+  }
+
+  let idOrigen = null;
+  if (producto.esDerivado && producto.codigoGrano) {
+    const nombreOrigen = GRANOS_ARCA[producto.codigoGrano] || null;
+    const { rows: origen } = await client.query(
+      `SELECT id FROM especies
+       WHERE activa=true AND (
+         codigo=$1 OR codigo=$2 OR lower(nombre)=lower($3)
+       ) LIMIT 1`,
+      [`ARCA-GR-${producto.codigoGrano}`,
+       producto.codigoGrano === '23' ? 'SOJ' : `ARCA-GR-${producto.codigoGrano}`,
+       nombreOrigen]
+    );
+    idOrigen = origen[0]?.id || null;
+  }
+
+  const { rows } = await client.query(
+    `INSERT INTO especies(nombre,codigo,tipo_producto,id_especie_origen,activa)
+     VALUES($1,$2,$3,$4,true)
+     ON CONFLICT(codigo) DO UPDATE SET
+       nombre=EXCLUDED.nombre,
+       tipo_producto=EXCLUDED.tipo_producto,
+       id_especie_origen=COALESCE(especies.id_especie_origen,EXCLUDED.id_especie_origen),
+       activa=true
+     RETURNING id,nombre`,
+    [producto.nombre, producto.codigo, producto.tipoProducto, idOrigen]
+  );
+  return rows[0] || null;
+}
+
 async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null } = {}) {
   const fechaDesde = validarFechaIso(desde, 'La fecha desde');
   await ensureCpeMasterTables();
@@ -1846,42 +1984,45 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null 
     let siguiente = Number(secuencia[0]?.ultimo || 0) + 1;
 
     const pickRol = (items, patrones) => items.find(item => patrones.some(pattern => pattern.test(String(item.rol || '')))) || null;
+    resultado.actualizadas = 0;
     for (const doc of documentos) {
       resultado.revisadas += 1;
-      const { rows: ya } = await client.query('SELECT id FROM movimientos WHERE nro_ctg=$1 LIMIT 1', [doc.ctg]);
+      const payload = doc.payload || {};
+      const rawXml = String(payload.rawXml || payload.raw_xml || '');
+      const datosCarga = payload.datosCarga || payload.datos_carga || {};
+      const cabecera = payload.cabecera || {};
+      const transporte = payload.transporte || {};
+      if (!datosCarga.codGrano) {
+        datosCarga.codGrano = primerTag(rawXml, ['codGrano', 'codigoGrano', 'codEspecie', 'codigoEspecie']);
+      }
+      if (!datosCarga.codDerivadoGranario) {
+        datosCarga.codDerivadoGranario = primerTag(rawXml, ['codDerivadoGranario', 'codigoDerivadoGranario']);
+      }
+      const producto = productoCpeOficial(doc.tipo_cpe, datosCarga);
+      const especie = await asegurarEspecieProductoCpe(client, producto);
+
+      const { rows: ya } = await client.query('SELECT id,id_especie,observaciones FROM movimientos WHERE nro_ctg=$1 LIMIT 1', [doc.ctg]);
       if (ya[0]) {
+        if (especie && Number(ya[0].id_especie) !== Number(especie.id)) {
+          const notaProducto = `Producto ARCA: ${producto.nombre} (código ${producto.codigoArca}).`;
+          const observacionActual = String(ya[0].observaciones || '')
+            .replace(/\s*Producto ARCA:[^.]*\./gi, '')
+            .trim();
+          await client.query(
+            'UPDATE movimientos SET id_especie=$1,observaciones=$2 WHERE id=$3',
+            [especie.id, `${observacionActual} ${notaProducto}`.trim(), ya[0].id]
+          );
+          resultado.actualizadas += 1;
+        }
         await client.query(`INSERT INTO arca_cpe_movement_links(ctg,document_id,movimiento_id,created_by)
           VALUES($1,$2,$3,$4) ON CONFLICT(ctg) DO NOTHING`, [doc.ctg, doc.document_id, ya[0].id, userId]);
         await client.query('DELETE FROM arca_cpe_movement_pending WHERE ctg=$1', [doc.ctg]);
         resultado.existentes += 1;
         continue;
       }
-
-      const payload = doc.payload || {};
-      const rawXml = String(payload.rawXml || payload.raw_xml || '');
-      const datosCarga = payload.datosCarga || payload.datos_carga || {};
-      const cabecera = payload.cabecera || {};
-      const transporte = payload.transporte || {};
-      const especieCodigo = String(datosCarga.codGrano || datosCarga.codigoGrano || primerTag(rawXml, ['codGrano', 'codigoGrano', 'codEspecie', 'codigoEspecie']) || '').trim();
-      const observaciones = String(cabecera.observaciones || '');
-      const nombreObservado = ['soja','maiz','trigo','girasol','cebada','sorgo'].find(nombre =>
-        observaciones.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().includes(nombre)
-      );
-      const especieNombre = datosCarga.descGrano || datosCarga.descripcionGrano ||
-        primerTag(rawXml, ['descGrano', 'descripcionGrano', 'nombreGrano', 'especie', 'producto']) ||
-        (especieCodigo === '23' ? 'Soja' : nombreObservado);
-      let especie = null;
-      if (especieCodigo) {
-        const { rows } = await client.query('SELECT id,nombre FROM especies WHERE activa=true AND (upper(codigo)=upper($1) OR regexp_replace(codigo,\'[^0-9]\',\'\',\'g\')=$1) LIMIT 1', [especieCodigo.replace(/\s/g, '')]);
-        especie = rows[0] || null;
-      }
-      if (!especie && especieNombre) {
-        const { rows } = await client.query('SELECT id,nombre FROM especies WHERE activa=true AND lower(nombre)=lower($1) LIMIT 1', [especieNombre]);
-        especie = rows[0] || null;
-      }
       const motivos = [];
       if (!doc.document_date) motivos.push('FECHA_CPE_FALTANTE');
-      if (!especie) motivos.push('ESPECIE_SIN_MAPEO');
+      if (!especie) motivos.push(producto.esDerivado ? 'DERIVADO_SIN_MAPEO' : 'ESPECIE_SIN_MAPEO');
       if (motivos.length) {
         await client.query(`INSERT INTO arca_cpe_movement_pending(ctg,document_id,motivos,payload_hash)
           VALUES($1,$2,$3::jsonb,$4) ON CONFLICT(ctg) DO UPDATE SET document_id=EXCLUDED.document_id,motivos=EXCLUDED.motivos,payload_hash=EXCLUDED.payload_hash,updated_at=NOW()`,
@@ -2518,6 +2659,7 @@ module.exports = {
   decidirConciliacionCuentaCorriente,
   importarCpeNormalizada,
   materializarMovimientosCpe,
+  productoCpeOficial,
   diagnosticarCredenciales,
   _internal: {
     xmlEscape,
