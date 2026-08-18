@@ -54,7 +54,7 @@ app.get('/internal/arca/certificados', (req, res) => {
       let ok = 0;
       const errors = [];
       for (const file of files) {
-        const coe = (file.name.match(/\d{12}/) || [])[0];
+        const coe = (file.name.match(/\\d{12}/) || [])[0];
         try {
           if (!coe || !byCoe.has(coe)) throw new Error('COE sin manifiesto');
           const response = await fetch('/internal/arca/certificados', {
