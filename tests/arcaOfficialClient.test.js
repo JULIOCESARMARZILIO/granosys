@@ -228,6 +228,37 @@ describe('arcaOfficialClient XML helpers', () => {
     }));
   });
 
+  test('finds a CPEDG derivative nested outside datosCarga and keeps soybean as its origin', () => {
+    expect(client.productoCpeOficial('AUTOMOTOR', {}, {
+      cartaPorte: {
+        mercaderia: {
+          codigoGranoOrigen: '23',
+          codigoProductoDerivado: '145',
+          descripcionProductoDerivado: 'Expeller de soja'
+        }
+      }
+    })).toEqual(expect.objectContaining({
+      nombre: 'Expeller de soja',
+      codigo: 'ARCA-DG-145',
+      codigoGrano: '23',
+      tipoProducto: 'SUBPRODUCTO',
+      esDerivado: true
+    }));
+  });
+
+  test('keeps the real derivative name even when ARCA does not provide a derivative code', () => {
+    const producto = client.productoCpeOficial('AUTOMOTOR', {}, {
+      mercaderia: { descripcionProductoDerivado: 'Harina de soja', codigoGranoOrigen: '23' }
+    });
+    expect(producto).toEqual(expect.objectContaining({
+      nombre: 'Harina de soja',
+      codigoGrano: '23',
+      tipoProducto: 'SUBPRODUCTO',
+      esDerivado: true
+    }));
+    expect(producto.codigo).toMatch(/^ARCA-DG-N-[A-F0-9]{12}$/);
+  });
+
   test('does not label an unknown CPEDG derivative as soybean grain', () => {
     expect(client.productoCpeOficial('AUTOMOTOR_DG', {
       codGrano: '23',
