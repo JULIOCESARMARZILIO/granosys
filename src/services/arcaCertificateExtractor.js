@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { pool } = require('../db');
 
 function key(value) {
@@ -54,6 +55,29 @@ function normalizeCtg(value) {
   return /^\d{8,20}$/.test(result) ? result : null;
 }
 
+const QUALITY_FIELDS = [
+  ['HUMEDAD', ['humedad', 'porcentajeHumedad', 'humedadPct'], '%'],
+  ['MATERIA_EXTRANA', ['materiaExtrana', 'materiasExtranas', 'materiaExtranaPct'], '%'],
+  ['GRANOS_DANADOS', ['granosDanados', 'danados', 'granoDanadoPct'], '%'],
+  ['GRANOS_QUEBRADOS', ['granosQuebrados', 'quebrados', 'quebradosPct'], '%'],
+  ['ZARANDA', ['zaranda', 'zarandaPct', 'mermaZaranda'], '%'],
+  ['PROTEINA', ['proteina', 'proteinaPct'], '%'],
+  ['PESO_HECTOLITRICO', ['pesoHectolitrico', 'ph'], 'KG/HL'],
+  ['GRANOS_VERDES', ['granosVerdes', 'verdes', 'granoVerdePct'], '%'],
+  ['ACIDEZ', ['acidez', 'acidezPct'], '%'],
+  ['CHAMICO', ['chamico'], 'UNIDAD'],
+  ['INSECTOS', ['insectos', 'insectosVivos'], 'UNIDAD']
+];
+
+function extractQualities(payload) {
+  const index = indexPayload(payload || {});
+  return QUALITY_FIELDS.map(([parameter, aliases, unit]) => ({
+    parameter,
+    value: number(first(index, aliases)),
+    unit
+  })).filter(item => item.value !== null);
+}
+
 function extractCertificate(payload, document = {}) {
   const index = indexPayload(payload || {});
   const coe = digits(first(index, ['coe', 'numeroCoe', 'nroCoe', 'codigoOperacionElectronica']) || document.external_key);
@@ -96,7 +120,7 @@ function extractCertificate(payload, document = {}) {
     producerName, buyerName, species, campaign, grossKg, conditionedKg,
     humidityLossKg, qualityLossKg, otherLossKg, totalLossKg, ctgs: [...new Set(ctgs)],
     date: date && !Number.isNaN(date.getTime()) ? date : null,
-    observations
+    observations, qualities: extractQualities(payload)
   };
 }
 
@@ -120,6 +144,43 @@ async function ensureSchema() {
     ALTER TABLE certificado_1116_ctgs ADD COLUMN IF NOT EXISTS kg_netos_acondicionados NUMERIC(14,3);
     ALTER TABLE certificado_1116_ctgs ADD COLUMN IF NOT EXISTS origen_vinculacion VARCHAR(30);
     ALTER TABLE certificado_1116_ctgs ADD COLUMN IF NOT EXISTS estado_revision VARCHAR(20) DEFAULT 'PENDIENTE';
+    CREATE TABLE IF NOT EXISTS certificado_1116_calidades (
+      id BIGSERIAL PRIMARY KEY,
+      id_certificado_1116 INTEGER NOT NULL REFERENCES certificados_1116(id) ON DELETE CASCADE,
+      parametro VARCHAR(60) NOT NULL,
+      valor NUMERIC(14,4) NOT NULL,
+      unidad VARCHAR(20),
+      origen VARCHAR(30) NOT NULL DEFAULT 'CERTIFICADO_ARCA',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(id_certificado_1116,parametro)
+    );
+    CREATE TABLE IF NOT EXISTS cpe_calidades_certificado (
+      id BIGSERIAL PRIMARY KEY,
+      cpe_document_id BIGINT NOT NULL REFERENCES arca_official_documents(id) ON DELETE CASCADE,
+      id_certificado_1116 INTEGER NOT NULL REFERENCES certificados_1116(id) ON DELETE CASCADE,
+      nro_ctg VARCHAR(30) NOT NULL,
+      parametro VARCHAR(60) NOT NULL,
+      valor NUMERIC(14,4) NOT NULL,
+      unidad VARCHAR(20),
+      heredada BOOLEAN NOT NULL DEFAULT TRUE,
+      origen VARCHAR(30) NOT NULL DEFAULT 'CERTIFICADO_ARCA',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(cpe_document_id,id_certificado_1116,parametro)
+    );
+    CREATE INDEX IF NOT EXISTS idx_cpe_calidad_ctg ON cpe_calidades_certificado(nro_ctg);
+    CREATE TABLE IF NOT EXISTS arca_certificate_rebuild_jobs (
+      id UUID PRIMARY KEY,
+      estado VARCHAR(20) NOT NULL CHECK (estado IN ('PENDIENTE','PROCESANDO','COMPLETADO','ERROR')),
+      etapa VARCHAR(40) NOT NULL DEFAULT 'PENDIENTE',
+      solicitado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+      resultado JSONB,
+      error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ
+    );
     CREATE UNIQUE INDEX IF NOT EXISTS uq_certificados_1116_coe
       ON certificados_1116(coe) WHERE coe IS NOT NULL AND coe <> '';
     CREATE TABLE IF NOT EXISTS certificado_1116_liquidaciones (
@@ -193,6 +254,16 @@ async function processDocument(client, document) {
     certificateId = rows[0].id;
   }
 
+
+  for (const quality of extracted.qualities) {
+    await client.query(`
+      INSERT INTO certificado_1116_calidades(id_certificado_1116,parametro,valor,unidad)
+      VALUES($1,$2,$3,$4)
+      ON CONFLICT(id_certificado_1116,parametro) DO UPDATE SET
+        valor=EXCLUDED.valor,unidad=EXCLUDED.unidad,updated_at=NOW()
+    `, [certificateId, quality.parameter, quality.value, quality.unit]);
+  }
+
   for (const ctg of extracted.ctgs) {
     const { rows: cpes } = await client.query(`
       SELECT r.document_id,m.id movimiento_id,m.peso_neto_llegada_kg,m.kg_liquidables,m.humedad_llegada_pct,
@@ -216,6 +287,19 @@ async function processDocument(client, document) {
         origen_vinculacion='CTG_EXACTO',estado_revision='CONFIRMADO'
     `, [certificateId, ctg, cpe.movimiento_id || null, cpe.document_id || null,
       number(cpe.peso_neto_llegada_kg), number(cpe.kg_liquidables)]);
+
+    if (cpe.document_id) {
+      for (const quality of extracted.qualities) {
+        await client.query(`
+          INSERT INTO cpe_calidades_certificado
+            (cpe_document_id,id_certificado_1116,nro_ctg,parametro,valor,unidad)
+          VALUES($1,$2,$3,$4,$5,$6)
+          ON CONFLICT(cpe_document_id,id_certificado_1116,parametro) DO UPDATE SET
+            nro_ctg=EXCLUDED.nro_ctg,valor=EXCLUDED.valor,unidad=EXCLUDED.unidad,
+            heredada=TRUE,origen='CERTIFICADO_ARCA',updated_at=NOW()
+        `, [cpe.document_id, certificateId, ctg, quality.parameter, quality.value, quality.unit]);
+      }
+    }
   }
   return { state: extracted.observations.length ? 'OBSERVADO' : 'COMPLETO', certificateId, extracted };
 }
@@ -377,4 +461,71 @@ async function listCertificateAccounts() {
   return rows;
 }
 
-module.exports = { extractCertificate, extractLiquidationApplication, extractAllCertificates, applyAllLiquidations, listCertificateAccounts, ensureSchema };
+async function assignExistingCpesAndQualities() {
+  await ensureSchema();
+  const updated = await pool.query(`
+    UPDATE certificado_1116_ctgs cc SET
+      cpe_document_id=r.document_id,
+      id_movimiento=COALESCE(m.id,cc.id_movimiento),
+      kg_brutos_aplicados=COALESCE(m.peso_neto_llegada_kg,cc.kg_brutos_aplicados),
+      kg_netos_acondicionados=COALESCE(m.kg_liquidables,cc.kg_netos_acondicionados),
+      origen_vinculacion='CTG_EXACTO',estado_revision='CONFIRMADO'
+    FROM arca_cpe_registry r
+    LEFT JOIN LATERAL (
+      SELECT id,peso_neto_llegada_kg,kg_liquidables FROM movimientos
+      WHERE regexp_replace(COALESCE(nro_ctg,''),'[^0-9]','','g')=r.ctg
+      ORDER BY id LIMIT 1
+    ) m ON TRUE
+    WHERE regexp_replace(cc.nro_ctg,'[^0-9]','','g')=r.ctg
+  `);
+  await pool.query(`
+    INSERT INTO cpe_calidades_certificado
+      (cpe_document_id,id_certificado_1116,nro_ctg,parametro,valor,unidad)
+    SELECT cc.cpe_document_id,cc.id_certificado_1116,cc.nro_ctg,q.parametro,q.valor,q.unidad
+    FROM certificado_1116_ctgs cc
+    JOIN certificado_1116_calidades q ON q.id_certificado_1116=cc.id_certificado_1116
+    WHERE cc.cpe_document_id IS NOT NULL
+    ON CONFLICT(cpe_document_id,id_certificado_1116,parametro) DO UPDATE SET
+      nro_ctg=EXCLUDED.nro_ctg,valor=EXCLUDED.valor,unidad=EXCLUDED.unidad,
+      heredada=TRUE,origen='CERTIFICADO_ARCA',updated_at=NOW()
+  `);
+  const { rows } = await pool.query(`
+    SELECT COUNT(*)::integer total_ctg,
+      COUNT(*) FILTER(WHERE cpe_document_id IS NOT NULL)::integer cpe_asignadas,
+      COUNT(*) FILTER(WHERE cpe_document_id IS NULL)::integer cpe_pendientes,
+      (SELECT COUNT(*)::integer FROM cpe_calidades_certificado) calidades_heredadas
+    FROM certificado_1116_ctgs
+  `);
+  return { actualizadas: updated.rowCount, ...rows[0] };
+}
+
+async function runRebuildJob(id) {
+  try {
+    await pool.query("UPDATE arca_certificate_rebuild_jobs SET estado='PROCESANDO',etapa='EXTRAER_CERTIFICADOS',started_at=NOW() WHERE id=$1", [id]);
+    const certificados = await extractAllCertificates({ limit: 10000 });
+    await pool.query("UPDATE arca_certificate_rebuild_jobs SET etapa='ASIGNAR_CPE_Y_CALIDADES' WHERE id=$1", [id]);
+    const cpes = await assignExistingCpesAndQualities();
+    const resultado = { certificados, cpes };
+    await pool.query("UPDATE arca_certificate_rebuild_jobs SET estado='COMPLETADO',etapa='FINALIZADO',resultado=$2::jsonb,finished_at=NOW() WHERE id=$1", [id, JSON.stringify(resultado)]);
+  } catch (error) {
+    await pool.query("UPDATE arca_certificate_rebuild_jobs SET estado='ERROR',error=$2,finished_at=NOW() WHERE id=$1", [id, error.message]);
+  }
+}
+
+async function startRebuildJob(userId = null) {
+  await ensureSchema();
+  const { rows: active } = await pool.query("SELECT id,estado,etapa FROM arca_certificate_rebuild_jobs WHERE estado IN ('PENDIENTE','PROCESANDO') ORDER BY created_at DESC LIMIT 1");
+  if (active[0]) return { ...active[0], alreadyRunning: true };
+  const id = crypto.randomUUID();
+  await pool.query("INSERT INTO arca_certificate_rebuild_jobs(id,estado,etapa,solicitado_por) VALUES($1,'PENDIENTE','PENDIENTE',$2)", [id, userId]);
+  setImmediate(() => void runRebuildJob(id));
+  return { id, estado:'PENDIENTE', etapa:'PENDIENTE', alreadyRunning:false };
+}
+
+async function getRebuildJob(id) {
+  await ensureSchema();
+  const { rows } = await pool.query("SELECT id,estado,etapa,resultado,error,created_at,started_at,finished_at FROM arca_certificate_rebuild_jobs WHERE id=$1", [id]);
+  return rows[0] || null;
+}
+
+module.exports = { extractCertificate, extractLiquidationApplication, extractQualities, extractAllCertificates, assignExistingCpesAndQualities, applyAllLiquidations, listCertificateAccounts, startRebuildJob, getRebuildJob, ensureSchema };
