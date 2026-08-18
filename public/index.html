@@ -11638,7 +11638,7 @@ const CalculadoraCapacidadPago = () => {
 
 // ── COMPONENTE CERTIFICADOS 1116 (carga manual, ARCA no los lista automatico cuando los emite un corredor) ──
 const MAX_CTGS_1116 = 20;
-const Certificados1116 = () => {
+const Certificados1116 = ({usuario}) => {
   const [lista, setLista] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [expandido, setExpandido] = useState(null);
@@ -11650,6 +11650,8 @@ const Certificados1116 = () => {
   const [guardando, setGuardando] = useState(false);
   const [trazabilidad, setTrazabilidad] = useState([]);
   const [generandoTrazabilidad, setGenerandoTrazabilidad] = useState(false);
+  const [extrayendoCertificados, setExtrayendoCertificados] = useState(false);
+  const [resultadoExtraccion, setResultadoExtraccion] = useState(null);
 
   const cargar = async () => {
     setCargando(true);
@@ -11712,6 +11714,27 @@ const Certificados1116 = () => {
     finally { setGenerandoTrazabilidad(false); }
   };
 
+  const extraerCertificadosYLiquidaciones = async () => {
+    if (usuario?.rol !== "ADMIN") return alert("Solo un administrador puede ejecutar este proceso.");
+    if (!confirm("¿Extraer los certificados ARCA guardados, vincular sus CPE y aplicar las liquidaciones a los saldos bruto y neto acondicionado? Los datos dudosos quedarán observados.")) return;
+    setExtrayendoCertificados(true);
+    setResultadoExtraccion(null);
+    try {
+      const certificados = await api.post("/api/certificados-1116/arca/extraer", {limit:10000});
+      if (!certificados || certificados.error) throw new Error(certificados?.error || "No respondió la extracción de certificados");
+      const liquidaciones = await api.post("/api/certificados-1116/arca/aplicar-liquidaciones", {limit:20000});
+      if (!liquidaciones || liquidaciones.error) throw new Error(liquidaciones?.error || "No respondió la aplicación de liquidaciones");
+      const resultado = {certificados:certificados.resultado||{},liquidaciones:liquidaciones.resultado||{}};
+      setResultadoExtraccion(resultado);
+      await cargar();
+      alert(`Proceso terminado. Certificados: ${resultado.certificados.documents||0}; completos: ${resultado.certificados.complete||0}; observados: ${resultado.certificados.observed||0}; liquidaciones aplicadas: ${resultado.liquidaciones.applied||0}; liquidaciones observadas: ${resultado.liquidaciones.observed||0}.`);
+    } catch (err) {
+      alert("No se pudo completar la extracción: " + err.message);
+    } finally {
+      setExtrayendoCertificados(false);
+    }
+  };
+
   const revisarVinculo = async (id, estado) => {
     const action = estado === "CONFIRMADO" ? "confirmar" : "rechazar";
     if (!confirm(`¿Querés ${action} este vínculo documental?`)) return;
@@ -11729,11 +11752,26 @@ const Certificados1116 = () => {
         </p>
       </div>
 
+      {usuario?.rol==="ADMIN" && <div className="card" style={{marginBottom:20,border:"1px solid #2f80ed"}}>
+        <div className="card-header">
+          <div>
+            <div style={{fontWeight:700}}>Reconstrucción desde ARCA</div>
+            <div style={{fontSize:12,color:"#8890a8",marginTop:3}}>Crea una cuenta por COE, incorpora la lista de CPE y calcula los saldos bruto y neto acondicionado después de cada liquidación. La planta queda exclusivamente en la CPE.</div>
+          </div>
+          <Btn onClick={extraerCertificadosYLiquidaciones} disabled={extrayendoCertificados}>
+            {extrayendoCertificados?"Procesando...":"Extraer certificados y aplicar liquidaciones"}
+          </Btn>
+        </div>
+        {resultadoExtraccion && <div style={{padding:"10px 16px",fontSize:12,color:"#27ae60"}}>
+          Certificados leídos: {resultadoExtraccion.certificados.documents||0} · completos: {resultadoExtraccion.certificados.complete||0} · observados: {resultadoExtraccion.certificados.observed||0} · liquidaciones aplicadas: {resultadoExtraccion.liquidaciones.applied||0}
+        </div>}
+      </div>}
+
       <div className="card" style={{marginBottom:20}}>
         <div className="card-header">
           <div>
             <div style={{fontWeight:700}}>Trazabilidad ARCA</div>
-            <div style={{fontSize:12,color:"#8890a8",marginTop:3}}>CTG exacto primero. Si falta, propone por suma de kilos, CUIT, especie, campaña, planta y fechas. Las coincidencias dudosas requieren decisión humana.</div>
+            <div style={{fontSize:12,color:"#8890a8",marginTop:3}}>CTG exacto primero. Si falta, propone por suma de kilos, CUIT, especie, campaña y fechas. La planta pertenece a la CPE y no interviene en el certificado. Las coincidencias dudosas requieren decisión humana.</div>
           </div>
           <Btn onClick={generarTrazabilidad} disabled={generandoTrazabilidad}>{generandoTrazabilidad?"Conciliando...":"Conciliar CPE y liquidaciones"}</Btn>
         </div>
@@ -13733,7 +13771,7 @@ function App() {
       case "produccion": return <OrdenesProduccion {...p}/>;
       case "bolsa_zona": return <BolsaPorZona {...p}/>;
       case "liquidaciones": return <Liquidaciones {...p}/>;
-      case "certificados_1116": return <Certificados1116/>;
+      case "certificados_1116": return <Certificados1116 usuario={usuario}/>;
       case "cc": return <CuentaCorriente {...p}/>;
       case "stock": return <Stock {...p}/>;
       case "rep_fletes": return <ReporteFletes {...p}/>;

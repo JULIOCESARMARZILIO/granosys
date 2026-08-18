@@ -224,6 +224,7 @@ router.post('/trazabilidad/:id/revisar', async (req, res) => {
 // Construye/actualiza una cuenta de kilos por COE de certificado y su lista de CPE.
 // Es idempotente, conserva la evidencia oficial y no ejecuta acciones fiscales.
 router.post('/arca/extraer', async (req, res) => {
+  if (req.user?.rol !== 'ADMIN') return res.status(403).json({ error: 'Solo un administrador puede ejecutar la extracción.' });
   try {
     const resultado = await extractAllCertificates({ limit: req.body?.limit });
     await registrarAuditoria(req, {
@@ -238,6 +239,7 @@ router.post('/arca/extraer', async (req, res) => {
 // POST /api/certificados-1116/arca/aplicar-liquidaciones
 // Registra cuanto descargó cada liquidación de los dos saldos del certificado.
 router.post('/arca/aplicar-liquidaciones', async (req, res) => {
+  if (req.user?.rol !== 'ADMIN') return res.status(403).json({ error: 'Solo un administrador puede aplicar liquidaciones a certificados.' });
   try {
     const resultado = await applyAllLiquidations({ limit: req.body?.limit });
     await registrarAuditoria(req, {
