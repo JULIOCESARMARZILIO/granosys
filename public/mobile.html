@@ -765,9 +765,12 @@
 
         <div class="form-group">
           <label for="lugar_descarga">Lugar de descarga</label>
-          <input type="text" id="lugar_descarga" list="lista-localidades" placeholder="Ej. 25 de Mayo, Chivilcoy">
-          <datalist id="lista-localidades"></datalist>
+          <select id="lugar_descarga" onchange="onLugarDescargaChange()">
+            <option value="">Seleccionar localidad...</option>
+            <option value="__otra__">Otra (no está en la lista)</option>
+          </select>
           <div id="lugar-sugerencia" style="font-size:11px; color:var(--primary); margin-top:4px; display:none;"></div>
+          <input type="text" id="lugar_descarga_otro" placeholder="Escribí la localidad" style="display:none; margin-top:8px;">
         </div>
 
         <div class="form-row">
@@ -1557,16 +1560,32 @@
       try {
         const r = await fetch(`${API_URL}/api/reportes-descarga/ref/localidades`, { headers: authHeaders() });
         localidadesConocidas = await r.json();
-        const dl = document.getElementById("lista-localidades");
-        dl.innerHTML = "";
+        const select = document.getElementById("lugar_descarga");
+        select.innerHTML = '<option value="">Seleccionar localidad...</option>';
         localidadesConocidas.forEach(l => {
           const opt = document.createElement("option");
           opt.value = l;
-          dl.appendChild(opt);
+          opt.textContent = l;
+          select.appendChild(opt);
         });
+        const otraOpt = document.createElement("option");
+        otraOpt.value = "__otra__";
+        otraOpt.textContent = "Otra (no está en la lista)";
+        select.appendChild(otraOpt);
       } catch (e) {
         console.error("Error cargando localidades:", e);
       }
+    }
+
+    function onLugarDescargaChange() {
+      const val = document.getElementById("lugar_descarga").value;
+      document.getElementById("lugar_descarga_otro").style.display = val === "__otra__" ? "block" : "none";
+    }
+
+    function getLugarDescargaValue() {
+      const val = document.getElementById("lugar_descarga").value;
+      if (val === "__otra__") return document.getElementById("lugar_descarga_otro").value.trim();
+      return val;
     }
 
     // Match simple: normaliza (sin tildes/mayúsculas) y busca la localidad
@@ -1696,14 +1715,17 @@
           if (parsed.destino) {
             const sugerida = sugerirLocalidad(parsed.destino);
             const sugerenciaDiv = document.getElementById("lugar-sugerencia");
+            const select = document.getElementById("lugar_descarga");
             if (sugerida) {
-              document.getElementById("lugar_descarga").value = sugerida;
+              select.value = sugerida;
               sugerenciaDiv.style.display = "block";
               sugerenciaDiv.textContent = `Sugerido a partir del ticket ("${parsed.destino}") — verificá que sea correcto.`;
             } else {
-              document.getElementById("lugar_descarga").value = parsed.destino;
+              select.value = "__otra__";
+              onLugarDescargaChange();
+              document.getElementById("lugar_descarga_otro").value = parsed.destino;
               sugerenciaDiv.style.display = "block";
-              sugerenciaDiv.textContent = `El ticket dice "${parsed.destino}" — no encontré una localidad conocida parecida, revisalo.`;
+              sugerenciaDiv.textContent = `El ticket dice "${parsed.destino}" — no encontré una localidad conocida parecida, elegí de la lista o corregí el texto.`;
             }
           }
 
@@ -1816,7 +1838,7 @@
       if (!idComprador) return alert("Elegí el comprador.");
 
       const contraparteTexto = document.getElementById("contraparte_texto").value.trim();
-      const lugarDescarga = document.getElementById("lugar_descarga").value.trim();
+      const lugarDescarga = getLugarDescargaValue();
       const patente = document.getElementById("patente").value.trim().toUpperCase();
       const bruto = document.getElementById("bruto").value;
       const tara = document.getElementById("tara").value;
@@ -1877,6 +1899,8 @@
       document.getElementById("tara").value = "";
       document.getElementById("contraparte_texto").value = "";
       document.getElementById("lugar_descarga").value = "";
+      document.getElementById("lugar_descarga_otro").value = "";
+      document.getElementById("lugar_descarga_otro").style.display = "none";
       document.getElementById("observaciones").value = "";
       document.getElementById("comprador").value = "";
       document.getElementById("foto-preview-wrap").style.display = "none";
