@@ -11304,6 +11304,26 @@ const DocumentosArca = () => {
     input.click();
   };
 
+  const materializarCpeEnMovimientos = async () => {
+    setSincronizando(true);
+    setSyncError("");
+    try {
+      const resultado=await api.post("/api/arca/sync/cpe-a-movimientos",{desde:desde<"2026-02-01"?"2026-02-01":desde});
+      const resumen=resultado?.resultado||resultado||{};
+      alert([
+        "CPE procesadas para Movimientos.",
+        `Creadas: ${resumen.creados||0}`,
+        `Ya vinculadas/existentes: ${(resumen.existentes||0)+(resumen.vinculadosExistentes||0)}`,
+        `Pendientes: ${resumen.pendientes||0}`
+      ].join("\n"));
+      await cargar(1,"WSCPE_CPE");
+    } catch(e) {
+      setSyncError(e.message||"No se pudieron pasar las CPE a Movimientos.");
+    } finally {
+      setSincronizando(false);
+    }
+  };
+
   const abrirPdfOficial = async documento => {
     try {
       const response=await fetch(`${API_URL}/api/arca/documentos/${documento.id}/pdf`,{headers:authHeaders()});
@@ -11344,6 +11364,7 @@ const DocumentosArca = () => {
         <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
           {esCpe&&<textarea value={loteCtgs} onChange={e=>setLoteCtgs(e.target.value)} placeholder="Pegá CTG/CTDG separados por espacio, coma o salto de línea" rows={3} style={{width:330,minHeight:62,resize:"vertical",background:"#11141d",color:"#e8eaf0",border:"1px solid #3a4050",borderRadius:7,padding:"8px 10px",fontSize:12}}/>}
           {esCpe&&<Btn variant="secondary" onClick={importarCtgPegados} disabled={sincronizando||!loteCtgs.trim()}>Procesar lote CTG/CTDG</Btn>}\n          {esCpe&&<Btn variant="secondary" onClick={importarListadoCtgArca} disabled={sincronizando}>Importar listado ARCA (CTG)</Btn>}
+          {esCpe&&<Btn variant="secondary" onClick={materializarCpeEnMovimientos} disabled={sincronizando}>Pasar a Movimientos</Btn>}
           <Btn onClick={esCpe?sincronizarCpeDesdeArca:sincronizarDesdeArca} disabled={sincronizando}>{sincronizando?"Sincronizando...":esCpe?"Bajar CPE por destino":"Sincronizar desde ARCA"}</Btn>
         </div>
       </div>
