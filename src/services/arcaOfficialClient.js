@@ -1914,27 +1914,62 @@ function descripcionEspecificaDerivado(payload = {}) {
   return reglas.find(([patron]) => patron.test(texto))?.[1] || null;
 }
 
+function valorAnidadoPorClaves(value, claves, visitados = new Set()) {
+  if (!value || typeof value !== 'object' || visitados.has(value)) return null;
+  visitados.add(value);
+  const clavesNormalizadas = new Set(claves.map(clave => String(clave).toLowerCase()));
+  for (const [clave, contenido] of Object.entries(value)) {
+    if (clavesNormalizadas.has(String(clave).toLowerCase()) && contenido !== null && contenido !== undefined && String(contenido).trim()) {
+      return String(contenido).trim();
+    }
+  }
+  for (const contenido of Object.values(value)) {
+    if (!contenido || typeof contenido !== 'object') continue;
+    const encontrado = valorAnidadoPorClaves(contenido, claves, visitados);
+    if (encontrado) return encontrado;
+  }
+  return null;
+}
+
 function productoCpeOficial(tipoCpe, datosCarga = {}, payload = {}) {
+  const codigoDerivadoAnidado = valorAnidadoPorClaves(payload, [
+    'codDerivadoGranario', 'codigoDerivadoGranario', 'codProductoDerivado', 'codigoProductoDerivado'
+  ]);
+  const descripcionDerivadoAnidada = valorAnidadoPorClaves(payload, [
+    'descDerivadoGranario', 'descripcionDerivadoGranario', 'derivadoGranario',
+    'descProductoDerivado', 'descripcionProductoDerivado'
+  ]);
+  const codigoGranoAnidado = valorAnidadoPorClaves(payload, [
+    'codGrano', 'codigoGrano', 'codEspecie', 'codigoEspecie', 'codGranoOrigen', 'codigoGranoOrigen'
+  ]);
+  const descripcionDetectada = descripcionEspecificaDerivado(payload);
   const esDerivado = /_DG$/i.test(String(tipoCpe || '')) ||
     datosCarga.codDerivadoGranario !== undefined ||
-    datosCarga.codigoDerivadoGranario !== undefined;
+    datosCarga.codigoDerivadoGranario !== undefined ||
+    Boolean(codigoDerivadoAnidado || descripcionDerivadoAnidada || descripcionDetectada);
   const codigoDerivado = String(
-    datosCarga.codDerivadoGranario || datosCarga.codigoDerivadoGranario || ''
+    datosCarga.codDerivadoGranario || datosCarga.codigoDerivadoGranario || codigoDerivadoAnidado || ''
   ).trim();
-  const codigoGrano = String(datosCarga.codGrano || datosCarga.codigoGrano || '').trim();
+  const codigoGrano = String(
+    datosCarga.codGrano || datosCarga.codigoGrano || codigoGranoAnidado || ''
+  ).trim();
   if (esDerivado) {
     const descripcionInformada = String(
       datosCarga.descDerivadoGranario ||
       datosCarga.descripcionDerivadoGranario ||
       datosCarga.derivadoGranario ||
+      descripcionDerivadoAnidada ||
       ''
     ).trim();
-    const nombre = descripcionEspecificaDerivado(payload) ||
+    const nombre = descripcionDetectada ||
       descripcionInformada ||
       DERIVADOS_GRANARIOS_ARCA[codigoDerivado] ||
       null;
+    const codigoNombre = nombre
+      ? crypto.createHash('sha256').update(nombre.toLowerCase()).digest('hex').slice(0, 12).toUpperCase()
+      : null;
     return {
-      codigo: codigoDerivado ? `ARCA-DG-${codigoDerivado}` : null,
+      codigo: codigoDerivado ? `ARCA-DG-${codigoDerivado}` : (codigoNombre ? `ARCA-DG-N-${codigoNombre}` : null),
       codigoArca: codigoDerivado || null,
       nombre,
       tipoProducto: 'SUBPRODUCTO',
