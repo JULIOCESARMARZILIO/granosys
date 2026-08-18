@@ -2446,7 +2446,6 @@ module.exports = {
     validateCredentials
   }
 };
-
       ORDER BY d.document_date, r.ctg
     `, [fechaDesde]);
 
@@ -3057,8 +3056,7 @@ module.exports = {
     getConfig,
     validateCredentials
   }
-};
-))[1]::bigint),0) AS ultimo
+};))[1]::bigint),0) AS ultimo
       FROM movimientos WHERE numero_movimiento ~ '^MOV-[0-9]+(jobId, { desde, hasta, userId = null }) {
   await pool.query("UPDATE arca_sync_jobs SET estado='EJECUTANDO', started_at=NOW() WHERE id=$1", [jobId]);
   const errores = [];
@@ -3666,7 +3664,6 @@ module.exports = {
     validateCredentials
   }
 };
-
     `);
     let siguiente = Number(secuencia[0]?.ultimo || 0) + 1;
 
