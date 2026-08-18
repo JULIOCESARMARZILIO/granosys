@@ -294,6 +294,25 @@ describe('arcaOfficialClient XML helpers', () => {
     }));
   });
 
+  test('does not misclassify an ordinary CPE when ARCA includes an empty derivative field', () => {
+    expect(client.productoCpeOficial('AUTOMOTOR', {
+      codGrano: '15',
+      codDerivadoGranario: ''
+    }, {}, { granos: { '15': 'Producto oficial ARCA' } })).toEqual(expect.objectContaining({
+      nombre: 'Producto oficial ARCA',
+      codigo: 'ARCA-GR-15',
+      tipoProducto: 'GRANO',
+      esDerivado: false
+    }));
+  });
+
+  test('parses the official WSCPE grain catalogue', () => {
+    expect(client._internal.catalogoCodigoDescripcion(
+      '<respuesta><grano><codigo>15</codigo><descripcion>Producto oficial</descripcion></grano></respuesta>',
+      'grano'
+    )).toEqual([{ codigo: '15', descripcion: 'Producto oficial' }]);
+  });
+
   test.each([
     ['101', 'Aceite crudo de girasol'],
     ['102', 'Aceite crudo de maíz'],
