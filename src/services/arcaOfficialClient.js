@@ -1974,7 +1974,10 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null 
   const fechaDesde = validarFechaIso(desde, 'La fecha desde');
   await ensureCpeMasterTables();
   // La clasificación oficial SUBPRODUCTO requiere 11 caracteres; la columna histórica tenía 10.
-  await pool.query(`ALTER TABLE especies ALTER COLUMN tipo_producto TYPE VARCHAR(20)`);
+  await pool.query(`
+    ALTER TABLE especies ALTER COLUMN tipo_producto TYPE VARCHAR(20);
+    ALTER TABLE especies ALTER COLUMN codigo TYPE VARCHAR(30);
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS arca_cpe_movement_links (
       ctg VARCHAR(20) PRIMARY KEY REFERENCES arca_cpe_registry(ctg) ON DELETE RESTRICT,
