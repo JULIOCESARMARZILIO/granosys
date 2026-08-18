@@ -252,11 +252,6 @@ async function start() {
         .then(resultado => console.log('DIAGNOSTICO_DERIVADOS_CPEDG=' + JSON.stringify(resultado)))
         .catch(error => console.error('Diagnóstico CPEDG pendiente:', error.message)));
     }
-    if (String(process.env.ARCA_AUDITAR_INTERVINIENTES_101 || '').toLowerCase() === 'true') {
-      setImmediate(() => arcaOfficialClient.auditarIntervinientesCpe101SinCertificado()
-        .then(resultado => console.log('AUDITORIA_INTERVINIENTES_101=' + JSON.stringify(resultado)))
-        .catch(error => console.error('Auditoría intervinientes 101:', error.message)));
-    }
     if (String(process.env.ARCA_REFRESH_DERIVADOS_PENDIENTES || '').toLowerCase() === 'true') {
       setImmediate(async () => {
         try {
