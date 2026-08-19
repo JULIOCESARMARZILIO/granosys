@@ -2668,7 +2668,7 @@ const AsignacionMovimientos = ({modulo}) => {
 // antes por otro medio, nunca quedan enganchados. Esta pantalla busca por
 // CTG y/o patente en TODA la base (las dos modalidades) para engancharlos
 // a mano cuando corresponda.
-const VinculacionMovimientos = ({modulo, onVolver}) => {
+const VinculacionMovimientos = ({modulo, onVolver, onCrearInformalDesdeFormal}) => {
   const [nroCtg, setNroCtg] = useState("");
   const [patente, setPatente] = useState("");
   const [resultados, setResultados] = useState(null);
@@ -2701,6 +2701,7 @@ const VinculacionMovimientos = ({modulo, onVolver}) => {
 
   const seleccionadosObjs = (resultados || []).filter(m => seleccionados.includes(m.id));
   const puedeVincular = seleccionadosObjs.length === 2 && seleccionadosObjs[0].modalidad !== seleccionadosObjs[1].modalidad;
+  const soloFormalSeleccionado = seleccionadosObjs.length === 1 && seleccionadosObjs[0].modalidad === "FORMAL";
 
   const vincular = async () => {
     if (!puedeVincular) return;
@@ -2725,7 +2726,7 @@ const VinculacionMovimientos = ({modulo, onVolver}) => {
       </div>
       <div className="card" style={{marginBottom:16,padding:"14px 18px"}}>
         <p style={{fontSize:12,color:"#8890a8",margin:0,marginBottom:12}}>
-          Cuando un camión se cargó por separado del lado Formal y del lado Informal (no se enganchó solo al crearlo), buscalo acá por CTG y/o patente — te muestra los movimientos que coincidan de cualquiera de los dos lados, y podés elegir uno Formal y uno Informal para vincularlos.
+          Cuando un camión se cargó por separado del lado Formal y del lado Informal (no se enganchó solo al crearlo), buscalo acá por CTG y/o patente — te muestra los movimientos que coincidan de cualquiera de los dos lados, y podés elegir uno Formal y uno Informal para vincularlos. Si el Informal todavía no existe, elegí solo el Formal y usá "Completar como Informal" para darlo de alta ya vinculado, con los datos del Formal precargados.
         </p>
         <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"}}>
           <FF label="N° CTG"><input value={nroCtg} onChange={e=>setNroCtg(e.target.value)} placeholder="Ej: 10133308605" onKeyDown={e=>e.key==="Enter"&&buscar()}/></FF>
@@ -2768,10 +2769,14 @@ const VinculacionMovimientos = ({modulo, onVolver}) => {
               </table>
               <div style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
                 <span style={{fontSize:12,color:"#8890a8"}}>
-                  {seleccionados.length===0 && "Elegí un movimiento Formal y uno Informal para vincularlos."}
-                  {seleccionados.length===1 && "Falta elegir el segundo."}
+                  {seleccionados.length===0 && "Elegí un movimiento Formal y uno Informal para vincularlos (o solo un Formal, si el Informal todavía no existe)."}
+                  {soloFormalSeleccionado && "Este Formal no tiene un Informal cargado todavía — podés crearlo ya vinculado."}
+                  {seleccionados.length===1 && !soloFormalSeleccionado && "Falta elegir el segundo (o completá desde acá si es un Informal sin par Formal — buscalo y elegí el Formal)."}
                   {seleccionados.length===2 && !puedeVincular && "Los dos elegidos son de la misma modalidad — elegí uno Formal y uno Informal."}
                 </span>
+                {soloFormalSeleccionado && (
+                  <Btn variant="secondary" onClick={()=>onCrearInformalDesdeFormal(seleccionadosObjs[0])}>Completar como Informal →</Btn>
+                )}
                 <Btn disabled={!puedeVincular || vinculando} onClick={vincular}>{vinculando?"Vinculando...":"🔗 Vincular seleccionados"}</Btn>
               </div>
             </>
@@ -2880,6 +2885,7 @@ const ReportesDescarga = ({onVolver, onCompletar}) => {
 const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspecie, setGlobalFiltroProductor, setGlobalFiltroEspecie, setSec}) => {
   const [subTab,setSubTab]=useState("lista");
   const [completandoReporteId,setCompletandoReporteId]=useState(null);
+  const [vincularConFormalId,setVincularConFormalId]=useState(null);
   const [reportesPendientesCount,setReportesPendientesCount]=useState(0);
   useEffect(()=>{
     api.get("/api/reportes-descarga").then(d=>setReportesPendientesCount((d||[]).length)).catch(()=>{});
@@ -3164,7 +3170,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         const r = await api.post("/api/movimientos", {
           ...payload,
           modalidad: modulo,
-          usuario_carga: usuario
+          usuario_carga: usuario,
+          omitir_gemelo: !!vincularConFormalId
         });
         if (r && r.id) {
           movId = r.id;
@@ -3219,6 +3226,15 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
       if (completandoReporteId) {
         try { await api.delete(`/api/reportes-descarga/${completandoReporteId}`); } catch(e2) {}
         setCompletandoReporteId(null);
+      }
+      if (!selected && vincularConFormalId && movId) {
+        try {
+          const rv = await api.put(`/api/movimientos/${movId}/vincular`, { id_par: vincularConFormalId });
+          if (!rv || !rv.ok) alert("El movimiento se creó, pero no se pudo vincular automáticamente: " + (rv?.error||"error desconocido") + ". Vinculalo a mano desde Vinculación Formal/Informal.");
+        } catch(e2) {
+          alert("El movimiento se creó, pero no se pudo vincular automáticamente: " + e2.message + ". Vinculalo a mano desde Vinculación Formal/Informal.");
+        }
+        setVincularConFormalId(null);
       }
       alert(selected ? "✓ Cambios guardados" : "✓ Movimiento creado exitosamente");
       setShowForm(false);
@@ -4296,7 +4312,49 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   });
 
   if (subTab === "vinculacion") {
-    return <VinculacionMovimientos modulo={modulo} onVolver={()=>setSubTab("lista")}/>;
+    return <VinculacionMovimientos modulo={modulo} onVolver={()=>setSubTab("lista")} onCrearInformalDesdeFormal={async (formalMov)=>{
+      try {
+        const f = await api.get(`/api/movimientos/${formalMov.id}`);
+        setSelected(null);
+        setMovForm({
+          ...movForm,
+          nro_cpe: f.nro_cpe || "",
+          nro_ctg: f.nro_ctg || "",
+          fecha_cpe: f.fecha_cpe ? f.fecha_cpe.slice(0,10) : "",
+          fecha_vencimiento_cpe: f.fecha_vencimiento_cpe ? f.fecha_vencimiento_cpe.slice(0,10) : "",
+          destinatario_cuit: f.destinatario_cuit || "",
+          destinatario_nombre: f.destinatario_nombre || "",
+          destino_cuit: f.destino_cuit || "",
+          destino_nombre: f.destino_nombre || "",
+          id_especie: f.id_especie || movForm.id_especie,
+          id_campana: f.id_campana || movForm.id_campana,
+          localidad_origen: f.localidad_origen || "",
+          provincia_origen: f.provincia_origen || "",
+          renspa: f.renspa || "",
+          descripcion_campo: f.descripcion_campo || "",
+          latitud: f.latitud || "",
+          longitud: f.longitud || "",
+          localidad_destino: f.localidad_destino || "",
+          provincia_destino: f.provincia_destino || "",
+          nro_planta_destino: f.nro_planta_destino || "",
+          id_ubicacion_destino: f.id_ubicacion_destino || null,
+          transportista_nombre: f.transportista_nombre || "",
+          chofer_nombre: f.chofer_nombre || "",
+          patente_chasis: f.patente_chasis || "",
+          patente_acoplado: f.patente_acoplado || "",
+          peso_bruto_salida_kg: f.peso_bruto_salida_kg || "",
+          peso_tara_salida_kg: f.peso_tara_salida_kg || "",
+          humedad_salida_pct: f.humedad_salida_pct || "",
+          fecha_partida: f.fecha_partida ? f.fecha_partida.slice(0,16) : "",
+          id_contrato_compra: null,
+          id_contrato_venta: null,
+          observaciones: `Creado a partir del Formal ${f.numero_movimiento} — completar vendedor y contrato.`,
+        });
+        setVincularConFormalId(formalMov.id);
+        setSubTab("lista");
+        setShowForm(true);
+      } catch(e) { alert("Error al traer el movimiento Formal: " + e.message); }
+    }}/>;
   }
 
   if (subTab === "reportes") {

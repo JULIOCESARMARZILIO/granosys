@@ -356,22 +356,27 @@ router.post('/', async (req, res) => {
       tarifa_catac, tarifa_flete_real, tipo_tarifa,
       peso_bruto_salida_kg, peso_tara_salida_kg, humedad_salida_pct,
       observaciones, usuario_carga, chofer_nombre, transportista_nombre,
-      chofer, transportista, nro_factura_flete, fecha_partida
+      chofer, transportista, nro_factura_flete, fecha_partida, omitir_gemelo
     } = req.body;
 
     const finalChofer = chofer_nombre || chofer || null;
     const finalTransportista = transportista_nombre || transportista || null;
 
-    // El CTG es un código único de trazabilidad emitido por AFIP: dos movimientos nunca
-    // pueden compartirlo. Evita duplicar el mismo viaje si se reimporta la misma CPE.
+    // El CTG es un código único de trazabilidad emitido por AFIP: dos
+    // movimientos de la MISMA modalidad nunca pueden compartirlo (evita
+    // duplicar el mismo viaje si se reimporta la misma CPE). Pero el mismo
+    // CTG real SI aparece a proposito una vez en Formal y otra en Informal
+    // -- es el mismo camion visto de los dos lados y se vinculan entre si
+    // (ver "gemelo" automatico y Vinculacion Formal/Informal) -- por eso el
+    // chequeo va scopeado por modalidad, no global.
     if (nro_ctg) {
       const { rows: yaExiste } = await pool.query(
-        'SELECT numero_movimiento FROM movimientos WHERE nro_ctg = $1 LIMIT 1',
-        [nro_ctg]
+        'SELECT numero_movimiento FROM movimientos WHERE nro_ctg = $1 AND modalidad = $2 LIMIT 1',
+        [nro_ctg, modalidad]
       );
       if (yaExiste.length > 0) {
         return res.status(400).json({
-          error: `Ya existe un movimiento con el CTG ${nro_ctg}: ${yaExiste[0].numero_movimiento}. No se puede cargar el mismo viaje dos veces.`
+          error: `Ya existe un movimiento ${modalidad} con el CTG ${nro_ctg}: ${yaExiste[0].numero_movimiento}. No se puede cargar el mismo viaje dos veces del mismo lado.`
         });
       }
     }
@@ -482,8 +487,11 @@ router.post('/', async (req, res) => {
       createdMov.origen_produccion = origenProduccion || createdMov.origen_produccion;
     }
 
-    // Si es INFORMAL y tiene CPE, crear twin FORMAL
-    if (modalidad === 'INFORMAL' && nro_cpe) {
+    // Si es INFORMAL y tiene CPE, crear twin FORMAL -- salvo que el caller
+    // pida explicitamente omitirlo (ej. "Completar como Informal" desde
+    // Vinculacion, que ya viene con un Formal real elegido para engancharse:
+    // ahi no hay que inventar un segundo Formal de la nada).
+    if (modalidad === 'INFORMAL' && nro_cpe && !omitir_gemelo) {
       const numero_movimiento_2 = `MOV-${String(num1 + 1).padStart(4, '0')}`;
       
       const { rows: twinRows } = await pool.query(`
