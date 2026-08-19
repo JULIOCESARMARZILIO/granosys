@@ -2396,6 +2396,111 @@ async function listarReporteCpeCertificados() {
   };
 }
 
+function seleccionarPersonaReporte(intervinientes = [], roles = []) {
+  for (const rol of roles) {
+    const persona = intervinientes.find(item => String(item.rol || '').toUpperCase() === rol);
+    if (persona) return persona;
+  }
+  return null;
+}
+
+// Reporte operativo completo para exportar CPE/CPEDG. Es solo lectura y usa
+// las tablas normalizadas para no depender de la forma interna del XML de ARCA.
+async function listarReporteCpeIntervinientes() {
+  await ensureCpeMasterTables();
+  const { rows } = await pool.query(`
+    SELECT r.ctg,r.tipo_cpe,d.document_date,d.payload,d.payload_hash,
+      m.numero_movimiento,m.estado AS estado_movimiento,
+      m.peso_bruto_salida_kg,m.peso_tara_salida_kg,m.peso_neto_salida_kg,
+      m.patente_chasis,m.patente_acoplado,m.fecha_partida,m.km_a_recorrer,
+      e.nombre AS producto_nombre,e.codigo AS producto_codigo,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object(
+        'rol',p.rol,'cuit',p.cuit,
+        'nombre',COALESCE(p.razon_social_oficial,c.razon_social),
+        'contraparteId',p.contraparte_id
+      ) ORDER BY p.rol,p.cuit)
+        FROM arca_cpe_participants p
+        LEFT JOIN contrapartes c ON c.id=p.contraparte_id
+        WHERE p.document_id=r.document_id),'[]'::jsonb) AS intervinientes,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object(
+        'rol',pl.rol,'planta',pl.nro_planta,'cuitTitular',pl.cuit_titular,
+        'nombre',pl.nombre_oficial,'localidad',pl.localidad,
+        'provincia',pl.provincia,'direccion',pl.direccion
+      ) ORDER BY pl.rol,pl.nro_planta)
+        FROM arca_cpe_plants pl WHERE pl.document_id=r.document_id),'[]'::jsonb) AS plantas,
+      COALESCE((SELECT jsonb_agg(DISTINCT jsonb_build_object(
+        'coe',l.certificado_coe,'estado',l.estado
+      )) FROM arca_certificado_ctg_links l
+        WHERE l.ctg=r.ctg AND l.cpe_document_id=r.document_id),'[]'::jsonb) AS certificados
+    FROM arca_cpe_registry r
+    JOIN arca_official_documents d ON d.id=r.document_id
+    LEFT JOIN arca_cpe_movement_links ml ON ml.ctg=r.ctg
+    LEFT JOIN movimientos m ON m.id=ml.movimiento_id
+    LEFT JOIN especies e ON e.id=m.id_especie
+    ORDER BY d.document_date,r.ctg
+  `);
+
+  const detalle = rows.map(row => {
+    const payload = row.payload || {};
+    const intervinientes = Array.isArray(row.intervinientes) ? row.intervinientes : [];
+    const datosCarga = payload.datosCarga || payload.datos_carga || {};
+    const producto = productoCpeOficial(row.tipo_cpe, datosCarga, payload);
+    const comprador = seleccionarPersonaReporte(intervinientes, [
+      'COMPRADOR','DESTINATARIO','DESTINO','REMITENTE_COMERCIAL_VENTA_PRIMARIA'
+    ]);
+    const vendedor = seleccionarPersonaReporte(intervinientes, [
+      'VENDEDOR','REMITENTE_COMERCIAL','ORIGEN','SOLICITANTE'
+    ]);
+    const transporte = payload.transporte || {};
+    const rawXml = String(payload.rawXml || payload.raw_xml || '');
+    const numero = value => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed !== 0 ? parsed : null;
+    };
+    const bruto = numero(row.peso_bruto_salida_kg)
+      || numero(valorAnidadoPorClaves(payload, ['pesoBruto','pesoBrutoOrigen','pesoBrutoSalida']))
+      || numero(primerTag(rawXml, ['pesoBruto','pesoBrutoOrigen','pesoBrutoSalida']));
+    const tara = numero(row.peso_tara_salida_kg)
+      || numero(valorAnidadoPorClaves(payload, ['pesoTara','tara','pesoTaraOrigen']))
+      || numero(primerTag(rawXml, ['pesoTara','tara','pesoTaraOrigen']));
+    const neto = numero(row.peso_neto_salida_kg)
+      || numero(valorAnidadoPorClaves(payload, ['pesoNeto','pesoNetoCarga','pesoNetoOrigen','kilosNetos']))
+      || numero(primerTag(rawXml, ['pesoNeto','pesoNetoCarga','pesoNetoOrigen','kilosNetos']))
+      || (bruto && tara ? bruto - tara : null);
+    return {
+      ctg: row.ctg,
+      fecha: row.document_date,
+      tipoCpe: row.tipo_cpe,
+      estadoArca: estadoCpeDesdePayload(payload) || null,
+      producto: row.producto_nombre || producto.nombre || null,
+      codigoProducto: producto.codigoArca || row.producto_codigo || null,
+      pesoBrutoKg: bruto,
+      taraKg: tara,
+      pesoNetoKg: neto,
+      patenteChasis: row.patente_chasis || transporte.dominio || transporte.patenteChasis
+        || primerTag(rawXml, ['patenteChasis','dominioAutomotor','patenteCamion']) || null,
+      patenteAcoplado: row.patente_acoplado || transporte.dominioAcoplado || transporte.patenteAcoplado
+        || primerTag(rawXml, ['patenteAcoplado','dominioAcoplado']) || null,
+      fechaPartida: row.fecha_partida || transporte.fechaHoraPartida || transporte.fechaPartida || null,
+      kilometros: numero(row.km_a_recorrer) || numero(transporte.kmRecorrer || transporte.kilometros),
+      numeroMovimiento: row.numero_movimiento || null,
+      estadoMovimiento: row.estado_movimiento || null,
+      comprador,
+      vendedor,
+      intervinientes,
+      plantas: Array.isArray(row.plantas) ? row.plantas : [],
+      certificados: Array.isArray(row.certificados) ? row.certificados : [],
+      payloadHash: row.payload_hash
+    };
+  });
+  return {
+    total: detalle.length,
+    conCompradorIdentificado: detalle.filter(item => item.comprador).length,
+    conCertificado: detalle.filter(item => item.certificados.length > 0).length,
+    detalle
+  };
+}
+
 async function iniciarRefreshDerivadosPendientes() {
   const { rows } = await pool.query(`
     SELECT ctg FROM arca_cpe_movement_pending
@@ -3128,6 +3233,7 @@ module.exports = {
   materializarMovimientosCpe,
   diagnosticarDerivadosPendientes,
   listarReporteCpeCertificados,
+  listarReporteCpeIntervinientes,
   iniciarRefreshDerivadosPendientes,
   materializarCertificadosCtg,
   importarCertificadoInteractivo,
@@ -3135,6 +3241,7 @@ module.exports = {
   diagnosticarCredenciales,
   _internal: {
     productoCpeOficial,
+    seleccionarPersonaReporte,
     catalogoCodigoDescripcion,
     descripcionEspecificaDerivado,
     xmlEscape,
