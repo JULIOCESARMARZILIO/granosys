@@ -241,9 +241,55 @@ function iniciarBackfillCpeConfirmadas() {
   });
 }
 
+async function diagnosticarCpeEmitidasElSieteDeJulio() {
+  const fecha = '2026-07-07';
+  const [documentos, movimientos, trabajos] = await Promise.all([
+    pool.query(`
+      SELECT d.external_key AS ctg, d.document_date, r.tipo_cpe,
+             (regexp_match(COALESCE(d.payload->>'rawXml',''), '<(?:\\w+:)?estado[^>]*>([^<]+)'))[1] AS estado_arca,
+             EXISTS(SELECT 1 FROM arca_cpe_movement_links l WHERE l.document_id=d.id) AS tiene_movimiento,
+             COALESCE((SELECT jsonb_agg(DISTINCT p.rol ORDER BY p.rol)
+                       FROM arca_cpe_participants p WHERE p.document_id=d.id), '[]'::jsonb) AS roles,
+             d.first_imported_at, d.last_seen_at
+      FROM arca_official_documents d
+      LEFT JOIN arca_cpe_registry r ON r.document_id=d.id
+      WHERE d.fuente='WSCPE_CPE'
+        AND (d.document_date=$1::date
+          OR d.payload::text ILIKE '%2026-07-07%'
+          OR d.payload::text ILIKE '%07/07/2026%')
+      ORDER BY d.document_date, d.external_key
+    `, [fecha]),
+    pool.query(`
+      SELECT m.numero_movimiento, m.fecha, m.nro_ctg, m.nro_cpe,
+             m.modalidad, m.estado, e.nombre AS especie,
+             l.document_id IS NOT NULL AS vinculado_documento_arca
+      FROM movimientos m
+      LEFT JOIN especies e ON e.id=m.id_especie
+      LEFT JOIN arca_cpe_movement_links l ON l.movimiento_id=m.id
+      WHERE m.fecha=$1::date OR m.fecha_cpe=$1::date
+      ORDER BY m.fecha, m.nro_ctg NULLS LAST, m.numero_movimiento
+    `, [fecha]),
+    pool.query(`
+      SELECT id, fuente, desde, estado, total_revisados, total_importados,
+             error, created_at, started_at, finished_at
+      FROM arca_sync_jobs
+      WHERE fuente IN ('WSCPE_DESTINO','WSCPE_CPE')
+      ORDER BY created_at DESC
+      LIMIT 20
+    `)
+  ]);
+  console.log('DIAGNOSTICO_CPE_2026_07_07=' + JSON.stringify({
+    fecha,
+    documentos: documentos.rows,
+    movimientos: movimientos.rows,
+    trabajos: trabajos.rows
+  }));
+}
+
 async function start() {
   try {
     await initDB();
+    await diagnosticarCpeEmitidasElSieteDeJulio();
     app.listen(PORT, () => console.log(`GranoSYS v2.0 corriendo en puerto ${PORT}`));
     iniciarBackfillCertificadosDeposito();
     iniciarBackfillCpeConfirmadas();
