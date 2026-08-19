@@ -664,32 +664,10 @@ router.put('/:id/llegada', async (req, res) => {
       await recalcularContrato(rows[0].id_contrato_compra);
       await recalcularContrato(rows[0].id_contrato_venta);
       await actualizarStockPorLlegada(rows[0]);
-
-      if (rows[0].id_movimiento_vinculado) {
-        const vinculoId = rows[0].id_movimiento_vinculado;
-        const { rows: vMov } = await pool.query('SELECT * FROM movimientos WHERE id = $1', [vinculoId]);
-        
-        await pool.query(`
-          UPDATE movimientos SET
-            fecha_arribo=$1, fecha_descarga=$2, nro_turno=$3,
-            peso_bruto_llegada_kg=$4, peso_tara_llegada_kg=$5,
-            peso_neto_llegada_kg=$6, humedad_llegada_pct=$7,
-            diferencia_kg=$8, tolerancia_kg=$9, faltante_kg=$10,
-            factor_calculado=$11, factor_manual=$12, factor_aplicado=$13, kg_liquidables=$14,
-            estado='DESCARGADO', updated_at=NOW()
-          WHERE id=$15
-        `, [fecha_arribo||null, fecha_descarga||null, nro_turno||null,
-            peso_bruto_llegada_kg, peso_tara_llegada_kg, peso_neto_llegada,
-            humedad_llegada_pct||null, diferencia, tolerancia, faltante,
-            factor_calculado, db_factor_manual, factor_aplicado, kg_liquidables,
-            vinculoId]);
-            
-        if (vMov[0]) {
-          await recalcularContrato(vMov[0].id_contrato_compra);
-          await recalcularContrato(vMov[0].id_contrato_venta);
-          await actualizarStockPorLlegada({ ...vMov[0], kg_liquidables });
-        }
-      }
+      // Los pesajes de llegada de un par Formal/Informal vinculado ya NO se
+      // copian de un lado al otro -- son viajes con su propia balanza y
+      // pueden tener numeros distintos legitimamente. El vinculo solo
+      // identifica que es el mismo camion, no obliga a compartir el dato.
     }
 
     res.json(rows[0]);
@@ -803,75 +781,8 @@ router.put('/:id/calidad', async (req, res) => {
     if (rows[0]) {
       await recalcularContrato(rows[0].id_contrato_compra);
       await recalcularContrato(rows[0].id_contrato_venta);
-      
-      if (rows[0].id_movimiento_vinculado) {
-        const vinculoId = rows[0].id_movimiento_vinculado;
-        
-        // Borrar calidad anterior del vinculado
-        await pool.query('DELETE FROM calidad_movimiento WHERE id_movimiento = $1', [vinculoId]);
-        
-        // Insertar los mismos registros de calidad para el vinculado
-        if (parametros && parametros.length > 0) {
-          for (const p of parametros) {
-            const exceso = Math.max(0, p.valor_declarado - p.tolerancia);
-            const ajuste_limpio = exceso > 0
-              ? -(exceso * (p.descuento_por_punto || 0)) + (exceso * (p.bonificacion_por_punto || 0))
-              : 0;
-            await pool.query(`
-              INSERT INTO calidad_movimiento
-                (id_movimiento, id_parametro, valor_declarado_pct, tolerancia_parametro_pct,
-                 exceso_sobre_tolerancia_pct, factor_descuento_bonificacion_pct)
-              VALUES ($1,$2,$3,$4,$5,$6)
-            `, [vinculoId, p.id_parametro, p.valor_declarado, p.tolerancia, exceso, ajuste_limpio]);
-          }
-        }
-        
-        // Recalcular kilos del vinculado usando su propio peso_neto_llegada_kg (que ya estará sincronizado por llegada)
-        const { rows: vMovList } = await pool.query('SELECT id_contrato_compra, id_contrato_venta, peso_neto_llegada_kg FROM movimientos WHERE id = $1', [vinculoId]);
-        const vMov = vMovList[0];
-        
-        if (vMov) {
-          const v_kg_secos = (vMov.peso_neto_llegada_kg || 0) * (1.0 - (merma_humedad_pct / 100.0));
-          let v_kg_liquidables = v_kg_secos;
-          let v_factor_aplicado = factor_calculado;
-          let v_factor_manual = final_factor_manual;
-          
-          if (calidad_tipo_ajuste !== undefined && calidad_tipo_ajuste !== null) {
-            const val = calidad_valor_ajuste !== null && calidad_valor_ajuste !== undefined ? parseFloat(calidad_valor_ajuste) : null;
-            if (val !== null) {
-              if (calidad_tipo_ajuste === 'PORCENTAJE') {
-                v_factor_manual = 1.0 - (val / 100.0);
-                v_factor_aplicado = v_factor_manual;
-                v_kg_liquidables = v_kg_secos * v_factor_aplicado;
-              } else if (calidad_tipo_ajuste === 'KILOS') {
-                v_kg_liquidables = Math.max(0, v_kg_secos - val);
-                v_factor_manual = v_kg_secos > 0 ? v_kg_liquidables / v_kg_secos : 0;
-                v_factor_aplicado = v_factor_manual;
-              } else {
-                v_factor_manual = val;
-                v_factor_aplicado = v_factor_manual;
-                v_kg_liquidables = v_kg_secos * v_factor_aplicado;
-              }
-            }
-          }
-          
-          await pool.query(`
-            UPDATE movimientos SET
-              factor_calculado=$1, factor_manual=$2, factor_aplicado=$3,
-              tipo_factor=$4, kg_liquidables=$5,
-              calidad_tipo_ajuste=$6, calidad_valor_ajuste=$7,
-              updated_at=NOW()
-            WHERE id=$8
-          `, [factor_calculado, v_factor_manual, v_factor_aplicado,
-              final_tipo_factor, v_kg_liquidables,
-              calidad_tipo_ajuste || 'FACTOR',
-              calidad_valor_ajuste !== undefined && calidad_valor_ajuste !== null ? parseFloat(calidad_valor_ajuste) : null,
-              vinculoId]);
-              
-          await recalcularContrato(vMov.id_contrato_compra);
-          await recalcularContrato(vMov.id_contrato_venta);
-        }
-      }
+      // La calidad tampoco se copia mas al par vinculado -- ver nota en
+      // PUT /:id/llegada. Cada lado declara su propia calidad.
     }
 
     res.json(rows[0]);
