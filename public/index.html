@@ -11407,6 +11407,114 @@ const DocumentosArca = () => {
     finally { setCargando(false); }
   };
 
+  const exportarCpeIntervinientes = async () => {
+    setCargando(true);
+    setError('');
+    try {
+      const respuesta=await api.get('/api/arca/reportes/cpe-intervinientes');
+      if(!respuesta?.ok) throw new Error(respuesta?.error||'No se pudo preparar el Excel.');
+      const detalle=Array.isArray(respuesta.detalle)?respuesta.detalle:[];
+      const personaTexto=persona=>persona?[persona.nombre,persona.cuit].filter(Boolean).join(' · '):'';
+      const porRol=(item,rol)=>(item.intervinientes||[]).find(p=>String(p.rol||'').toUpperCase()===rol)||null;
+      const rolTexto=(item,rol)=>personaTexto(porRol(item,rol));
+      const todosTexto=item=>(item.intervinientes||[]).map(p=>`${p.rol}: ${personaTexto(p)}`).join(' | ');
+      const plantaTexto=(item,rol)=>(item.plantas||[]).filter(p=>String(p.rol||'').toUpperCase()===rol)
+        .map(p=>[p.planta,p.nombre,p.localidad,p.provincia].filter(Boolean).join(' · ')).join(' | ');
+      const filas=detalle.map(item=>({
+        'CTG':String(item.ctg||''),
+        'Fecha':item.fecha?String(item.fecha).slice(0,10):'',
+        'Tipo CPE / CPEDG':item.tipoCpe||'',
+        'Estado ARCA':item.estadoArca||'',
+        'Producto':item.producto||'',
+        'Código producto ARCA':item.codigoProducto==null?'':String(item.codigoProducto),
+        'Kilos brutos':item.pesoBrutoKg??'',
+        'Tara kg':item.taraKg??'',
+        'Kilos netos':item.pesoNetoKg??'',
+        'Comprador / receptor':personaTexto(item.comprador),
+        'Rol usado como comprador':item.comprador?.rol||'',
+        'Vendedor / remitente':personaTexto(item.vendedor),
+        'Rol usado como vendedor':item.vendedor?.rol||'',
+        'Solicitante':rolTexto(item,'SOLICITANTE'),
+        'Origen':rolTexto(item,'ORIGEN'),
+        'Remitente comercial':rolTexto(item,'REMITENTE_COMERCIAL'),
+        'Rte. comercial venta primaria':rolTexto(item,'REMITENTE_COMERCIAL_VENTA_PRIMARIA'),
+        'Rte. comercial venta secundaria':rolTexto(item,'REMITENTE_COMERCIAL_VENTA_SECUNDARIA'),
+        'Destino':rolTexto(item,'DESTINO'),
+        'Destinatario':rolTexto(item,'DESTINATARIO'),
+        'Titular planta':rolTexto(item,'TITULAR_PLANTA'),
+        'Transportista':rolTexto(item,'TRANSPORTISTA'),
+        'Transportista tramo 2':rolTexto(item,'TRANSPORTISTA_TRAMO_2'),
+        'Chofer / conductor':rolTexto(item,'CHOFER')||rolTexto(item,'CONDUCTOR'),
+        'Pagador flete':rolTexto(item,'PAGADOR_FLETE'),
+        'Corredor':rolTexto(item,'CORREDOR')||rolTexto(item,'CORREDOR_VENTA_PRIMARIA')||rolTexto(item,'CORREDOR_VENTA_SECUNDARIA'),
+        'Representante entregador':rolTexto(item,'REPRESENTANTE_ENTREGADOR'),
+        'Representante recibidor':rolTexto(item,'REPRESENTANTE_RECIBIDOR'),
+        'Comisionista':rolTexto(item,'COMISIONISTA'),
+        'Planta origen':plantaTexto(item,'ORIGEN'),
+        'Planta destino':plantaTexto(item,'DESTINO'),
+        'Patente chasis':item.patenteChasis||'',
+        'Patente acoplado':item.patenteAcoplado||'',
+        'Fecha partida':item.fechaPartida?String(item.fechaPartida).slice(0,19):'',
+        'Kilómetros':item.kilometros??'',
+        'Movimiento':item.numeroMovimiento||'',
+        'Estado movimiento':item.estadoMovimiento||'',
+        'COE certificado':(item.certificados||[]).map(c=>c.coe).filter(Boolean).join(' | '),
+        'Estado certificado':(item.certificados||[]).map(c=>c.estado).filter(Boolean).join(' | ')
+          ||((item.certificados||[]).length?'VINCULADO':'SIN CERTIFICADO'),
+        'Todos los intervinientes':todosTexto(item)
+      }));
+      const intervinientes=[];
+      const plantas=[];
+      detalle.forEach(item=>{
+        (item.intervinientes||[]).forEach(p=>intervinientes.push({
+          'CTG':String(item.ctg||''),'Fecha':item.fecha?String(item.fecha).slice(0,10):'',
+          'Tipo':item.tipoCpe||'','Rol ARCA':p.rol||'','CUIT':String(p.cuit||''),
+          'Razón social':p.nombre||'','Contraparte vinculada':p.contraparteId?'Sí':'No'
+        }));
+        (item.plantas||[]).forEach(p=>plantas.push({
+          'CTG':String(item.ctg||''),'Fecha':item.fecha?String(item.fecha).slice(0,10):'',
+          'Rol':p.rol||'','Nº planta':String(p.planta||''),'CUIT titular':String(p.cuitTitular||''),
+          'Nombre':p.nombre||'','Localidad':p.localidad||'','Provincia':p.provincia||'','Dirección':p.direccion||''
+        }));
+      });
+      const resumen=[
+        ['Reporte','CPE / CPEDG con todos los intervinientes'],
+        ['Generado',new Date()],
+        ['CPE / CTG',respuesta.total||detalle.length],
+        ['Con comprador/receptor identificado',respuesta.conCompradorIdentificado||0],
+        ['Con certificado vinculado',respuesta.conCertificado||0],
+        ['Criterio comprador','COMPRADOR; si ARCA no lo informa: DESTINATARIO, DESTINO o REMITENTE_COMERCIAL_VENTA_PRIMARIA. Revisar la columna Rol usado como comprador.']
+      ];
+      const wb=XLSX.utils.book_new();
+      const wsResumen=XLSX.utils.aoa_to_sheet(resumen);
+      const wsCpe=XLSX.utils.json_to_sheet(filas);
+      const wsIntervinientes=XLSX.utils.json_to_sheet(intervinientes);
+      const wsPlantas=XLSX.utils.json_to_sheet(plantas);
+      const prepararHoja=(ws,anchos)=>{
+        if(ws['!ref']) ws['!autofilter']={ref:ws['!ref']};
+        ws['!freeze']={xSplit:0,ySplit:1,topLeftCell:'A2',activePane:'bottomLeft',state:'frozen'};
+        ws['!cols']=anchos.map(w=>({wch:w}));
+      };
+      wsResumen['!cols']=[{wch:36},{wch:110}];
+      prepararHoja(wsCpe,filas.length?Object.keys(filas[0]).map(k=>Math.min(42,Math.max(12,k.length+2))):[18]);
+      prepararHoja(wsIntervinientes,[18,12,18,38,18,38,22]);
+      prepararHoja(wsPlantas,[18,12,16,14,18,32,24,20,38]);
+      XLSX.utils.book_append_sheet(wb,wsResumen,'Resumen');
+      XLSX.utils.book_append_sheet(wb,wsCpe,'CPE - Intervinientes');
+      XLSX.utils.book_append_sheet(wb,wsIntervinientes,'Intervinientes detalle');
+      XLSX.utils.book_append_sheet(wb,wsPlantas,'Plantas');
+      const wbout=XLSX.write(wb,{bookType:'xlsx',type:'array',compression:true});
+      const blob=new Blob([wbout],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;
+      a.download=`cpe_intervinientes_${new Date().toISOString().slice(0,10)}.xlsx`;
+      document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+    } catch(e) { setError(e.message||'No se pudo exportar el Excel de CPE.'); }
+    finally { setCargando(false); }
+  };
+
   return <div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18,gap:12}}>
       <div><h2 style={{fontSize:20,fontWeight:700,marginBottom:4}}>Documentos ARCA</h2><div style={{fontSize:12,color:"#8890a8"}}>{esCpe?"Cartas de Porte Electronicas de granos y derivados vinculadas a Inversiones del Salado S.A. · Solo consulta":"Comprobantes oficiales emitidos por Inversiones del Salado S.A. · Solo consulta"}</div></div>
@@ -11414,6 +11522,7 @@ const DocumentosArca = () => {
         <Btn variant={esCpe?"secondary":"primary"} onClick={()=>{setFuente("WSFE_EMITIDA");setDesde("2026-01-01");setPagina(1);}}>Facturas</Btn>
         <Btn variant={esCpe?"primary":"secondary"} onClick={()=>{setFuente("WSCPE_CPE");setDesde("2026-02-01");setPagina(1);}}>CPE / CPEDG</Btn>
         {esCpe&&<Btn variant="secondary" onClick={abrirReporteCertificados}>Reporte certificados</Btn>}
+        {esCpe&&<Btn variant="success" onClick={exportarCpeIntervinientes} disabled={cargando}>Exportar Excel</Btn>}
         <Btn onClick={()=>cargar(pagina)} disabled={cargando}>{cargando?"Actualizando...":"Actualizar"}</Btn>
       </div>
     </div>
