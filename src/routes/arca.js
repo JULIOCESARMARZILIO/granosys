@@ -213,6 +213,16 @@ router.get('/reportes/cpe-certificados', async (req, res) => {
   }
 });
 
+// Exportación completa de CPE/CPEDG e intervinientes. Solo consulta.
+router.get('/reportes/cpe-intervinientes', async (req, res) => {
+  try {
+    const resultado = await arcaOfficialClient.listarReporteCpeIntervinientes();
+    res.json({ ok: true, ...resultado, soloConsulta: true });
+  } catch (err) {
+    res.status(422).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/sync/resumen/documentos', async (req, res) => {
   try {
     const fuentes = await arcaOfficialClient.obtenerResumenDocumentos();
