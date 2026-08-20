@@ -241,9 +241,7 @@ function iniciarBackfillCpeConfirmadas() {
   });
 }
 
-async function recuperarCpeJulioDesdeCertificados() {
-  const desde = '2026-07-03';
-  const hasta = '2026-07-27';
+async function recuperarCpePendientesDesdeCertificados() {
   await arcaOfficialClient.materializarCertificadosCtg();
   const { rows } = await pool.query(`
     SELECT DISTINCT ctg
@@ -255,21 +253,16 @@ async function recuperarCpeJulioDesdeCertificados() {
     ctgPendientes: rows.length,
     consultados: 0,
     importados: [],
-    fueraDelPeriodo: 0,
     noConfirmados: 0,
     errores: []
   };
-  console.log('RECUPERACION_CPE_JULIO_INICIADA=' + JSON.stringify({ desde, hasta, ctgPendientes: rows.length }));
+  console.log('RECUPERACION_CPE_CERTIFICADOS_INICIADA=' + JSON.stringify({ ctgPendientes: rows.length }));
 
   for (const row of rows) {
     resultado.consultados += 1;
     try {
       const detalle = await arcaOfficialClient.consultarCpePorCtg(row.ctg);
       const fecha = String(detalle.fecha || '').slice(0, 10);
-      if (fecha < desde || fecha > hasta) {
-        resultado.fueraDelPeriodo += 1;
-        continue;
-      }
       const rawXml = String(detalle.payload?.rawXml || '');
       const estado = (rawXml.match(/<(?:\w+:)?estado[^>]*>([^<]+)</i)?.[1] || '').trim().toUpperCase();
       if (estado !== 'CN') {
@@ -282,7 +275,7 @@ async function recuperarCpeJulioDesdeCertificados() {
       resultado.errores.push({ ctg: row.ctg, error: error.message });
     }
     if (resultado.consultados % 25 === 0) {
-      console.log('RECUPERACION_CPE_JULIO_PROGRESO=' + JSON.stringify({
+      console.log('RECUPERACION_CPE_CERTIFICADOS_PROGRESO=' + JSON.stringify({
         consultados: resultado.consultados,
         importados: resultado.importados.length,
         errores: resultado.errores.length
@@ -291,12 +284,12 @@ async function recuperarCpeJulioDesdeCertificados() {
   }
 
   const movimientos = await arcaOfficialClient.materializarMovimientosCpe({
-    desde,
+    desde: '2026-02-01',
     soloConfirmadas: true
   });
   const vinculacion = await arcaOfficialClient.materializarCertificadosCtg();
   const calidades = await arcaCertificateExtractor.assignExistingCpesAndQualities();
-  console.log('RECUPERACION_CPE_JULIO_FINALIZADA=' + JSON.stringify({
+  console.log('RECUPERACION_CPE_CERTIFICADOS_FINALIZADA=' + JSON.stringify({
     ...resultado,
     movimientos,
     vinculacion,
@@ -310,9 +303,9 @@ async function start() {
     app.listen(PORT, () => console.log(`GranoSYS v2.0 corriendo en puerto ${PORT}`));
     iniciarBackfillCertificadosDeposito();
     iniciarBackfillCpeConfirmadas();
-    if (String(process.env.ARCA_RECUPERAR_CPE_CERTIFICADOS_JULIO || '').toLowerCase() === 'true') {
-      setImmediate(() => recuperarCpeJulioDesdeCertificados()
-        .catch(error => console.error('RECUPERACION_CPE_JULIO_ERROR=' + error.message)));
+    if (String(process.env.ARCA_RECUPERAR_CPE_CERTIFICADOS_TODAS || '').toLowerCase() === 'true') {
+      setImmediate(() => recuperarCpePendientesDesdeCertificados()
+        .catch(error => console.error('RECUPERACION_CPE_CERTIFICADOS_ERROR=' + error.message)));
     }
     if (String(process.env.ARCA_DIAGNOSTICO_DERIVADOS || '').toLowerCase() === 'true') {
       setImmediate(() => arcaOfficialClient.diagnosticarDerivadosPendientes()
