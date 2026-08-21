@@ -323,6 +323,18 @@ async function start() {
         }
       });
     }
+    if (String(process.env.ARCA_EXTRAER_CERTIFICADOS_GEMINI || '').toLowerCase() === 'true') {
+      setImmediate(async () => {
+        try {
+          const extraccion = await arcaCertificateExtractor.extractCertificatePdfsWithGemini({ limit: 1000 });
+          const cpes = await arcaCertificateExtractor.assignExistingCpesAndQualities();
+          const liquidaciones = await arcaCertificateExtractor.applyAllLiquidations({ limit: 20000 });
+          console.log('GEMINI_CERTIFICADOS_FINALIZADO=' + JSON.stringify({ extraccion, cpes, liquidaciones }));
+        } catch (error) {
+          console.error('GEMINI_CERTIFICADOS_ERROR=' + error.message);
+        }
+      });
+    }
     if (String(process.env.ARCA_DIAGNOSTICO_DERIVADOS || '').toLowerCase() === 'true') {
       setImmediate(() => arcaOfficialClient.diagnosticarDerivadosPendientes()
         .then(resultado => console.log('DIAGNOSTICO_DERIVADOS_CPEDG=' + JSON.stringify(resultado)))

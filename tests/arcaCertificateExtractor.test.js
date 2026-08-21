@@ -60,6 +60,23 @@ describe('ARCA certificate extraction', () => {
     ]));
   });
 
+  test('preserves Gemini PDF truck detail and broad certificate roles', () => {
+    const result = extractCertificate({ geminiCertificateExtraction: {
+      coe: '123456789012', productor_cuit: '30-71018399-2', comprador_cuit: '30-50679216-5',
+      especie: 'Soja', campana: '2025/2026', kilos_brutos_certificados: 60300,
+      kilos_netos_acondicionados: 59550,
+      camiones: [{ ctg: '10134183216', kilos_netos_descargados: 30000,
+        kilos_netos_acondicionados: 29650, merma_humedad_kg: 250, merma_calidad_kg: 100,
+        humedad_pct: 14.1 }],
+      calidades: [{ parametro: 'Proteína', valor: 34.5, unidad: '%', observacion: '' }]
+    }});
+    expect(result.ctgs).toEqual(['10134183216']);
+    expect(result.trucks[0]).toMatchObject({ ctg:'10134183216', unloadedNetKg:30000,
+      conditionedKg:29650, humidityLossKg:250, qualityLossKg:100, humidityPct:14.1 });
+    expect(result.qualities).toEqual([{ parameter:'PROTEINA', value:34.5, unit:'%' }]);
+    expect(result.observations).toEqual([]);
+  });
+
   test('extracts every certificate application from one liquidation', () => {
     const results = extractLiquidationApplications({
       liquidacion: {
