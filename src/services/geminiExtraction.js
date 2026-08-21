@@ -210,6 +210,98 @@ Reglas:
 - Provincias en "origen_prov"/"destino_prov" deben quedar con formato de nombre propio (ej: "Santa Fe", no "SANTA FE").
 - El texto viene de una extracción de PDF y puede tener saltos de línea irregulares o texto entremezclado; usá el contexto (secciones, etiquetas como "Destinatario:", "Empresa Transportista:", "C - PROCEDENCIA", "D - DESTINO DE LA MERCADERÍA") para ubicar cada dato.`;
 
+const datoVisibleSchema = {
+  type: Type.OBJECT,
+  properties: {
+    etiqueta: { type: Type.STRING },
+    valor: { type: Type.STRING },
+    seccion: { type: Type.STRING }
+  },
+  required: ['etiqueta', 'valor', 'seccion']
+};
+
+const calidadCertificadoSchema = {
+  type: Type.OBJECT,
+  properties: {
+    parametro: { type: Type.STRING },
+    valor: { type: Type.NUMBER },
+    unidad: { type: Type.STRING },
+    observacion: { type: Type.STRING }
+  },
+  required: ['parametro', 'valor', 'unidad', 'observacion']
+};
+
+const camionCertificadoSchema = {
+  type: Type.OBJECT,
+  properties: {
+    ctg: { type: Type.STRING }, nro_cpe: { type: Type.STRING }, fecha_carga: { type: Type.STRING },
+    fecha_descarga: { type: Type.STRING }, patente_chasis: { type: Type.STRING }, patente_acoplado: { type: Type.STRING },
+    kilos_brutos_descargados: { type: Type.NUMBER }, kilos_tara: { type: Type.NUMBER },
+    kilos_netos_descargados: { type: Type.NUMBER }, kilos_netos_acondicionados: { type: Type.NUMBER },
+    merma_humedad_kg: { type: Type.NUMBER }, merma_calidad_kg: { type: Type.NUMBER },
+    otras_mermas_kg: { type: Type.NUMBER }, humedad_pct: { type: Type.NUMBER },
+    calidades: { type: Type.ARRAY, items: calidadCertificadoSchema },
+    datos_adicionales: { type: Type.ARRAY, items: datoVisibleSchema }
+  },
+  required: []
+};
+
+const certificadoPdfSchema = {
+  type: Type.OBJECT,
+  properties: {
+    coe: { type: Type.STRING }, numero_certificado: { type: Type.STRING }, tipo_formulario: { type: Type.STRING },
+    fecha_emision: { type: Type.STRING }, emisor_nombre: { type: Type.STRING }, emisor_cuit: { type: Type.STRING },
+    comprador_nombre: { type: Type.STRING }, comprador_cuit: { type: Type.STRING },
+    productor_nombre: { type: Type.STRING }, productor_cuit: { type: Type.STRING },
+    depositante_nombre: { type: Type.STRING }, depositante_cuit: { type: Type.STRING },
+    depositario_nombre: { type: Type.STRING }, depositario_cuit: { type: Type.STRING },
+    corredor_nombre: { type: Type.STRING }, corredor_cuit: { type: Type.STRING },
+    especie: { type: Type.STRING }, campana: { type: Type.STRING }, grado: { type: Type.STRING },
+    planta: { type: Type.STRING }, nro_planta: { type: Type.STRING }, localidad: { type: Type.STRING },
+    provincia: { type: Type.STRING }, direccion: { type: Type.STRING }, contrato_referencia: { type: Type.STRING },
+    kilos_brutos_certificados: { type: Type.NUMBER }, kilos_netos_acondicionados: { type: Type.NUMBER },
+    merma_humedad_kg: { type: Type.NUMBER }, merma_calidad_kg: { type: Type.NUMBER },
+    otras_mermas_kg: { type: Type.NUMBER },
+    calidades: { type: Type.ARRAY, items: calidadCertificadoSchema },
+    camiones: { type: Type.ARRAY, items: camionCertificadoSchema },
+    datos_adicionales: { type: Type.ARRAY, items: datoVisibleSchema },
+    observaciones_lectura: { type: Type.ARRAY, items: { type: Type.STRING } }
+  },
+  required: []
+};
+
+const PROMPT_CERTIFICADO_PDF = `Leé este PDF completo de un certificado de depósito de granos argentino y transcribí la mayor cantidad posible de datos estructurados.
+Reglas estrictas:
+- Extraé solamente datos visibles en el PDF. No infieras, calcules ni inventes valores ausentes.
+- El emisor puede ser el comprador, pero asigná cada rol únicamente según su etiqueta o evidencia documental.
+- Conservá cada CTG/camión por separado con descarga, neto acondicionado, mermas y calidades cuando el PDF los discrimine.
+- Los pesos son kilogramos. Un campo numérico ausente debe quedar sin informar, no en datos_adicionales.
+- Usá datos_adicionales para cualquier otro campo legible que no tenga campo propio, indicando la sección.
+- Si un dato es ambiguo o ilegible, no lo adivines: describilo brevemente en observaciones_lectura.`;
+
+async function extraerCertificadoPdf(pdfBuffer) {
+  if (!Buffer.isBuffer(pdfBuffer) || !pdfBuffer.length) throw new ExtraccionError('Se requiere el PDF del certificado.');
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new ExtraccionError('La variable de entorno GEMINI_API_KEY no está configurada.');
+  const ai = new GoogleGenAI({ apiKey });
+  let response;
+  try {
+    response = await ai.models.generateContent({
+      model: MODEL,
+      contents: [{ role: 'user', parts: [
+        { inlineData: { data: pdfBuffer.toString('base64'), mimeType: 'application/pdf' } },
+        { text: PROMPT_CERTIFICADO_PDF }
+      ] }],
+      config: { responseMimeType: 'application/json', responseSchema: certificadoPdfSchema }
+    });
+  } catch (err) {
+    throw new ExtraccionError(`No se pudo invocar Gemini para el certificado: ${err.message}`, err);
+  }
+  if (!response?.text) throw new ExtraccionError('Gemini no devolvió contenido para el certificado.');
+  try { return JSON.parse(response.text); }
+  catch (err) { throw new ExtraccionError(`Gemini devolvió JSON malformado: ${response.text.slice(0, 300)}`, err); }
+}
+
 /**
  * Extrae los datos estructurados de una Carta de Porte Electrónica a partir del texto
  * plano ya extraído del PDF en el cliente (pdf.js). No reemplaza la extracción de texto,
@@ -253,4 +345,4 @@ async function extraerDatosCPE(texto) {
   }
 }
 
-module.exports = { extraerComprobante, guardarEnStaging, extraerDatosCPE, ExtraccionError };
+module.exports = { extraerComprobante, guardarEnStaging, extraerDatosCPE, extraerCertificadoPdf, ExtraccionError, MODEL };
