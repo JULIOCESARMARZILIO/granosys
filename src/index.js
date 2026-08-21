@@ -303,9 +303,18 @@ async function start() {
     app.listen(PORT, () => console.log(`GranoSYS v2.0 corriendo en puerto ${PORT}`));
     iniciarBackfillCertificadosDeposito();
     iniciarBackfillCpeConfirmadas();
+    if (String(process.env.ARCA_RECUPERAR_CPE_CERTIFICADOS_JULIO || '').toLowerCase() === 'true') {
+      setImmediate(() => recuperarCpePendientesDesdeCertificados()
+        .catch(error => console.error('RECUPERACION_CPE_JULIO_ERROR=' + error.message)));
+    }
     if (String(process.env.ARCA_RECUPERAR_CPE_CERTIFICADOS_TODAS || '').toLowerCase() === 'true') {
       setImmediate(() => recuperarCpePendientesDesdeCertificados()
         .catch(error => console.error('RECUPERACION_CPE_CERTIFICADOS_ERROR=' + error.message)));
+    }
+    if (String(process.env.ARCA_APLICAR_LIQUIDACIONES_CERTIFICADOS || '').toLowerCase() === 'true') {
+      setImmediate(() => arcaCertificateExtractor.applyAllLiquidations({ limit: 20000 })
+        .then(resultado => console.log('VINCULACION_LIQUIDACIONES_CERTIFICADOS_FINALIZADA=' + JSON.stringify(resultado)))
+        .catch(error => console.error('VINCULACION_LIQUIDACIONES_CERTIFICADOS_ERROR=' + error.message)));
     }
     if (String(process.env.ARCA_DIAGNOSTICO_DERIVADOS || '').toLowerCase() === 'true') {
       setImmediate(() => arcaOfficialClient.diagnosticarDerivadosPendientes()
