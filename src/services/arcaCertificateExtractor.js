@@ -414,13 +414,27 @@ async function applyAllLiquidations({ limit = 5000 } = {}) {
     ORDER BY document_date,id
     LIMIT $1
   `, [Math.max(1, Math.min(20000, Number(limit) || 5000))]);
-  const summary = { documents: documents.length, applications: 0, applied: 0, observed: 0, errors: [] };
+  const summary = { documents: documents.length, applications: 0, applied: 0, observed: 0,
+    observationCounts: {}, observationSamples: [], errors: [] };
   for (const document of documents) {
     const applications = extractLiquidationApplications(document.payload, document);
     summary.applications += applications.length;
     for (const application of applications) {
       if (application.observations.length) {
         summary.observed += 1;
+        for (const observation of application.observations) {
+          summary.observationCounts[observation] = (summary.observationCounts[observation] || 0) + 1;
+        }
+        if (summary.observationSamples.length < 10) {
+          summary.observationSamples.push({
+            documentId: document.id,
+            fuente: document.fuente,
+            externalKey: document.external_key,
+            observations: application.observations,
+            candidateFields: [...indexPayload(document.payload || {}).keys()]
+              .filter(name => /(coe|cert|kilo|peso|neto)/.test(name)).slice(0, 40)
+          });
+        }
         continue;
       }
       const client = await pool.connect();
