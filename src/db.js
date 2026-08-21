@@ -1166,6 +1166,41 @@ async function initDB() {
       FOR EACH ROW EXECUTE FUNCTION bloquear_modificacion_auditoria();
     `);
 
+    // Corrección puntual de unidad: OC-2026-0004 fue ingresado en kilos en un
+    // campo expresado en toneladas. La condición sobre el valor anterior hace
+    // que sea idempotente y evita pisar cualquier corrección posterior.
+    const { rowCount: contratoOc20260004Corregido } = await client.query(`
+      WITH objetivo AS MATERIALIZED (
+        SELECT *
+        FROM contratos
+        WHERE numero_contrato = 'OC-2026-0004'
+          AND cantidad_toneladas_pactadas = 304020
+        FOR UPDATE
+      ), actualizado AS (
+        UPDATE contratos c SET
+          cantidad_toneladas_pactadas = 307.100,
+          estado = CASE
+            WHEN COALESCE(c.cantidad_toneladas_asignadas, 0) >= 307.100 THEN 'CUMPLIDO'
+            WHEN COALESCE(c.cantidad_toneladas_asignadas, 0) > 0 THEN 'EN_CURSO'
+            ELSE c.estado
+          END,
+          updated_at = NOW()
+        FROM objetivo o
+        WHERE c.id = o.id
+        RETURNING c.id, TO_JSONB(c) AS datos_despues
+      )
+      INSERT INTO auditoria
+        (usuario, accion, modulo, registro_id, datos_antes, datos_despues, ip)
+      SELECT
+        'MIGRACION_UNIDAD_CONTRATO', 'MODIFICAR', 'contratos',
+        a.id, TO_JSONB(o), a.datos_despues, 'RAILWAY_INIT'
+      FROM actualizado a
+      JOIN objetivo o ON o.id = a.id
+    `);
+    if (contratoOc20260004Corregido > 0) {
+      console.log('Contrato OC-2026-0004 corregido: 304020 kg ingresados -> 307.100 tn pactadas.');
+    }
+
     console.log('Base de datos inicializada correctamente');
   } finally {
     client.release();
