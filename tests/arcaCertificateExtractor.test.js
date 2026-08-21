@@ -1,4 +1,4 @@
-const { extractCertificate, extractLiquidationApplication } = require('../src/services/arcaCertificateExtractor');
+const { extractCertificate, extractLiquidationApplication, extractLiquidationApplications } = require('../src/services/arcaCertificateExtractor');
 
 describe('ARCA certificate extraction', () => {
   test('extracts one certificate account with its CPE list and both kilogram totals', () => {
@@ -58,5 +58,21 @@ describe('ARCA certificate extraction', () => {
       'PRODUCTOR_SIN_CUIT', 'COMPRADOR_CERTIFICADOR_SIN_CUIT',
       'SIN_CTG', 'SIN_KILOS_BRUTOS', 'SIN_KILOS_NETOS_ACONDICIONADOS'
     ]));
+  });
+
+  test('extracts every certificate application from one liquidation', () => {
+    const results = extractLiquidationApplications({
+      liquidacion: {
+        coe: '998877665544',
+        certificados: [
+          { coeCertificadoDeposito: '123456789012', kilosBrutosAplicados: '20.000', kilosNetosAcondicionadosAplicados: '19.700' },
+          { coeCertificadoDeposito: '123456789013', kilosBrutosAplicados: '10.000', kilosNetosAcondicionadosAplicados: '9.850' }
+        ]
+      }
+    }, { document_date: '2026-08-18' });
+    expect(results).toHaveLength(2);
+    expect(results.map(item => item.certificateCoe)).toEqual(['123456789012', '123456789013']);
+    expect(results.map(item => item.grossKg)).toEqual([20000, 10000]);
+    expect(results.map(item => item.conditionedKg)).toEqual([19700, 9850]);
   });
 });

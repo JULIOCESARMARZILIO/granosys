@@ -341,13 +341,12 @@ async function extractAllCertificates({ limit = 1000 } = {}) {
   return summary;
 }
 
-function extractLiquidationApplication(payload, document = {}) {
-  const index = indexPayload(payload || {});
-  const certificateCoe = digits(first(index, [
+const LIQUIDATION_CERTIFICATE_ALIASES = [
     'coeCertificado', 'coeCertificadoDeposito', 'coeCertificacion', 'coeOrigen',
     'numeroCoeCertificado', 'nroCoeCertificado'
-  ]));
-  const liquidationCoe = digits(first(index, ['coe', 'coeLiquidacion', 'numeroCoe', 'nroCoe']) || document.external_key);
+];
+
+function buildLiquidationApplication(index, certificateCoe, liquidationCoe, dateValue) {
   const grossKg = number(first(index, [
     'kilosBrutosAplicados', 'kgBrutosAplicados', 'kilosBrutosLiquidacion',
     'kgBrutosLiquidacion', 'pesoBruto'
@@ -357,7 +356,6 @@ function extractLiquidationApplication(payload, document = {}) {
     'kilosNetosLiquidacion', 'kgNetosLiquidacion', 'pesoNetoAcondicionado',
     'kilosNetos', 'pesoNeto'
   ]));
-  const dateValue = first(index, ['fechaLiquidacion', 'fechaEmision']) || document.document_date || null;
   const date = dateValue ? new Date(dateValue) : null;
   return {
     certificateCoe,
@@ -367,10 +365,42 @@ function extractLiquidationApplication(payload, document = {}) {
     date: date && !Number.isNaN(date.getTime()) ? date : null,
     observations: [
       ...(!certificateCoe ? ['SIN_COE_CERTIFICADO_REFERENCIADO'] : []),
-      ...(grossKg === null ? ['SIN_KILOS_BRUTOS_LIQUIDADOS'] : []),
       ...(conditionedKg === null ? ['SIN_KILOS_NETOS_ACONDICIONADOS_LIQUIDADOS'] : [])
     ]
   };
+}
+
+function extractLiquidationApplications(payload, document = {}) {
+  const rootIndex = indexPayload(payload || {});
+  const liquidationCoe = digits(first(rootIndex, ['coeLiquidacion', 'numeroCoeLiquidacion', 'nroCoeLiquidacion', 'coe']) || document.external_key);
+  const dateValue = first(rootIndex, ['fechaLiquidacion', 'fechaEmision']) || document.document_date || null;
+  const candidates = [];
+
+  function visit(node) {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) return node.forEach(visit);
+    const direct = new Map(Object.entries(node).map(([name, value]) => [key(name), value]));
+    for (const alias of LIQUIDATION_CERTIFICATE_ALIASES) {
+      const raw = direct.get(key(alias));
+      if (raw === undefined || (raw && typeof raw === 'object')) continue;
+      const certificateCoe = digits(raw);
+      if (/^\d{8,20}$/.test(certificateCoe)) {
+        candidates.push(buildLiquidationApplication(indexPayload(node), certificateCoe, liquidationCoe, dateValue));
+      }
+    }
+    Object.values(node).forEach(visit);
+  }
+  visit(payload);
+
+  if (!candidates.length) {
+    const certificateCoe = digits(first(rootIndex, LIQUIDATION_CERTIFICATE_ALIASES));
+    candidates.push(buildLiquidationApplication(rootIndex, certificateCoe, liquidationCoe, dateValue));
+  }
+  return [...new Map(candidates.map(item => [item.certificateCoe || 'SIN_COE', item])).values()];
+}
+
+function extractLiquidationApplication(payload, document = {}) {
+  return extractLiquidationApplications(payload, document)[0];
 }
 
 async function applyAllLiquidations({ limit = 5000 } = {}) {
@@ -384,21 +414,28 @@ async function applyAllLiquidations({ limit = 5000 } = {}) {
     ORDER BY document_date,id
     LIMIT $1
   `, [Math.max(1, Math.min(20000, Number(limit) || 5000))]);
-  const summary = { documents: documents.length, applied: 0, observed: 0, errors: [] };
+  const summary = { documents: documents.length, applications: 0, applied: 0, observed: 0, errors: [] };
   for (const document of documents) {
-    const application = extractLiquidationApplication(document.payload, document);
-    if (application.observations.length) {
-      summary.observed += 1;
-      continue;
-    }
-    const client = await pool.connect();
-    try {
+    const applications = extractLiquidationApplications(document.payload, document);
+    summary.applications += applications.length;
+    for (const application of applications) {
+      if (application.observations.length) {
+        summary.observed += 1;
+        continue;
+      }
+      const client = await pool.connect();
+      try {
       await client.query('BEGIN');
       const { rows: certificates } = await client.query(
         'SELECT id,kilos_brutos_certificados,kilos_netos_acondicionados FROM certificados_1116 WHERE coe=$1 FOR UPDATE',
         [application.certificateCoe]
       );
       if (!certificates[0]) {
+        await client.query('ROLLBACK');
+        summary.observed += 1;
+        continue;
+      }
+      if (number(certificates[0].kilos_netos_acondicionados) === null) {
         await client.query('ROLLBACK');
         summary.observed += 1;
         continue;
@@ -415,7 +452,7 @@ async function applyAllLiquidations({ limit = 5000 } = {}) {
           kg_netos_acondicionados_descargados=EXCLUDED.kg_netos_acondicionados_descargados,
           datos_raw=EXCLUDED.datos_raw,updated_at=NOW()
       `, [certificates[0].id, document.id, application.liquidationCoe, application.date,
-        application.grossKg, application.conditionedKg, JSON.stringify(document.payload || {})]);
+        application.grossKg || 0, application.conditionedKg, JSON.stringify(document.payload || {})]);
       const { rows: balances } = await client.query(`
         SELECT
           c.kilos_brutos_certificados-COALESCE(SUM(a.kg_brutos_descargados),0) saldo_bruto,
@@ -424,15 +461,17 @@ async function applyAllLiquidations({ limit = 5000 } = {}) {
         LEFT JOIN certificado_1116_liquidaciones a ON a.id_certificado_1116=c.id
         WHERE c.id=$1 GROUP BY c.id
       `, [certificates[0].id]);
-      if ((number(balances[0]?.saldo_bruto) ?? 0) < -0.001 || (number(balances[0]?.saldo_neto) ?? 0) < -0.001)
-        throw new Error('La liquidacion supera el saldo disponible del certificado.');
+      if ((number(balances[0]?.saldo_neto) ?? 0) < -0.001)
+        throw new Error('La liquidacion supera el saldo neto acondicionado disponible del certificado.');
       await client.query('COMMIT');
       summary.applied += 1;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      summary.errors.push({ documentId: document.id, externalKey: document.external_key, error: error.message });
-    } finally {
-      client.release();
+      } catch (error) {
+        await client.query('ROLLBACK');
+        summary.errors.push({ documentId: document.id, externalKey: document.external_key,
+          certificateCoe: application.certificateCoe, error: error.message });
+      } finally {
+        client.release();
+      }
     }
   }
   return summary;
@@ -535,4 +574,4 @@ async function getRebuildJob(id) {
   return rows[0] || null;
 }
 
-module.exports = { extractCertificate, extractLiquidationApplication, extractQualities, extractAllCertificates, assignExistingCpesAndQualities, applyAllLiquidations, listCertificateAccounts, startRebuildJob, getRebuildJob, ensureSchema };
+module.exports = { extractCertificate, extractLiquidationApplication, extractLiquidationApplications, extractQualities, extractAllCertificates, assignExistingCpesAndQualities, applyAllLiquidations, listCertificateAccounts, startRebuildJob, getRebuildJob, ensureSchema };
