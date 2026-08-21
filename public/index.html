@@ -2901,6 +2901,10 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   const [importContratoVenta, setImportContratoVenta] = useState("");
   const [importTarifaFleteReal, setImportTarifaFleteReal] = useState("");
   const [importHumedadSalida, setImportHumedadSalida] = useState("");
+  const [importPaso, setImportPaso] = useState(1);
+  const [importFormalCreado, setImportFormalCreado] = useState(null);
+  const [importProductorId, setImportProductorId] = useState("");
+  const [importCompradorId, setImportCompradorId] = useState("");
   const [showImportTicket, setShowImportTicket] = useState(false);
   const [ticketContratoCompra, setTicketContratoCompra] = useState("");
   const [ticketContratoVenta, setTicketContratoVenta] = useState("");
@@ -2917,6 +2921,14 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   const [excelFileName, setExcelFileName] = useState("");
   const [movsReal,setMovsReal]=useState(null);
   const [vista,setVista]=useState("recientes");
+  const [filtroCtg,setFiltroCtg]=useState("");
+  const [filtroCultivo,setFiltroCultivo]=useState("");
+  const [filtroFechaDesde,setFiltroFechaDesde]=useState("");
+  const [filtroFechaHasta,setFiltroFechaHasta]=useState("");
+  const [filtroComprador,setFiltroComprador]=useState("");
+  const [filtroProveedor,setFiltroProveedor]=useState("");
+  const [filtroDestino,setFiltroDestino]=useState("");
+  const [filtroTexto,setFiltroTexto]=useState("");
 
   let rawMovs = movsReal !== null ? movsReal : mockMovimientos.filter(m=>m.modalidad===modulo);
   if (globalFiltroProductor) {
@@ -2943,6 +2955,85 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     const creado = new Date(m.created_at || 0).getTime();
     return (Date.now() - creado) > 24 * 60 * 60 * 1000;
   });
+  const hayFiltrosBusqueda = !!(filtroCtg||filtroCultivo||filtroFechaDesde||filtroFechaHasta||filtroComprador||filtroProveedor||filtroDestino||filtroTexto);
+  const movsFiltrados = !hayFiltrosBusqueda ? movs : movs.filter(m => {
+    if (filtroCtg && !String(m.nro_ctg||"").toLowerCase().includes(filtroCtg.toLowerCase())) return false;
+    if (filtroCultivo && (m.especie||"") !== filtroCultivo) return false;
+    if (filtroComprador && !(m.comprador||"").toLowerCase().includes(filtroComprador.toLowerCase())) return false;
+    if (filtroProveedor && !(m.productor||"").toLowerCase().includes(filtroProveedor.toLowerCase())) return false;
+    if (filtroDestino && !(m.destino||"").toLowerCase().includes(filtroDestino.toLowerCase())) return false;
+    if (filtroFechaDesde || filtroFechaHasta) {
+      const fechaRef = m.fecha_partida || m.created_at;
+      if (!fechaRef) return false;
+      const f = new Date(fechaRef);
+      if (filtroFechaDesde && f < new Date(filtroFechaDesde)) return false;
+      if (filtroFechaHasta && f > new Date(filtroFechaHasta+"T23:59:59")) return false;
+    }
+    if (filtroTexto) {
+      const t = filtroTexto.toLowerCase();
+      const campos = [m.numero, m.nro_ctg, m.nro_cpe, m.patente_chasis, m.patente_acoplado, m.productor, m.comprador, m.destino, m.origen, m.titular_cpe_nombre];
+      if (!campos.some(c => String(c||"").toLowerCase().includes(t))) return false;
+    }
+    return true;
+  });
+  const limpiarFiltrosBusqueda = () => { setFiltroCtg("");setFiltroCultivo("");setFiltroFechaDesde("");setFiltroFechaHasta("");setFiltroComprador("");setFiltroProveedor("");setFiltroDestino("");setFiltroTexto(""); };
+
+  const COLUMNAS_EXPORT_MOV = [
+    ["numero_movimiento","N° Movimiento"],["modalidad","Modalidad"],["estado","Estado"],
+    ["estado_liquidacion","Estado Liquidación"],["estado_flete","Estado Flete"],
+    ["nro_contrato_compra","Contrato Compra"],["nro_contrato_venta","Contrato Venta"],
+    ["nro_cpe","N° CPE"],["nro_ctg","N° CTG"],["fecha_cpe","Fecha CPE"],["fecha_vencimiento_cpe","Vencimiento CPE"],
+    ["titular_cpe_nombre","Titular CPE"],["titular_cpe_cuit","CUIT Titular"],
+    ["remitente_comercial_productor_nombre","Productor"],["remitente_comercial_productor_cuit","CUIT Productor"],
+    ["rte_comercial_venta_primaria_nombre","Rte. Venta Primaria"],["rte_comercial_venta_primaria_cuit","CUIT Rte. Venta Primaria"],
+    ["rte_comercial_venta_secundaria_nombre","Rte. Venta Secundaria"],["rte_comercial_venta_secundaria_cuit","CUIT Rte. Venta Secundaria"],
+    ["corredor_venta_primaria_nombre","Corredor Venta Primaria"],["corredor_venta_primaria_cuit","CUIT Corredor"],
+    ["destinatario_nombre","Comprador"],["destinatario_cuit","CUIT Comprador"],
+    ["destino_nombre","Destino (razón social)"],["destino_cuit","CUIT Destino"],
+    ["flete_pagador_nombre","Pagador Flete"],["flete_pagador_cuit","CUIT Pagador Flete"],
+    ["especie_nombre","Especie"],["campana_desc","Campaña"],["declaracion_calidad","Declaración Calidad"],
+    ["renspa","RENSPA"],["localidad_origen","Localidad Origen"],["provincia_origen","Provincia Origen"],
+    ["latitud","Latitud"],["longitud","Longitud"],["descripcion_campo","Descripción Campo"],
+    ["nro_planta_destino","N° Planta Destino"],["localidad_destino","Localidad Destino"],["provincia_destino","Provincia Destino"],
+    ["patente_chasis","Patente Chasis"],["patente_acoplado","Patente Acoplado"],["fecha_partida","Fecha Partida"],
+    ["km_a_recorrer","Km a Recorrer"],["tarifa_catac","Tarifa CATAC"],["tarifa_flete_real","Tarifa Flete Real"],["tipo_tarifa","Tipo Tarifa"],
+    ["peso_bruto_salida_kg","Kg Bruto Salida"],["peso_tara_salida_kg","Kg Tara Salida"],["peso_neto_salida_kg","Kg Neto Salida"],["humedad_salida_pct","Humedad Salida %"],
+    ["fecha_arribo","Fecha Arribo"],["fecha_descarga","Fecha Descarga"],["nro_turno","N° Turno"],
+    ["peso_bruto_llegada_kg","Kg Bruto Llegada"],["peso_tara_llegada_kg","Kg Tara Llegada"],["peso_neto_llegada_kg","Kg Neto Llegada"],["humedad_llegada_pct","Humedad Llegada %"],
+    ["diferencia_kg","Diferencia Kg"],["tolerancia_kg","Tolerancia Kg"],["faltante_kg","Faltante Kg"],["valor_faltante","Valor Faltante"],
+    ["tipo_factor","Tipo Factor"],["factor_calculado","Factor Calculado"],["factor_manual","Factor Manual"],["factor_aplicado","Factor Aplicado"],
+    ["kg_liquidables","Kg Liquidables"],["nro_liquidacion","N° Liquidación"],
+    ["total_servicios_compra","Total Servicios Compra"],["total_servicios_venta","Total Servicios Venta"],
+    ["observaciones","Observaciones"],["codigo_preliquidacion","Código Preliquidación"],
+    ["usuario_carga","Usuario Carga"],["created_at","Fecha Alta"]
+  ];
+  const exportarMovimientosExcel = () => {
+    if (movsFiltrados.length === 0) { alert("No hay movimientos para exportar con estos filtros."); return; }
+    const filas = movsFiltrados.map(m => {
+      const fila = {};
+      COLUMNAS_EXPORT_MOV.forEach(([col,label]) => {
+        const v = m[col];
+        fila[label] = (v === null || v === undefined) ? "" : v;
+      });
+      return fila;
+    });
+    const labelsConDatos = COLUMNAS_EXPORT_MOV.map(([,label])=>label)
+      .filter(label => filas.some(f => f[label] !== "" && f[label] !== null && f[label] !== undefined));
+    const filasFinal = filas.map(f => {
+      const o = {};
+      labelsConDatos.forEach(l => o[l] = f[l]);
+      return o;
+    });
+    const ws = XLSX.utils.json_to_sheet(filasFinal);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Movimientos");
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbout], { type: "application/octet-stream" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `movimientos_${modulo.toLowerCase()}_${new Date().toISOString().slice(0,10)}.xlsx`;
+    a.click();
+  };
   const [contratosReal,setContratosReal]=useState(null);
   const contratos = contratosReal !== null ? contratosReal : mockContratos.filter(c=>c.modalidad===modulo);
   const [contrapartesReal, setContrapartesReal] = useState(null);
@@ -4398,6 +4489,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         <div style={{display:"flex",gap:8}}>
           <Btn variant="secondary" size="sm" onClick={()=>setShowRapido(true)}>⚡ Carga Rápida</Btn>
           <Btn variant="secondary" size="sm" onClick={()=>setShowImport(true)}>↑ Importar CPE</Btn>
+          <Btn variant="secondary" size="sm" onClick={exportarMovimientosExcel}>⬇ Exportar Excel</Btn>
           {modulo==="INFORMAL"&&<>
             <Btn variant="secondary" size="sm" onClick={()=>{ setTicketContratoCompra(""); setTicketContratoVenta(""); setShowImportTicket(true); }}>↑ Importar Ticket</Btn>
             <Btn variant="secondary" size="sm" onClick={()=>setShowImportExcel(true)}>↑ Importar Excel</Btn>
@@ -4514,6 +4606,26 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         </div>
       )}
 
+      <div className="card" style={{marginBottom:14,padding:14}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <FF label="CTG"><input style={{width:120}} value={filtroCtg} onChange={e=>setFiltroCtg(e.target.value)} placeholder="N° CTG"/></FF>
+          <FF label="Cultivo">
+            <select style={{width:120}} value={filtroCultivo} onChange={e=>setFiltroCultivo(e.target.value)}>
+              <option value="">Todos</option>
+              {ESPECIES.map(e=><option key={e} value={e}>{e}</option>)}
+            </select>
+          </FF>
+          <FF label="Desde"><input type="date" value={filtroFechaDesde} onChange={e=>setFiltroFechaDesde(e.target.value)}/></FF>
+          <FF label="Hasta"><input type="date" value={filtroFechaHasta} onChange={e=>setFiltroFechaHasta(e.target.value)}/></FF>
+          <FF label="Comprador"><input style={{width:140}} value={filtroComprador} onChange={e=>setFiltroComprador(e.target.value)} placeholder="Buscar..."/></FF>
+          <FF label="Proveedor"><input style={{width:140}} value={filtroProveedor} onChange={e=>setFiltroProveedor(e.target.value)} placeholder="Buscar..."/></FF>
+          <FF label="Destino"><input style={{width:140}} value={filtroDestino} onChange={e=>setFiltroDestino(e.target.value)} placeholder="Buscar..."/></FF>
+          <FF label="Otro (N° Mov, CPE, patente...)"><input style={{width:180}} value={filtroTexto} onChange={e=>setFiltroTexto(e.target.value)} placeholder="Buscar..."/></FF>
+          {hayFiltrosBusqueda && <Btn variant="secondary" size="sm" onClick={limpiarFiltrosBusqueda}>✕ Limpiar filtros</Btn>}
+          <div style={{marginLeft:"auto",fontSize:12,color:"#8890a8",paddingBottom:8}}>{movsFiltrados.length} de {movs.length} camión(es)</div>
+        </div>
+      </div>
+
       <div className="card">
         <div style={{overflowX:"auto"}}>
         <table><thead><tr>
@@ -4521,7 +4633,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
           <th>Contrato C.</th><th>Kg Salida</th><th>Kg Llegada</th><th>Faltante</th>
           <th>Kg Liq.</th><th>Estado</th><th>Liq.</th><th></th>
         </tr></thead>
-        <tbody>{movs.map(m=>(
+        <tbody>{movsFiltrados.map(m=>(
           <tr key={m.id}>
             <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{m.numero}</span></td>
             {modulo==="FORMAL"&&<td><span className="mono" style={{fontSize:11,color:"#8890a8"}}>{m.nro_ctg||"—"}</span></td>}
@@ -4632,11 +4744,11 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
 
       {/* IMPORTADOR CPE */}
       {showImport&&(
-        <Modal title="Importar Carta de Porte Electrónica" onClose={()=>{setShowImport(false);setImportResult(null);}} width={900}>
+        <Modal title={modulo==="INFORMAL"&&importPaso===2?"Completar Informal (paso 2 de 2)":"Importar Carta de Porte Electrónica"} onClose={()=>{setShowImport(false);setImportResult(null);setImportPaso(1);setImportFormalCreado(null);setImportProductorId("");setImportCompradorId("");setImportContratoCompra("");setImportContratoVenta("");}} width={900}>
           {!importResult?(
             <div>
-              <div 
-                className="drop-zone" 
+              <div
+                className="drop-zone"
                 style={{marginBottom:16, cursor:"pointer"}}
                 onClick={() => document.getElementById('cpe-pdf-upload').click()}
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -4647,11 +4759,11 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                   if(file) handleFile(file);
                 }}
               >
-                <input 
-                  type="file" 
-                  id="cpe-pdf-upload" 
-                  accept=".pdf" 
-                  style={{display:"none"}} 
+                <input
+                  type="file"
+                  id="cpe-pdf-upload"
+                  accept=".pdf"
+                  style={{display:"none"}}
                   onChange={(e) => {
                     const file = e.target.files[0];
                     if(file) handleFile(file);
@@ -4670,6 +4782,110 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                 </div>
               )}
             </div>
+          ): (modulo==="INFORMAL" && importPaso===2) ? (
+            <div>
+              <div className="alert-success" style={{marginBottom:16}}>
+                ✓ Formal {importFormalCreado?.numero_movimiento} creado desde CPE N° {importResult.nro_cpe}. Ahora elegí el productor y comprador reales para el par Informal — no tienen que coincidir con los nombres oficiales de la CPE.
+              </div>
+              <div className="form-grid-2" style={{marginBottom:14}}>
+                <FF label="Productor (real)">
+                  <select value={importProductorId} onChange={e=>{ setImportProductorId(e.target.value); setImportContratoCompra(""); }}>
+                    <option value="">Seleccionar...</option>
+                    {contrapartes.filter(c=>c.tipo_contraparte==="PRODUCTOR"||c.tipo_contraparte==="AMBOS").map(c=>(
+                      <option key={c.id} value={c.id}>{c.razon_social}</option>
+                    ))}
+                  </select>
+                </FF>
+                <FF label="Contrato de Compra">
+                  <select value={importContratoCompra} onChange={e=>setImportContratoCompra(e.target.value)} disabled={!importProductorId}>
+                    <option value="">Sin asignar</option>
+                    {contratos.filter(c=>c.tipo==="COMPRA" && c.modalidad==="INFORMAL" && String(c.id_contraparte)===String(importProductorId)).map(c=>
+                      <option key={c.id} value={c.id}>{c.numero} — {c.especie}</option>
+                    )}
+                  </select>
+                </FF>
+                <FF label="Comprador (real)">
+                  <select value={importCompradorId} onChange={e=>{ setImportCompradorId(e.target.value); setImportContratoVenta(""); }}>
+                    <option value="">Seleccionar...</option>
+                    {contrapartes.filter(c=>c.tipo_contraparte==="COMPRADOR"||c.tipo_contraparte==="AMBOS").map(c=>(
+                      <option key={c.id} value={c.id}>{c.razon_social}</option>
+                    ))}
+                  </select>
+                </FF>
+                <FF label="Contrato de Venta">
+                  <select value={importContratoVenta} onChange={e=>setImportContratoVenta(e.target.value)} disabled={!importCompradorId}>
+                    <option value="">Sin asignar</option>
+                    {contratos.filter(c=>c.tipo==="VENTA" && c.modalidad==="INFORMAL" && String(c.id_contraparte)===String(importCompradorId)).map(c=>
+                      <option key={c.id} value={c.id}>{c.numero} — {c.especie}</option>
+                    )}
+                  </select>
+                </FF>
+              </div>
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                <Btn variant="secondary" onClick={()=>{setShowImport(false);setImportResult(null);setImportPaso(1);setImportFormalCreado(null);setImportProductorId("");setImportCompradorId("");setImportContratoCompra("");setImportContratoVenta("");cargarMovimientos();}}>Completar más tarde (el Formal ya quedó creado)</Btn>
+                <Btn onClick={async()=>{
+                  try {
+                    const productor = contrapartes.find(c=>String(c.id)===String(importProductorId));
+                    const comprador = contrapartes.find(c=>String(c.id)===String(importCompradorId));
+                    const MAP_ESPECIES = { "soja": 1, "trigo": 2, "maíz": 3, "maiz": 3, "girasol": 4, "sorgo": 5, "cebada": 6 };
+                    const mapCampanaToId = (camp) => {
+                      if (!camp) return 2;
+                      const s = String(camp);
+                      if (s.includes("23") || (s.includes("24") && !s.includes("25"))) return 1;
+                      if (s.includes("25") || s.includes("26")) return 3;
+                      return 2;
+                    };
+                    const payloadInformal = {
+                      modalidad: "INFORMAL",
+                      omitir_gemelo: true,
+                      nro_cpe: importResult.nro_cpe || null,
+                      nro_ctg: importResult.nro_ctg || null,
+                      fecha_cpe: importResult.fecha_iso || null,
+                      fecha_vencimiento_cpe: importResult.vencimiento_iso || null,
+                      remitente_comercial_productor_cuit: productor?.cuit || null,
+                      remitente_comercial_productor_nombre: productor?.razon_social || null,
+                      destinatario_cuit: comprador?.cuit || null,
+                      destinatario_nombre: comprador?.razon_social || null,
+                      id_especie: MAP_ESPECIES[importResult.especie ? importResult.especie.toLowerCase() : ""] || 1,
+                      id_campana: mapCampanaToId(importResult.campana),
+                      localidad_origen: importResult.origen_loc || null,
+                      provincia_origen: importResult.origen_prov || null,
+                      localidad_destino: importResult.destino_loc || null,
+                      provincia_destino: importResult.destino_prov || null,
+                      nro_planta_destino: importResult.nro_planta || null,
+                      patente_chasis: importResult.chasis || null,
+                      patente_acoplado: importResult.acoplado || null,
+                      km_a_recorrer: parseFloat(importResult.km) || 0,
+                      tarifa_catac: parseFloat(importResult.tarifa) || 0,
+                      tarifa_flete_real: parseFloat(importTarifaFleteReal || importResult.tarifa || 0),
+                      peso_bruto_salida_kg: parseFloat(importResult.peso_bruto) || 0,
+                      peso_tara_salida_kg: parseFloat(importResult.peso_tara) || 0,
+                      humedad_salida_pct: parseFloat(importHumedadSalida) || null,
+                      usuario_carga: usuario,
+                      id_contrato_compra: importContratoCompra ? parseInt(importContratoCompra) : null,
+                      id_contrato_venta: importContratoVenta ? parseInt(importContratoVenta) : null,
+                      observaciones: `Creado desde CPE ${importResult.nro_cpe || ""} — par vinculado al Formal ${importFormalCreado?.numero_movimiento || ""}.`
+                    };
+                    const rInformal = await api.post("/api/movimientos", payloadInformal);
+                    if (importFormalCreado?.id && rInformal?.id) {
+                      await api.put(`/api/movimientos/${rInformal.id}/vincular`, { id_par: importFormalCreado.id });
+                    }
+                    alert(`✓ Informal ${rInformal.numero_movimiento} creado y vinculado al Formal ${importFormalCreado?.numero_movimiento}.`);
+                    setShowImport(false);
+                    setImportResult(null);
+                    setImportPaso(1);
+                    setImportFormalCreado(null);
+                    setImportProductorId("");
+                    setImportCompradorId("");
+                    setImportContratoCompra("");
+                    setImportContratoVenta("");
+                    cargarMovimientos();
+                  } catch(err) {
+                    alert("Error al crear el Informal: " + (err.response?.data?.error || err.message));
+                  }
+                }}>Confirmar Informal</Btn>
+              </div>
+            </div>
           ):(
             <div>
               <div className="alert-success" style={{marginBottom:16}}>✓ CPE procesada correctamente — Validá los datos antes de confirmar</div>
@@ -4681,8 +4897,9 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                   </div>
                 ))}
               </div>
+              {modulo==="INFORMAL" && <div className="alert-info" style={{marginBottom:14}}>Esto crea primero el Formal con estos datos oficiales. En el paso siguiente vas a poder elegir el productor y comprador reales para el Informal.</div>}
               <div className="form-grid-2" style={{marginBottom:14}}>
-                <FF label="Asignar a Contrato de Compra">
+                {modulo==="FORMAL" && <FF label="Asignar a Contrato de Compra">
                   <select value={importContratoCompra} onChange={e=>setImportContratoCompra(e.target.value)}>
                     <option value="">Sin asignar</option>
                     {contratos.filter(c => {
@@ -4692,7 +4909,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                       const especieId = MAP_ESPECIES[importResult.especie ? importResult.especie.toLowerCase() : ""] || 1;
                       const espName = (ESPECIES[especieId - 1] || "").toLowerCase();
                       if (c.especie && c.especie.toLowerCase() !== espName) return false;
-                      
+
                       const prodName = (importResult.rte_primaria || importResult.titular || "").toLowerCase().trim();
                       if (prodName) {
                         const cp = contrapartes.find(x => x.razon_social.toLowerCase().trim() === prodName);
@@ -4705,14 +4922,14 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie}</option>
                     )}
                   </select>
-                </FF>
+                </FF>}
                 <FF label="Tarifa Flete Real Pactada">
                   <input type="number" value={importTarifaFleteReal} onChange={e=>setImportTarifaFleteReal(e.target.value)} placeholder={importResult.tarifa}/>
                 </FF>
                 <FF label="Humedad de Salida (%)">
                   <input type="number" value={importHumedadSalida} onChange={e=>setImportHumedadSalida(e.target.value)} placeholder="13.2" step="0.1"/>
                 </FF>
-                <FF label="Contrato de Venta">
+                {modulo==="FORMAL" && <FF label="Contrato de Venta">
                   <select value={importContratoVenta} onChange={e=>setImportContratoVenta(e.target.value)}>
                     <option value="">Sin asignar</option>
                     {contratos.filter(c => {
@@ -4722,7 +4939,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                       const especieId = MAP_ESPECIES[importResult.especie ? importResult.especie.toLowerCase() : ""] || 1;
                       const espName = (ESPECIES[especieId - 1] || "").toLowerCase();
                       if (c.especie && c.especie.toLowerCase() !== espName) return false;
-                      
+
                       const destName = (importResult.destinatario || "").toLowerCase().trim();
                       if (destName) {
                         const cp = contrapartes.find(x => x.razon_social.toLowerCase().trim() === destName);
@@ -4735,7 +4952,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                       <option key={c.id} value={c.id}>{c.numero} — {c.contraparte} — {c.especie}</option>
                     )}
                   </select>
-                </FF>
+                </FF>}
               </div>
               <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
                 <Btn variant="secondary" onClick={()=>setImportResult(null)}>← Volver</Btn>
@@ -4749,8 +4966,9 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                       if (s.includes("25") || s.includes("26")) return 3;
                       return 2;
                     };
+                    const modalidadCrear = modulo === "INFORMAL" ? "FORMAL" : modulo;
                     const payload = {
-                      modalidad: modulo,
+                      modalidad: modalidadCrear,
                       nro_cpe: importResult.nro_cpe || null,
                       nro_ctg: importResult.nro_ctg || null,
                       fecha_cpe: importResult.fecha_iso || null,
@@ -4788,19 +5006,30 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                       id_contrato_venta: importContratoVenta ? parseInt(importContratoVenta) : null
                     };
 
-                     const r = await api.post("/api/movimientos", payload);
-                     let msg = `✓ Movimiento ${r.numero_movimiento} creado desde CPE N° ${importResult.nro_cpe}\nEstado: EN_TRÁNSITO`;
-                     if (r.id_movimiento_vinculado) {
-                       msg += `\n✓ Duplicado creado y vinculado automáticamente en el Módulo Formal.`;
-                     }
-                     alert(msg);
-                    setShowImport(false);
-                    setImportResult(null);
-                    cargarMovimientos();
+                    const r = await api.post("/api/movimientos", payload);
+                    if (modulo === "INFORMAL") {
+                      setImportFormalCreado(r);
+                      const matchCp = (nombre, tipos) => {
+                        const n = (nombre||"").toLowerCase().trim();
+                        if (!n) return "";
+                        const cp = contrapartes.find(x => tipos.includes(x.tipo_contraparte) && x.razon_social.toLowerCase().trim() === n);
+                        return cp ? String(cp.id) : "";
+                      };
+                      setImportProductorId(matchCp(importResult.rte_primaria || importResult.titular, ["PRODUCTOR","AMBOS"]));
+                      setImportCompradorId(matchCp(importResult.destinatario, ["COMPRADOR","AMBOS"]));
+                      setImportContratoCompra("");
+                      setImportContratoVenta("");
+                      setImportPaso(2);
+                    } else {
+                      alert(`✓ Movimiento ${r.numero_movimiento} creado desde CPE N° ${importResult.nro_cpe}\nEstado: EN_TRÁNSITO`);
+                      setShowImport(false);
+                      setImportResult(null);
+                      cargarMovimientos();
+                    }
                   } catch(err) {
                     alert("Error al crear movimiento: " + (err.response?.data?.error || err.message));
                   }
-                }}>Confirmar y Crear Movimiento</Btn>
+                }}>{modulo==="INFORMAL" ? "Aceptar datos reales →" : "Confirmar y Crear Movimiento"}</Btn>
               </div>
             </div>
           )}
