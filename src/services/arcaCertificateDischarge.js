@@ -21,16 +21,16 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
     await client.query('BEGIN');
     await client.query("SELECT pg_advisory_xact_lock(hashtext('granosys:arca-certificados-descargas'))");
     const { rows } = await client.query(`
-      SELECT cc.ctg, m.id AS movimiento_id, m.estado,
-        m.kg_netos_destino, m.kg_liquidables,
+      SELECT cc.nro_ctg, m.id AS movimiento_id, m.estado,
+        m.peso_neto_llegada_kg, m.kg_liquidables,
         SUM(cc.kg_netos_acondicionados)::numeric AS kilos,
         jsonb_agg(DISTINCT jsonb_build_object('coe',c.coe,'certificado',c.numero_certificado)) AS certificados
       FROM certificado_1116_ctgs cc
       JOIN certificados_1116 c ON c.id=cc.id_certificado_1116
-      LEFT JOIN movimientos m ON m.nro_ctg=cc.ctg AND m.modalidad='FORMAL'
+      LEFT JOIN movimientos m ON (m.id=cc.id_movimiento OR (cc.id_movimiento IS NULL AND m.nro_ctg=cc.nro_ctg)) AND m.modalidad='FORMAL'
       WHERE cc.cpe_document_id IS NOT NULL
-      GROUP BY cc.ctg,m.id,m.estado,m.kg_netos_destino,m.kg_liquidables
-      ORDER BY cc.ctg
+      GROUP BY cc.nro_ctg,m.id,m.estado,m.peso_neto_llegada_kg,m.kg_liquidables
+      ORDER BY cc.nro_ctg
     `);
     for (const row of rows) {
       resultado.revisadas += 1;
@@ -41,7 +41,7 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
       else if (!Number.isFinite(kilos) || kilos <= 0) motivo = 'KILOS_CERTIFICADOS_FALTANTES';
       else if (['ANULADO','RECHAZADO'].includes(String(row.estado || '').toUpperCase())) motivo = 'MOVIMIENTO_NO_APLICABLE';
       else {
-        const existente = row.kg_liquidables == null ? row.kg_netos_destino : row.kg_liquidables;
+        const existente = row.kg_liquidables == null ? row.peso_neto_llegada_kg : row.kg_liquidables;
         if (existente != null && Math.abs(Number(existente) - kilos) > 0.001) {
           estado = 'CONFLICTO';
           motivo = 'KILOS_EXISTENTES_DIFIEREN_DEL_CERTIFICADO';
@@ -52,7 +52,7 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
           await client.query(`
             UPDATE movimientos SET
               estado='DESCARGADO',
-              kg_netos_destino=COALESCE(kg_netos_destino,$1),
+              peso_neto_llegada_kg=COALESCE(peso_neto_llegada_kg,$1),
               kg_liquidables=COALESCE(kg_liquidables,$1),
               observaciones=CASE WHEN COALESCE(observaciones,'') ILIKE '%' || $2 || '%'
                 THEN observaciones ELSE CONCAT_WS(' ',NULLIF(observaciones,''),$2) END
