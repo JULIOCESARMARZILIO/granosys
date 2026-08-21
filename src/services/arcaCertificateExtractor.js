@@ -378,13 +378,13 @@ function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 async function extractCertificatePdfsWithGemini({ limit = 1000 } = {}) {
   await ensureSchema();
   const { rows: files } = await pool.query(`
-    SELECT f.id file_id,f.document_id,f.content_hash,f.content,d.external_key,d.payload
+    SELECT f.id file_id,f.document_id,f.content_hash,f.content,d.external_key,d.payload,x.resultado previous_result
     FROM arca_official_files f
     JOIN arca_official_documents d ON d.id=f.document_id
     LEFT JOIN arca_certificate_ai_extractions x ON x.document_id=d.id
-      AND x.content_hash=f.content_hash AND x.model=$2 AND x.estado='COMPLETADO'
+      AND x.content_hash=f.content_hash AND x.model=$2
     WHERE d.fuente='ARCA_CEG_INTERACTIVO' AND f.file_type='PDF'
-      AND f.mime_type='application/pdf' AND x.id IS NULL
+      AND f.mime_type='application/pdf' AND (x.id IS NULL OR x.estado <> 'COMPLETADO')
     ORDER BY d.id LIMIT $1`, [Math.max(1, Math.min(5000, Number(limit) || 1000)), GEMINI_MODEL]);
   const summary = { pending: files.length, completed: 0, errors: [], certificates: 0, ctgs: 0 };
   console.log('GEMINI_CERTIFICADOS_INICIADO=' + JSON.stringify({ pending: files.length, model: GEMINI_MODEL }));
@@ -396,8 +396,9 @@ async function extractCertificatePdfsWithGemini({ limit = 1000 } = {}) {
         file_id=EXCLUDED.file_id,estado='PROCESANDO',error=NULL,intentos=arca_certificate_ai_extractions.intentos+1,updated_at=NOW()`,
     [file.document_id, file.file_id, file.content_hash, GEMINI_MODEL]);
     try {
-      let result;
+      let result = file.previous_result || null;
       for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (result) break;
         try { result = await extraerCertificadoPdf(file.content); break; }
         catch (error) {
           if (attempt === 2 || !/(429|quota|timeout|503|temporar)/i.test(error.message)) throw error;
@@ -408,7 +409,7 @@ async function extractCertificatePdfsWithGemini({ limit = 1000 } = {}) {
         error=NULL,updated_at=NOW() WHERE document_id=$1 AND content_hash=$2 AND model=$3`,
       [file.document_id, file.content_hash, GEMINI_MODEL, JSON.stringify(result)]);
       await pool.query(`UPDATE arca_official_documents SET payload=jsonb_set(COALESCE(payload,'{}'::jsonb),
-        '{geminiCertificateExtraction}',$2::jsonb,true),updated_at=NOW() WHERE id=$1`,
+        '{geminiCertificateExtraction}',$2::jsonb,true) WHERE id=$1`,
       [file.document_id, JSON.stringify(result)]);
       const client = await pool.connect();
       try {
