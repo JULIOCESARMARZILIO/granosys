@@ -431,3 +431,14 @@ router.get('/comprobante', async (req, res) => {
 });
 
 module.exports = router;
+
+
+router.post('/sync/descargas-desde-certificados', async (req, res) => {
+    try {
+          const { materializarDescargasDesdeCertificados } = require('../services/arcaCertificateDischarge');
+          const resultado = await materializarDescargasDesdeCertificados({ userId: req.user?.id || null });
+          res.status(201).json({ ok: true, resultado, accionFiscal: false });
+    } catch (err) {
+          res.status(422).json({ ok: false, error: err.message });
+    }
+});
