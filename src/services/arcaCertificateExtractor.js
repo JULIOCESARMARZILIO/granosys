@@ -426,13 +426,18 @@ async function applyAllLiquidations({ limit = 5000 } = {}) {
           summary.observationCounts[observation] = (summary.observationCounts[observation] || 0) + 1;
         }
         if (summary.observationSamples.length < 10) {
+          const rawXml = String(document.payload?.rawXml || '');
+          const xmlTags = [...new Set([...rawXml.matchAll(/<(?:\w+:)?([A-Za-z][\w.-]*)\b/g)]
+            .map(match => key(match[1]))
+            .filter(name => /(coe|cert|kilo|peso|neto|merma)/.test(name)))].slice(0, 80);
           summary.observationSamples.push({
             documentId: document.id,
             fuente: document.fuente,
             externalKey: document.external_key,
             observations: application.observations,
             candidateFields: [...indexPayload(document.payload || {}).keys()]
-              .filter(name => /(coe|cert|kilo|peso|neto)/.test(name)).slice(0, 40)
+              .filter(name => /(coe|cert|kilo|peso|neto)/.test(name)).slice(0, 40),
+            xmlTags
           });
         }
         continue;
