@@ -81,6 +81,8 @@ function extractQualities(payload) {
 
 function extractCertificate(payload, document = {}) {
   const index = indexPayload(payload || {});
+  const ai = payload?.geminiCertificateExtraction || payload?.gemini_certificate_extraction || null;
+  const aiNumber = name => ai && Object.prototype.hasOwnProperty.call(ai, name) ? number(ai[name]) : null;
   const coe = digits(first(index, ['coe', 'numeroCoe', 'nroCoe', 'codigoOperacionElectronica']) || document.external_key);
   const certificateNumber = String(first(index, ['numeroCertificado', 'nroCertificado', 'certificadoDeposito', 'numeroCertificacion', 'numero_certificado']) || '').trim() || null;
   const form = String(first(index, ['tipoFormulario', 'tipoCertificado', 'tipoCertificacion']) || 'A').toUpperCase();
@@ -90,11 +92,11 @@ function extractCertificate(payload, document = {}) {
   const buyerName = String(first(index, ['razonSocialComprador', 'nombreComprador', 'comprador', 'certificador', 'comprador_nombre', 'emisor_nombre']) || '').trim() || null;
   const species = String(first(index, ['especie', 'descripcionEspecie', 'producto', 'grano']) || '').trim() || null;
   const campaign = String(first(index, ['campana', 'cosecha', 'campanaComercial']) || '').trim() || null;
-  const grossKg = number(first(index, ['kilosBrutos', 'kgBrutos', 'pesoBrutoCertificado', 'totalKilosBrutos', 'pesoOriginal', 'kilos_brutos_certificados']));
-  const conditionedKg = number(first(index, ['kilosNetosAcondicionados', 'kgNetosAcondicionados', 'pesoNetoAcondicionado', 'kilosNetos', 'pesoNetoCertificado', 'kilos_netos_acondicionados']));
-  const humidityLossKg = number(first(index, ['mermaHumedadKg', 'kilosMermaHumedad', 'mermaHumedad']));
-  const qualityLossKg = number(first(index, ['mermaCalidadKg', 'kilosMermaCalidad', 'mermaCalidad']));
-  const otherLossKg = number(first(index, ['otrasMermasKg', 'kilosOtrasMermas', 'otrasMermas']));
+  const grossKg = ai ? aiNumber('kilos_brutos_certificados') : number(first(index, ['kilosBrutos', 'kgBrutos', 'pesoBrutoCertificado', 'totalKilosBrutos', 'pesoOriginal']));
+  const conditionedKg = ai ? aiNumber('kilos_netos_acondicionados') : number(first(index, ['kilosNetosAcondicionados', 'kgNetosAcondicionados', 'pesoNetoAcondicionado', 'kilosNetos', 'pesoNetoCertificado']));
+  const humidityLossKg = ai ? aiNumber('merma_humedad_kg') : number(first(index, ['mermaHumedadKg', 'kilosMermaHumedad', 'mermaHumedad']));
+  const qualityLossKg = ai ? aiNumber('merma_calidad_kg') : number(first(index, ['mermaCalidadKg', 'kilosMermaCalidad', 'mermaCalidad']));
+  const otherLossKg = ai ? aiNumber('otras_mermas_kg') : number(first(index, ['otrasMermasKg', 'kilosOtrasMermas', 'otrasMermas']));
   const ctgs = all(index, ['ctg', 'nroCtg', 'numeroCtg', 'ctdg', 'nroCtdg', 'numeroCartaPorte'])
     .map(normalizeCtg).filter(Boolean);
   const dateValue = first(index, ['fechaEmision', 'fechaCertificado', 'fechaCertificacion']) || document.document_date || null;
@@ -114,12 +116,12 @@ function extractCertificate(payload, document = {}) {
   if (totalLossKg !== null && explainedLossKg !== null && Math.abs(totalLossKg - explainedLossKg) > 1)
     observations.push('MERMAS_NO_RECONCILIAN');
 
-  const ai = payload?.geminiCertificateExtraction || payload?.gemini_certificate_extraction || payload;
-  const qualities = Array.isArray(ai?.calidades) ? ai.calidades.map(item => ({
+  const aiPayload = ai || payload;
+  const qualities = Array.isArray(aiPayload?.calidades) ? aiPayload.calidades.map(item => ({
     parameter: key(item.parametro).toUpperCase(),
     value: number(item.valor), unit: String(item.unidad || '').trim() || null
   })).filter(item => item.parameter && item.value !== null) : [];
-  const trucks = Array.isArray(ai?.camiones) ? ai.camiones.map(item => ({
+  const trucks = Array.isArray(aiPayload?.camiones) ? aiPayload.camiones.map(item => ({
     ctg: normalizeCtg(item.ctg), cpe: String(item.nro_cpe || '').trim() || null,
     dischargeDate: String(item.fecha_descarga || '').trim() || null,
     grossKg: number(item.kilos_brutos_descargados), tareKg: number(item.kilos_tara),
