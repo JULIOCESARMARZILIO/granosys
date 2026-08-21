@@ -281,7 +281,10 @@ Reglas estrictas:
 - Conservá cada CTG/camión por separado con descarga, neto acondicionado, mermas y calidades cuando el PDF los discrimine.
 - Los pesos son kilogramos. Un campo numérico ausente debe quedar sin informar, no en datos_adicionales.
 - Usá datos_adicionales para cualquier otro campo legible que no tenga campo propio, indicando la sección.
-- Si un dato es ambiguo o ilegible, no lo adivines: describilo brevemente en observaciones_lectura.`;
+- Si un dato es ambiguo o ilegible, no lo adivines: describilo brevemente en observaciones_lectura.
+- Respondé de forma concisa: tipo_formulario debe ser solo A, B, C, RT o PREEXISTENTE; nombres y etiquetas máximo 120 caracteres.
+- No repitas encabezados, textos legales ni cadenas de ceros. datos_adicionales debe tener como máximo 30 elementos útiles.
+- No transcribas párrafos: priorizá valores operativos, especialmente cada CTG, pesos, mermas y calidades.`;
 
 async function extraerCertificadoPdf(pdfBuffer) {
   if (!Buffer.isBuffer(pdfBuffer) || !pdfBuffer.length) throw new ExtraccionError('Se requiere el PDF del certificado.');
@@ -296,7 +299,7 @@ async function extraerCertificadoPdf(pdfBuffer) {
         { inlineData: { data: pdfBuffer.toString('base64'), mimeType: 'application/pdf' } },
         { text: PROMPT_CERTIFICADO_PDF }
       ] }],
-      config: { responseMimeType: 'application/json', responseSchema: certificadoPdfSchema }
+      config: { responseMimeType: 'application/json', responseSchema: certificadoPdfSchema, maxOutputTokens: 32768 }
     });
     response = await Promise.race([
       request,
