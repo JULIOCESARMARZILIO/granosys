@@ -75,4 +75,15 @@ describe('ARCA certificate extraction', () => {
     expect(results.map(item => item.grossKg)).toEqual([20000, 10000]);
     expect(results.map(item => item.conditionedKg)).toEqual([19700, 9850]);
   });
+
+  test('extracts certificate applications from the official liquidation XML', () => {
+    const results = extractLiquidationApplications({
+      coe: '998877665544',
+      rawXml: '<liquidacion><certificados><certificado><nroCertificadoDeposito>123456789012</nroCertificadoDeposito><pesoNeto>19.700</pesoNeto></certificado><certificado><nroCertificadoDeposito>123456789013</nroCertificadoDeposito><pesoNeto>9.850</pesoNeto></certificado></certificados></liquidacion>'
+    }, { document_date: '2026-08-18' });
+    expect(results).toHaveLength(2);
+    expect(results.map(item => item.certificateCoe)).toEqual(['123456789012', '123456789013']);
+    expect(results.map(item => item.conditionedKg)).toEqual([19700, 9850]);
+    expect(results.every(item => item.observations.length === 0)).toBe(true);
+  });
 });
