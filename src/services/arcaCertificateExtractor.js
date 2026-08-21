@@ -322,7 +322,8 @@ async function extractAllCertificates({ limit = 1000 } = {}) {
     ORDER BY d.document_date,d.id
     LIMIT $1
   `, [Math.max(1, Math.min(10000, Number(limit) || 1000))]);
-  const summary = { documents: documents.length, complete: 0, observed: 0, errors: [], withPdf: 0 };
+  const summary = { documents: documents.length, complete: 0, observed: 0,
+    observationCounts: {}, observationSamples: [], errors: [], withPdf: 0 };
   for (const document of documents) {
     if (document.has_pdf) summary.withPdf += 1;
     const client = await pool.connect();
@@ -330,7 +331,26 @@ async function extractAllCertificates({ limit = 1000 } = {}) {
       await client.query('BEGIN');
       const result = await processDocument(client, document);
       await client.query('COMMIT');
-      result.state === 'COMPLETO' ? summary.complete += 1 : summary.observed += 1;
+      if (result.state === 'COMPLETO') {
+        summary.complete += 1;
+      } else {
+        summary.observed += 1;
+        for (const observation of result.extracted.observations) {
+          summary.observationCounts[observation] = (summary.observationCounts[observation] || 0) + 1;
+        }
+        if (summary.observationSamples.length < 10) {
+          const rawXml = String(document.payload?.rawXml || '');
+          summary.observationSamples.push({
+            documentId: document.id,
+            fuente: document.fuente,
+            externalKey: document.external_key,
+            observations: result.extracted.observations,
+            xmlTags: [...new Set([...rawXml.matchAll(/<(?:\w+:)?([A-Za-z][\w.-]*)\b/g)]
+              .map(match => key(match[1]))
+              .filter(name => /(ctg|carta|peso|kilo|neto|bruto|merma|humedad|cert|productor|comprador|cuit)/.test(name)))].slice(0, 120)
+          });
+        }
+      }
     } catch (error) {
       await client.query('ROLLBACK');
       summary.errors.push({ documentId: document.id, externalKey: document.external_key, error: error.message });
