@@ -370,11 +370,40 @@ function buildLiquidationApplication(index, certificateCoe, liquidationCoe, date
   };
 }
 
+function xmlBlocks(xml, tagName) {
+  const escaped = String(tagName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`<(?:\\w+:)?${escaped}\\b[^>]*>([\\s\\S]*?)<\\/(?:\\w+:)?${escaped}>`, 'gi');
+  return [...String(xml || '').matchAll(regex)].map(match => match[1]);
+}
+
+function xmlValue(xml, aliases) {
+  for (const alias of aliases) {
+    const escaped = String(alias).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = String(xml || '').match(new RegExp(`<(?:\\w+:)?${escaped}\\b[^>]*>([^<]*)<\\/(?:\\w+:)?${escaped}>`, 'i'));
+    if (match && match[1].trim()) return match[1].trim();
+  }
+  return null;
+}
+
 function extractLiquidationApplications(payload, document = {}) {
   const rootIndex = indexPayload(payload || {});
   const liquidationCoe = digits(first(rootIndex, ['coeLiquidacion', 'numeroCoeLiquidacion', 'nroCoeLiquidacion', 'coe']) || document.external_key);
   const dateValue = first(rootIndex, ['fechaLiquidacion', 'fechaEmision']) || document.document_date || null;
   const candidates = [];
+
+  const rawXml = String(payload?.rawXml || '');
+  for (const block of xmlBlocks(rawXml, 'certificado')) {
+    const certificateCoe = digits(xmlValue(block, [
+      'coeCertificadoDeposito', 'nroCertificadoDeposito', 'numeroCertificadoDeposito'
+    ]));
+    if (!/^\d{8,20}$/.test(certificateCoe)) continue;
+    const grossKg = xmlValue(block, ['kilosBrutosAplicados', 'pesoBruto']);
+    const conditionedKg = xmlValue(block, ['kilosNetosAcondicionadosAplicados', 'pesoNetoAcondicionado', 'pesoNeto']);
+    candidates.push(buildLiquidationApplication(indexPayload({
+      kilosBrutosAplicados: grossKg,
+      kilosNetosAcondicionadosAplicados: conditionedKg
+    }), certificateCoe, liquidationCoe, dateValue));
+  }
 
   function visit(node) {
     if (!node || typeof node !== 'object') return;
@@ -446,7 +475,9 @@ async function applyAllLiquidations({ limit = 5000 } = {}) {
       try {
       await client.query('BEGIN');
       const { rows: certificates } = await client.query(
-        'SELECT id,kilos_brutos_certificados,kilos_netos_acondicionados FROM certificados_1116 WHERE coe=$1 FOR UPDATE',
+        `SELECT id,kilos_brutos_certificados,kilos_netos_acondicionados FROM certificados_1116
+         WHERE coe=$1 OR regexp_replace(COALESCE(numero_certificado,''),'[^0-9]','','g')=$1
+         ORDER BY CASE WHEN coe=$1 THEN 0 ELSE 1 END,id FOR UPDATE`,
         [application.certificateCoe]
       );
       if (!certificates[0]) {
