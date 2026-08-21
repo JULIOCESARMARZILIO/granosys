@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { pool } = require('../db');
+const { extraerCertificadoPdf, MODEL: GEMINI_MODEL } = require('./geminiExtraction');
 
 function key(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
@@ -81,16 +82,16 @@ function extractQualities(payload) {
 function extractCertificate(payload, document = {}) {
   const index = indexPayload(payload || {});
   const coe = digits(first(index, ['coe', 'numeroCoe', 'nroCoe', 'codigoOperacionElectronica']) || document.external_key);
-  const certificateNumber = String(first(index, ['numeroCertificado', 'nroCertificado', 'certificadoDeposito', 'numeroCertificacion']) || '').trim() || null;
+  const certificateNumber = String(first(index, ['numeroCertificado', 'nroCertificado', 'certificadoDeposito', 'numeroCertificacion', 'numero_certificado']) || '').trim() || null;
   const form = String(first(index, ['tipoFormulario', 'tipoCertificado', 'tipoCertificacion']) || 'A').toUpperCase();
-  const producerCuit = digits(first(index, ['cuitProductor', 'cuitDepositante', 'cuitTitularGrano', 'cuitVendedor']));
-  const buyerCuit = digits(first(index, ['cuitComprador', 'cuitCertificador', 'cuitEmisor', 'cuitDepositario']));
+  const producerCuit = digits(first(index, ['cuitProductor', 'cuitDepositante', 'cuitTitularGrano', 'cuitVendedor', 'productor_cuit', 'depositante_cuit']));
+  const buyerCuit = digits(first(index, ['cuitComprador', 'cuitCertificador', 'cuitEmisor', 'cuitDepositario', 'comprador_cuit', 'emisor_cuit']));
   const producerName = String(first(index, ['razonSocialProductor', 'nombreProductor', 'productor', 'depositante']) || '').trim() || null;
-  const buyerName = String(first(index, ['razonSocialComprador', 'nombreComprador', 'comprador', 'certificador']) || '').trim() || null;
+  const buyerName = String(first(index, ['razonSocialComprador', 'nombreComprador', 'comprador', 'certificador', 'comprador_nombre', 'emisor_nombre']) || '').trim() || null;
   const species = String(first(index, ['especie', 'descripcionEspecie', 'producto', 'grano']) || '').trim() || null;
   const campaign = String(first(index, ['campana', 'cosecha', 'campanaComercial']) || '').trim() || null;
-  const grossKg = number(first(index, ['kilosBrutos', 'kgBrutos', 'pesoBrutoCertificado', 'totalKilosBrutos', 'pesoOriginal']));
-  const conditionedKg = number(first(index, ['kilosNetosAcondicionados', 'kgNetosAcondicionados', 'pesoNetoAcondicionado', 'kilosNetos', 'pesoNetoCertificado']));
+  const grossKg = number(first(index, ['kilosBrutos', 'kgBrutos', 'pesoBrutoCertificado', 'totalKilosBrutos', 'pesoOriginal', 'kilos_brutos_certificados']));
+  const conditionedKg = number(first(index, ['kilosNetosAcondicionados', 'kgNetosAcondicionados', 'pesoNetoAcondicionado', 'kilosNetos', 'pesoNetoCertificado', 'kilos_netos_acondicionados']));
   const humidityLossKg = number(first(index, ['mermaHumedadKg', 'kilosMermaHumedad', 'mermaHumedad']));
   const qualityLossKg = number(first(index, ['mermaCalidadKg', 'kilosMermaCalidad', 'mermaCalidad']));
   const otherLossKg = number(first(index, ['otrasMermasKg', 'kilosOtrasMermas', 'otrasMermas']));
@@ -113,6 +114,20 @@ function extractCertificate(payload, document = {}) {
   if (totalLossKg !== null && explainedLossKg !== null && Math.abs(totalLossKg - explainedLossKg) > 1)
     observations.push('MERMAS_NO_RECONCILIAN');
 
+  const ai = payload?.geminiCertificateExtraction || payload?.gemini_certificate_extraction || payload;
+  const qualities = Array.isArray(ai?.calidades) ? ai.calidades.map(item => ({
+    parameter: key(item.parametro).toUpperCase(),
+    value: number(item.valor), unit: String(item.unidad || '').trim() || null
+  })).filter(item => item.parameter && item.value !== null) : [];
+  const trucks = Array.isArray(ai?.camiones) ? ai.camiones.map(item => ({
+    ctg: normalizeCtg(item.ctg), cpe: String(item.nro_cpe || '').trim() || null,
+    dischargeDate: String(item.fecha_descarga || '').trim() || null,
+    grossKg: number(item.kilos_brutos_descargados), tareKg: number(item.kilos_tara),
+    unloadedNetKg: number(item.kilos_netos_descargados), conditionedKg: number(item.kilos_netos_acondicionados),
+    humidityLossKg: number(item.merma_humedad_kg), qualityLossKg: number(item.merma_calidad_kg),
+    otherLossKg: number(item.otras_mermas_kg), humidityPct: number(item.humedad_pct),
+    qualities: Array.isArray(item.calidades) ? item.calidades : [], raw: item
+  })).filter(item => item.ctg) : [];
   return {
     coe, certificateNumber, form: ['A', 'B', 'C'].includes(form) ? form : 'A',
     producerCuit: /^\d{11}$/.test(producerCuit) ? producerCuit : null,
@@ -120,7 +135,7 @@ function extractCertificate(payload, document = {}) {
     producerName, buyerName, species, campaign, grossKg, conditionedKg,
     humidityLossKg, qualityLossKg, otherLossKg, totalLossKg, ctgs: [...new Set(ctgs)],
     date: date && !Number.isNaN(date.getTime()) ? date : null,
-    observations, qualities: extractQualities(payload)
+    observations, qualities: qualities.length ? qualities : extractQualities(payload), trucks
   };
 }
 
@@ -170,6 +185,20 @@ async function ensureSchema() {
       UNIQUE(cpe_document_id,id_certificado_1116,parametro)
     );
     CREATE INDEX IF NOT EXISTS idx_cpe_calidad_ctg ON cpe_calidades_certificado(nro_ctg);
+    CREATE TABLE IF NOT EXISTS arca_certificate_ai_extractions (
+      id BIGSERIAL PRIMARY KEY,
+      document_id BIGINT NOT NULL REFERENCES arca_official_documents(id) ON DELETE CASCADE,
+      file_id BIGINT NOT NULL REFERENCES arca_official_files(id) ON DELETE CASCADE,
+      content_hash VARCHAR(64) NOT NULL,
+      model VARCHAR(80) NOT NULL,
+      estado VARCHAR(20) NOT NULL CHECK (estado IN ('PROCESANDO','COMPLETADO','ERROR')),
+      resultado JSONB,
+      error TEXT,
+      intentos INTEGER NOT NULL DEFAULT 1,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(document_id,content_hash,model)
+    );
     CREATE TABLE IF NOT EXISTS arca_certificate_rebuild_jobs (
       id UUID PRIMARY KEY,
       estado VARCHAR(20) NOT NULL CHECK (estado IN ('PENDIENTE','PROCESANDO','COMPLETADO','ERROR')),
@@ -205,6 +234,14 @@ async function resolveCatalog(client, table, name, value) {
   if (!value) return null;
   const { rows } = await client.query(`SELECT id FROM ${table} WHERE ${name} ILIKE $1 ORDER BY id LIMIT 1`, [value]);
   return rows[0]?.id || null;
+}
+
+function sqlDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}(?:[T ].*)?$/.test(raw)) return raw;
+  const match = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  return match ? `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}` : null;
 }
 
 async function processDocument(client, document) {
@@ -265,6 +302,7 @@ async function processDocument(client, document) {
   }
 
   for (const ctg of extracted.ctgs) {
+    const truck = extracted.trucks.find(item => item.ctg === ctg) || {};
     const { rows: cpes } = await client.query(`
       SELECT r.document_id,m.id movimiento_id,m.peso_neto_llegada_kg,m.kg_liquidables,m.humedad_llegada_pct,
              CASE WHEN m.peso_neto_llegada_kg IS NOT NULL AND m.kg_liquidables IS NOT NULL
@@ -286,7 +324,23 @@ async function processDocument(client, document) {
         kg_netos_acondicionados=COALESCE(EXCLUDED.kg_netos_acondicionados,certificado_1116_ctgs.kg_netos_acondicionados),
         origen_vinculacion='CTG_EXACTO',estado_revision='CONFIRMADO'
     `, [certificateId, ctg, cpe.movimiento_id || null, cpe.document_id || null,
-      number(cpe.peso_neto_llegada_kg), number(cpe.kg_liquidables)]);
+      truck.unloadedNetKg ?? number(cpe.peso_neto_llegada_kg), truck.conditionedKg ?? number(cpe.kg_liquidables)]);
+    await client.query(`UPDATE certificado_1116_ctgs SET
+      merma_humedad_kg=COALESCE(merma_humedad_kg,$3),merma_calidad_kg=COALESCE(merma_calidad_kg,$4),
+      otras_mermas_kg=COALESCE(otras_mermas_kg,$5)
+      WHERE id_certificado_1116=$1 AND nro_ctg=$2`,
+    [certificateId, ctg, truck.humidityLossKg, truck.qualityLossKg, truck.otherLossKg]);
+    if (cpe.movimiento_id && Object.keys(truck).length) {
+      await client.query(`UPDATE movimientos SET
+        fecha_descarga=COALESCE(fecha_descarga,$2::timestamp),
+        peso_bruto_llegada_kg=COALESCE(peso_bruto_llegada_kg,$3),
+        peso_tara_llegada_kg=COALESCE(peso_tara_llegada_kg,$4),
+        peso_neto_llegada_kg=COALESCE(peso_neto_llegada_kg,$5),
+        humedad_llegada_pct=COALESCE(humedad_llegada_pct,$6),
+        kg_liquidables=COALESCE(kg_liquidables,$7),updated_at=NOW()
+        WHERE id=$1`, [cpe.movimiento_id, sqlDate(truck.dischargeDate), truck.grossKg, truck.tareKg,
+        truck.unloadedNetKg, truck.humidityPct, truck.conditionedKg]);
+    }
 
     if (cpe.document_id) {
       for (const quality of extracted.qualities) {
@@ -299,9 +353,80 @@ async function processDocument(client, document) {
             heredada=TRUE,origen='CERTIFICADO_ARCA',updated_at=NOW()
         `, [cpe.document_id, certificateId, ctg, quality.parameter, quality.value, quality.unit]);
       }
+      for (const item of truck.qualities || []) {
+        const parameter = key(item.parametro).toUpperCase();
+        const value = number(item.valor);
+        if (!parameter || value === null) continue;
+        await client.query(`
+          INSERT INTO cpe_calidades_certificado
+            (cpe_document_id,id_certificado_1116,nro_ctg,parametro,valor,unidad,heredada,origen)
+          VALUES($1,$2,$3,$4,$5,$6,FALSE,'CERTIFICADO_ARCA_CAMION')
+          ON CONFLICT(cpe_document_id,id_certificado_1116,parametro) DO UPDATE SET
+            nro_ctg=EXCLUDED.nro_ctg,valor=EXCLUDED.valor,unidad=EXCLUDED.unidad,
+            heredada=FALSE,origen='CERTIFICADO_ARCA_CAMION',updated_at=NOW()
+        `, [cpe.document_id, certificateId, ctg, parameter, value, String(item.unidad || '').trim() || null]);
+      }
     }
   }
   return { state: extracted.observations.length ? 'OBSERVADO' : 'COMPLETO', certificateId, extracted };
+}
+
+function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+async function extractCertificatePdfsWithGemini({ limit = 1000 } = {}) {
+  await ensureSchema();
+  const { rows: files } = await pool.query(`
+    SELECT f.id file_id,f.document_id,f.content_hash,f.content,d.external_key,d.payload
+    FROM arca_official_files f
+    JOIN arca_official_documents d ON d.id=f.document_id
+    LEFT JOIN arca_certificate_ai_extractions x ON x.document_id=d.id
+      AND x.content_hash=f.content_hash AND x.model=$2 AND x.estado='COMPLETADO'
+    WHERE d.fuente='ARCA_CEG_INTERACTIVO' AND f.file_type='PDF'
+      AND f.mime_type='application/pdf' AND x.id IS NULL
+    ORDER BY d.id LIMIT $1`, [Math.max(1, Math.min(5000, Number(limit) || 1000)), GEMINI_MODEL]);
+  const summary = { pending: files.length, completed: 0, errors: [], certificates: 0, ctgs: 0 };
+  for (const file of files) {
+    await pool.query(`INSERT INTO arca_certificate_ai_extractions
+      (document_id,file_id,content_hash,model,estado) VALUES($1,$2,$3,$4,'PROCESANDO')
+      ON CONFLICT(document_id,content_hash,model) DO UPDATE SET
+        file_id=EXCLUDED.file_id,estado='PROCESANDO',error=NULL,intentos=arca_certificate_ai_extractions.intentos+1,updated_at=NOW()`,
+    [file.document_id, file.file_id, file.content_hash, GEMINI_MODEL]);
+    try {
+      let result;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try { result = await extraerCertificadoPdf(file.content); break; }
+        catch (error) {
+          if (attempt === 2 || !/(429|quota|timeout|503|temporar)/i.test(error.message)) throw error;
+          await wait(2000 * (2 ** attempt));
+        }
+      }
+      await pool.query(`UPDATE arca_certificate_ai_extractions SET estado='COMPLETADO',resultado=$4::jsonb,
+        error=NULL,updated_at=NOW() WHERE document_id=$1 AND content_hash=$2 AND model=$3`,
+      [file.document_id, file.content_hash, GEMINI_MODEL, JSON.stringify(result)]);
+      await pool.query(`UPDATE arca_official_documents SET payload=jsonb_set(COALESCE(payload,'{}'::jsonb),
+        '{geminiCertificateExtraction}',$2::jsonb,true),updated_at=NOW() WHERE id=$1`,
+      [file.document_id, JSON.stringify(result)]);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const enriched = { id: file.document_id, external_key: file.external_key,
+          payload: { ...(file.payload || {}), geminiCertificateExtraction: result } };
+        const processed = await processDocument(client, enriched);
+        await client.query('COMMIT');
+        summary.certificates += processed.certificateId ? 1 : 0;
+        summary.ctgs += processed.extracted?.ctgs?.length || 0;
+      } catch (error) { await client.query('ROLLBACK'); throw error; }
+      finally { client.release(); }
+      summary.completed += 1;
+    } catch (error) {
+      await pool.query(`UPDATE arca_certificate_ai_extractions SET estado='ERROR',error=$4,updated_at=NOW()
+        WHERE document_id=$1 AND content_hash=$2 AND model=$3`, [file.document_id, file.content_hash, GEMINI_MODEL, error.message]);
+      summary.errors.push({ documentId: file.document_id, error: error.message });
+    }
+    if ((summary.completed + summary.errors.length) % 10 === 0)
+      console.log('GEMINI_CERTIFICADOS_PROGRESO=' + JSON.stringify(summary));
+  }
+  return summary;
 }
 
 async function extractAllCertificates({ limit = 1000 } = {}) {
@@ -644,4 +769,4 @@ async function getRebuildJob(id) {
   return rows[0] || null;
 }
 
-module.exports = { extractCertificate, extractLiquidationApplication, extractLiquidationApplications, extractQualities, extractAllCertificates, assignExistingCpesAndQualities, applyAllLiquidations, listCertificateAccounts, startRebuildJob, getRebuildJob, ensureSchema };
+module.exports = { extractCertificate, extractLiquidationApplication, extractLiquidationApplications, extractQualities, extractAllCertificates, extractCertificatePdfsWithGemini, assignExistingCpesAndQualities, applyAllLiquidations, listCertificateAccounts, startRebuildJob, getRebuildJob, ensureSchema };
