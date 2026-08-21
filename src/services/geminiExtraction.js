@@ -80,7 +80,7 @@ async function extraerComprobante({ texto, imagenBase64, mimeType } = {}) {
 
   let response;
   try {
-    response = await ai.models.generateContent({
+    const request = ai.models.generateContent({
       model: MODEL,
       contents: [{ role: 'user', parts }],
       config: {
@@ -88,6 +88,10 @@ async function extraerComprobante({ texto, imagenBase64, mimeType } = {}) {
         responseSchema: comprobanteSchema
       }
     });
+    response = await Promise.race([
+      request,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout de 90 segundos')), 90000))
+    ]);
   } catch (err) {
     throw new ExtraccionError(`No se pudo invocar la API de Gemini: ${err.message}`, err);
   }
@@ -286,7 +290,7 @@ async function extraerCertificadoPdf(pdfBuffer) {
   const ai = new GoogleGenAI({ apiKey });
   let response;
   try {
-    response = await ai.models.generateContent({
+    const request = ai.models.generateContent({
       model: MODEL,
       contents: [{ role: 'user', parts: [
         { inlineData: { data: pdfBuffer.toString('base64'), mimeType: 'application/pdf' } },
@@ -294,6 +298,10 @@ async function extraerCertificadoPdf(pdfBuffer) {
       ] }],
       config: { responseMimeType: 'application/json', responseSchema: certificadoPdfSchema }
     });
+    response = await Promise.race([
+      request,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout de 90 segundos')), 90000))
+    ]);
   } catch (err) {
     throw new ExtraccionError(`No se pudo invocar Gemini para el certificado: ${err.message}`, err);
   }
