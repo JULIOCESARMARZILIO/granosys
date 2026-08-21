@@ -21,7 +21,7 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
     await client.query('BEGIN');
     await client.query("SELECT pg_advisory_xact_lock(hashtext('granosys:arca-certificados-descargas'))");
     const { rows } = await client.query(`
-      SELECT cc.nro_ctg, m.id AS movimiento_id, m.estado,
+      SELECT cc.nro_ctg AS ctg, m.id AS movimiento_id, m.estado,
         m.peso_neto_llegada_kg, m.kg_liquidables,
         SUM(cc.kg_netos_acondicionados)::numeric AS kilos,
         jsonb_agg(DISTINCT jsonb_build_object('coe',c.coe,'certificado',c.numero_certificado)) AS certificados
