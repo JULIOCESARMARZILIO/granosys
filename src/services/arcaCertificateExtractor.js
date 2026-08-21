@@ -387,7 +387,9 @@ async function extractCertificatePdfsWithGemini({ limit = 1000 } = {}) {
       AND f.mime_type='application/pdf' AND x.id IS NULL
     ORDER BY d.id LIMIT $1`, [Math.max(1, Math.min(5000, Number(limit) || 1000)), GEMINI_MODEL]);
   const summary = { pending: files.length, completed: 0, errors: [], certificates: 0, ctgs: 0 };
+  console.log('GEMINI_CERTIFICADOS_INICIADO=' + JSON.stringify({ pending: files.length, model: GEMINI_MODEL }));
   for (const file of files) {
+    console.log('GEMINI_CERTIFICADO_PDF=' + JSON.stringify({ documentId: file.document_id, processed: summary.completed + summary.errors.length + 1, total: files.length }));
     await pool.query(`INSERT INTO arca_certificate_ai_extractions
       (document_id,file_id,content_hash,model,estado) VALUES($1,$2,$3,$4,'PROCESANDO')
       ON CONFLICT(document_id,content_hash,model) DO UPDATE SET
