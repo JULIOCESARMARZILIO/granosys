@@ -2636,6 +2636,186 @@ async function obtenerResumenDocumentos() {
   }));
 }
 
+function camposOficialesVisibles(value, path = '', salida = [], visitados = new Set()) {
+  if (value === null || value === undefined || salida.length >= 500) return salida;
+  if (typeof value === 'object') {
+    if (visitados.has(value)) return salida;
+    visitados.add(value);
+    for (const [clave, contenido] of Object.entries(value)) {
+      if (/rawxml|raw_xml|pdf|token|sign|firma|certificado_pem|private.?key/i.test(clave)) continue;
+      camposOficialesVisibles(contenido, path ? `${path}.${clave}` : clave, salida, visitados);
+    }
+    return salida;
+  }
+  const texto = String(value).trim();
+  if (texto && texto.length <= 500) salida.push({ campo: path, valor: value });
+  return salida;
+}
+
+function camposXmlOficiales(xml) {
+  const salida = [];
+  const pila = [];
+  const ocurrencias = new Map();
+  const sensible = /^(?:pdf|token|sign|firma|certificado(?:_?pem)?|private.?key)$/i;
+  const tokens = String(xml || '').match(/<[^>]+>|[^<]+/g) || [];
+  for (const token of tokens) {
+    if (token.startsWith('<?') || token.startsWith('<!')) continue;
+    const cierre = token.match(/^<\/(?:[\w.-]+:)?([\w.-]+)\s*>$/);
+    if (cierre) {
+      const indice = pila.map(item => item.nombre.toLowerCase()).lastIndexOf(cierre[1].toLowerCase());
+      if (indice >= 0) pila.splice(indice);
+      continue;
+    }
+    const apertura = token.match(/^<(?:[\w.-]+:)?([\w.-]+)(?:\s[^>]*)?>$/);
+    if (apertura && !/\/\s*>$/.test(token)) {
+      const padre = pila.map(item => `${item.nombre}[${item.indice}]`).join('.');
+      const clave = `${padre}/${apertura[1].toLowerCase()}`;
+      const indice = (ocurrencias.get(clave) || 0) + 1;
+      ocurrencias.set(clave, indice);
+      pila.push({ nombre: apertura[1], indice });
+      continue;
+    }
+    if (token.startsWith('<') || !pila.length || pila.some(item => sensible.test(item.nombre))) continue;
+    const valor = decodeXml(token).replace(/\s+/g, ' ').trim();
+    if (valor && valor.length <= 500) salida.push({ campo: pila.map(item => `${item.nombre}[${item.indice}]`).join('.'), valor });
+  }
+  return salida;
+}
+
+function detalleLiquidacionWslpg(payload = {}) {
+  const rawXml = String(payload.rawXml || payload.raw_xml || '');
+  const { rawXml: omitidoRawXml, raw_xml: omitidoRawXmlAlternativo, ...payloadPublico } = payload;
+  void omitidoRawXml;
+  void omitidoRawXmlAlternativo;
+  const camposPayload = camposOficialesVisibles(payloadPublico);
+  const camposXml = camposXmlOficiales(rawXml);
+  const campos = [...camposXml, ...camposPayload];
+  const normalizar = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  const nombreCampo = campo => String(campo || '').split('.').pop().replace(/\[\d+\]$/,'');
+  const encontrarEn = (coleccion, aliases) => {
+    const buscados = aliases.map(normalizar);
+    const exacto = coleccion.find(item => buscados.includes(normalizar(nombreCampo(item.campo))));
+    return exacto ? exacto.valor : null;
+  };
+  const encontrar = aliases => encontrarEn(camposXml, aliases) ?? encontrarEn(camposPayload, aliases);
+  const parsearNumero = value => {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    let texto = String(value).trim().replace(/[^0-9,.-]/g, '');
+    if (!texto || !/[0-9]/.test(texto)) return null;
+    const ultimaComa = texto.lastIndexOf(',');
+    const ultimoPunto = texto.lastIndexOf('.');
+    if (ultimaComa >= 0 && ultimoPunto >= 0) {
+      const decimal = ultimaComa > ultimoPunto ? ',' : '.';
+      texto = texto.replace(decimal === ',' ? /\./g : /,/g, '').replace(decimal, '.');
+    } else if (ultimaComa >= 0) {
+      texto = texto.replace(/\./g, '').replace(',', '.');
+    } else if ((texto.match(/\./g) || []).length > 1) {
+      const partes = texto.split('.');
+      texto = `${partes.slice(0, -1).join('')}.${partes.at(-1)}`;
+    }
+    const parsed = Number(texto);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const numero = aliases => {
+    return parsearNumero(encontrar(aliases));
+  };
+  const agruparPorPadre = coleccion => {
+    const grupos = new Map();
+    for (const item of coleccion) {
+      const partes = item.campo.split('.');
+      const clave = partes.slice(0, -1).join('.') || 'raiz';
+      if (!grupos.has(clave)) grupos.set(clave, []);
+      grupos.get(clave).push({ ...item, nombre: nombreCampo(partes.at(-1)) });
+    }
+    return [...grupos.entries()].map(([ruta, valores]) => ({ ruta, valores }));
+  };
+  const valorGrupo = (grupo, aliases) => encontrarEn(grupo.valores.map(item => ({ campo: item.nombre, valor: item.valor })), aliases);
+  const grupos = agruparPorPadre(camposXml);
+  const conceptosImpositivos = grupos.map(grupo => {
+    const ruta = normalizar(grupo.ruta);
+    const descripcion = valorGrupo(grupo, ['descripcion','detalle','concepto','tipoRetencion','tipoImpuesto']);
+    const importe = parsearNumero(valorGrupo(grupo, ['importe','monto','importeRetencion','importeImpuesto','importeTributo','importeIva']));
+    const esImpositivo = /iva|retenc|percepc|ganancia|sello|tribut|comision|ingresosbrutos|suss/.test(ruta + normalizar(descripcion));
+    if (!esImpositivo || importe === null) return null;
+    return {
+      ruta: grupo.ruta,
+      concepto: descripcion || grupo.ruta.split('.').at(-1),
+      codigo: valorGrupo(grupo, ['codigo','id','codigoRegimen','codigoImpuesto']),
+      baseImponible: parsearNumero(valorGrupo(grupo, ['baseImponible','importeBase','baseCalculo'])),
+      alicuota: parsearNumero(valorGrupo(grupo, ['alicuota','porcentaje','tasa'])),
+      importe
+    };
+  }).filter(Boolean);
+  const participantes = grupos.map(grupo => {
+    const cuit = String(valorGrupo(grupo, ['cuit','cuitPersona','cuitParticipante','cuitLiquidador','cuitVendedor','cuitProductor','cuitComprador','cuitCorredor']) || '').replace(/\D/g, '');
+    if (cuit.length !== 11) return null;
+    return {
+      rol: nombreCampo(grupo.ruta),
+      cuit,
+      nombre: valorGrupo(grupo, ['razonSocial','denominacion','nombre','apellidoNombre','razonSocialLiquidador','razonSocialVendedor','razonSocialProductor']) || null
+    };
+  }).filter(Boolean).filter((item, index, todos) => todos.findIndex(otro => otro.rol === item.rol && otro.cuit === item.cuit) === index);
+  const items = grupos.map(grupo => {
+    const producto = valorGrupo(grupo, ['descripcionGrano','descGrano','producto','especie','grano','descripcionProducto']);
+    const kilosItem = parsearNumero(valorGrupo(grupo, ['kilosNetos','kgNetos','pesoNeto','cantidadKilos','kilogramos','kilosLiquidados']));
+    const precio = parsearNumero(valorGrupo(grupo, ['precioTonelada','precioPorTonelada','precio','precioOperacion']));
+    if (!producto && kilosItem === null && precio === null) return null;
+    return {
+      ruta: grupo.ruta,
+      producto: producto || null,
+      codigoProducto: valorGrupo(grupo, ['codigoGrano','codGrano','codigoProducto','codEspecie']),
+      campana: valorGrupo(grupo, ['campania','campana','descripcionCampania']),
+      kilos: kilosItem,
+      toneladas: kilosItem === null ? null : kilosItem / 1000,
+      precioTonelada: precio,
+      importe: parsearNumero(valorGrupo(grupo, ['importe','importeBruto','subtotal','importeNeto']))
+    };
+  }).filter(Boolean);
+  const kilos = numero(['kilosNetos','kgNetos','pesoNeto','cantidadKilos','kilogramos','kilosLiquidados']);
+  const toneladasInformadas = numero(['toneladas','cantidadToneladas','toneladasLiquidadas']);
+  const coe = encontrar(['coe','coeLiquidacion','numeroCoe']);
+  const tipoDocumento = String(encontrar(['tipoDocumento']) || payload.tipoDocumento || (String(coe || '').startsWith('331') ? 'LSG' : String(coe || '').startsWith('330') ? 'LPG' : '')).toUpperCase();
+  const tipoOperacion = encontrar(['tipoOperacion','descripcionOperacion','tipoLiquidacion','descripcionTipoOperacion']);
+  const operacionNormalizada = normalizar(tipoOperacion);
+  const tipoFormularioHistorico = /consign/.test(operacionNormalizada)
+    ? '1116 C / Consignación'
+    : /compraventa|comprayventa/.test(operacionNormalizada)
+      ? '1116 B / Compraventa'
+      : null;
+  return {
+    coe,
+    familiaDocumento: tipoDocumento === 'LSG' ? 'Liquidación secundaria de granos (LSG)' : tipoDocumento === 'LPG' ? 'Liquidación primaria de granos (LPG)' : tipoDocumento || null,
+    tipoFormularioHistorico,
+    tipoOperacion,
+    estado: encontrar(['estado','estadoLiquidacion']),
+    liquidadorCuit: encontrar(['cuitLiquidador','cuitEmisor','cuitComprador','cuitCorredor']),
+    liquidadorNombre: encontrar(['razonSocialLiquidador','denominacionLiquidador','nombreLiquidador','razonSocialEmisor']),
+    receptorCuit: encontrar(['cuitVendedor','cuitProductor','cuitReceptor','cuitRepresentado']),
+    receptorNombre: encontrar(['razonSocialVendedor','nombreProductor','razonSocialProductor','denominacionReceptor']),
+    producto: encontrar(['descripcionGrano','descGrano','producto','especie','grano']),
+    campana: encontrar(['campania','campana','descripcionCampania']),
+    kilos,
+    toneladas: toneladasInformadas ?? (kilos !== null ? kilos / 1000 : null),
+    precioTonelada: numero(['precioTonelada','precioPorTonelada','precio','precioOperacion']),
+    importeBruto: numero(['importeBruto','importeTotalBruto','subtotalBruto']),
+    importeNeto: numero(['importeNeto','netoGravado','importeNetoGravado','subtotalNeto']),
+    iva: numero(['importeIva','iva','montoIva']),
+    sellado: numero(['sellado','impuestoSellos','importeSellos','retencionSellos']),
+    retencionGanancias: numero(['retencionGanancias','importeRetencionGanancias','ganancias']),
+    retencionIva: numero(['retencionIva','importeRetencionIva','ivaRetenido']),
+    comisiones: numero(['comision','comisiones','importeComision']),
+    otrasRetenciones: numero(['otrasRetenciones','importeOtrasRetenciones']),
+    otrosConceptos: numero(['otrosConceptos','otrosTributos','gastos']),
+    importeTotal: numero(['importeTotal','total','totalLiquidacion','importeNetoAPagar']),
+    moneda: encontrar(['moneda','codigoMoneda','monId']),
+    participantes,
+    items,
+    conceptosImpositivos,
+    camposOficiales: campos
+  };
+}
+
 async function listarDocumentosOficiales({
   fuente = 'WSFE_EMITIDA',
   desde = null,
@@ -2647,8 +2827,11 @@ async function listarDocumentosOficiales({
   await ensureSyncTables();
   const safePage = Math.max(1, Number(pagina) || 1);
   const safeLimit = Math.max(1, Math.min(200, Number(limite) || 50));
-  const conditions = ['d.fuente = $1'];
-  const params = [fuente];
+  const esLiquidacion = fuente === 'WSLPG_LIQUIDACIONES';
+  const conditions = [esLiquidacion
+    ? `(d.fuente LIKE 'WSLPG_%' AND d.fuente NOT LIKE '%CERTIFICACION%')`
+    : 'd.fuente = $1'];
+  const params = esLiquidacion ? [] : [fuente];
   if (desde) {
     params.push(desde);
     conditions.push(`d.document_date >= $${params.length}`);
@@ -2702,10 +2885,12 @@ async function listarDocumentosOficiales({
   return {
     documentos: rows.map(row => {
       const payload = row.payload || {};
+      const detalleLiquidacion = esLiquidacion ? detalleLiquidacionWslpg(payload) : null;
       const { rawXml, ...publicPayload } = payload;
       return {
         ...row,
         payload: { ...publicPayload, ...detalleFiscalWsfe(payload) },
+        detalle_liquidacion: detalleLiquidacion,
         contraparte_estado: row.contraparte_id ? 'VINCULADA' : 'PENDIENTE_ALTA'
       };
     }),
@@ -3257,6 +3442,7 @@ module.exports = {
     fechaWslpg,
     wslpgBusinessError,
     detalleFiscalWsfe,
+    detalleLiquidacionWslpg,
     signoComprobanteWsfe,
     xmlToObject,
     extraerIntervinientesCpe,
@@ -3278,3 +3464,4 @@ module.exports = {
     validateCredentials
   }
 };
+
