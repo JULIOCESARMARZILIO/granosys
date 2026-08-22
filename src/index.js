@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { initDB, pool } = require('./db');
 const arcaOfficialClient = require('./services/arcaOfficialClient');
 const arcaCertificateExtractor = require('./services/arcaCertificateExtractor');
+const arcaCertificateDischarge = require('./services/arcaCertificateDischarge');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -357,15 +358,22 @@ async function start() {
         } catch (error) { console.error('Refresh CPEDG pendiente:', error.message); }
       });
     }
-    setImmediate(() => {
-      arcaOfficialClient.materializarCertificadosCtg()
-        .then(resultado => console.log('Vinculacion certificados a CTG existentes completada:', resultado))
-        .catch(error => console.error('Vinculacion certificados a CTG pendiente:', error.message));
-    });
-    setImmediate(() => {
-      arcaOfficialClient.materializarMovimientosCpe({ desde: '2026-02-01', soloConfirmadas: true })
-        .then(resultado => console.log('Backfill CPE/CPEDG a Movimientos completado:', resultado))
-        .catch(error => console.error('Backfill CPE/CPEDG a Movimientos pendiente:', error.message));
+    setImmediate(async () => {
+      try {
+        const movimientos = await arcaOfficialClient.materializarMovimientosCpe({
+          desde: '2026-02-01',
+          soloConfirmadas: true
+        });
+        console.log('Backfill CPE/CPEDG a Movimientos completado:', movimientos);
+
+        const certificados = await arcaOfficialClient.materializarCertificadosCtg();
+        console.log('Vinculacion certificados a CTG existentes completada:', certificados);
+
+        const descargas = await arcaCertificateDischarge.materializarDescargasDesdeCertificados();
+        console.log('Descargas desde certificados completadas:', descargas);
+      } catch (error) {
+        console.error('Materializacion ARCA pendiente:', error.message);
+      }
     });
   } catch (err) {
     console.error('Error al iniciar:', err);
