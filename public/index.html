@@ -11338,7 +11338,7 @@ const DocumentosArca = () => {
         if(!respuesta) throw new Error("La lista de Documentos ARCA no respondio. La sincronizacion puede continuar; usa Actualizar para reintentar la consulta.");
         return respuesta;
       };
-      if(fuenteSolicitada==="WSCPE_CPE") {
+      if(fuenteSolicitada==="WSCPE_CPE"||fuenteSolicitada==="WSLPG_LIQUIDACIONES") {
         const docs=await obtenerDocumentos();
         setDocumentos(docs?.documentos||[]);
         setPaginacion(docs?.paginacion||{pagina:1,paginas:1,total:0});
@@ -11364,6 +11364,8 @@ const DocumentosArca = () => {
 
   const money=value=>Number(value||0).toLocaleString("es-AR",{style:"currency",currency:"ARS"});
   const esCpe=fuente==="WSCPE_CPE";
+  const esLiquidacion=fuente==="WSLPG_LIQUIDACIONES";
+  const valorVisible=value=>value===null||value===undefined||value===""?"No informado":value;
   const tipoNombre=tipo=>({1:"Factura A",2:"Nota de Débito A",3:"Nota de Crédito A",6:"Factura B",7:"Nota de Débito B",8:"Nota de Crédito B",11:"Factura C",12:"Nota de Débito C",13:"Nota de Crédito C",201:"Factura de Crédito MiPyME A",206:"Factura de Crédito MiPyME B"}[Number(tipo)]||`Tipo ${tipo||"-"}`);
   const decidirCc = async (item,decision) => {
     const accion=decision==="VINCULAR_EXISTENTE"?"vincular el movimiento existente":decision==="CREAR_MOVIMIENTO"?"crear un movimiento FORMAL en cuenta corriente":"rechazar la conciliación";
@@ -11502,6 +11504,27 @@ const DocumentosArca = () => {
       await cargar(1,"WSCPE_CPE");
     } catch(e) {
       setSyncError(e.message||"No se pudo completar la sincronizacion de CPE.");
+    } finally {
+      setSincronizando(false);
+    }
+  };
+
+  const sincronizarLiquidacionesDesdeArca = async () => {
+    if(!window.confirm(`Se consultarán únicamente liquidaciones LPG/LSG disponibles por WSLPG desde ${desde}. Se guardará su detalle oficial; no se emitirá, anulará, aceptará ni contabilizará nada. ¿Continuar?`)) return;
+    setSincronizando(true);
+    setSyncError("");
+    setSyncJobs([]);
+    try {
+      const respuesta=await api.post("/api/arca/sync/granos",{desde,limite:5000,puntosEmision:Array.from({length:20},(_,i)=>i+1)});
+      if(!respuesta?.job) throw new Error("No se pudo iniciar la consulta de liquidaciones WSLPG.");
+      setSyncJobs([respuesta.job]);
+      const terminado=await esperarSync(respuesta.job);
+      if(terminado.estado==="ERROR"||terminado.estado==="PARCIAL") setSyncError(terminado.error||"ARCA devolvió observaciones durante la consulta de liquidaciones.");
+      setFuente("WSLPG_LIQUIDACIONES");
+      setPagina(1);
+      await cargar(1,"WSLPG_LIQUIDACIONES");
+    } catch(e) {
+      setSyncError(e.message||"No se pudo completar la actualización de liquidaciones.");
     } finally {
       setSincronizando(false);
     }
@@ -11746,16 +11769,17 @@ const DocumentosArca = () => {
 
   return <div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18,gap:12}}>
-      <div><h2 style={{fontSize:20,fontWeight:700,marginBottom:4}}>Documentos ARCA</h2><div style={{fontSize:12,color:"#8890a8"}}>{esCpe?"Cartas de Porte Electronicas de granos y derivados vinculadas a Inversiones del Salado S.A. · Solo consulta":"Comprobantes oficiales emitidos por Inversiones del Salado S.A. · Solo consulta"}</div></div>
+      <div><h2 style={{fontSize:20,fontWeight:700,marginBottom:4}}>Documentos ARCA</h2><div style={{fontSize:12,color:"#8890a8"}}>{esCpe?"Cartas de Porte Electronicas de granos y derivados vinculadas a Inversiones del Salado S.A. · Solo consulta":esLiquidacion?"Liquidaciones de granos almacenadas desde ARCA, con todos los importes oficiales disponibles · Solo consulta":"Comprobantes oficiales emitidos por Inversiones del Salado S.A. · Solo consulta"}</div></div>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
-        <Btn variant={esCpe?"secondary":"primary"} onClick={()=>{setFuente("WSFE_EMITIDA");setDesde("2026-01-01");setPagina(1);}}>Facturas</Btn>
+        <Btn variant={!esCpe&&!esLiquidacion?"primary":"secondary"} onClick={()=>{setFuente("WSFE_EMITIDA");setDesde("2026-01-01");setPagina(1);}}>Facturas</Btn>
         <Btn variant={esCpe?"primary":"secondary"} onClick={()=>{setFuente("WSCPE_CPE");setDesde("2026-02-01");setPagina(1);}}>CPE / CPEDG</Btn>
+        <Btn variant={esLiquidacion?"primary":"secondary"} onClick={()=>{setFuente("WSLPG_LIQUIDACIONES");setDesde("2026-01-01");setPagina(1);}}>Liquidaciones</Btn>
         {esCpe&&<Btn variant="secondary" onClick={abrirReporteCertificados}>Reporte certificados</Btn>}
         {esCpe&&<Btn variant="success" onClick={exportarCpeIntervinientes} disabled={cargando}>Exportar Excel</Btn>}
         <Btn onClick={()=>cargar(pagina)} disabled={cargando}>{cargando?"Actualizando...":"Actualizar"}</Btn>
       </div>
     </div>
-    {!esCpe&&<div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:16}}>
+    {!esCpe&&!esLiquidacion&&<div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:16}}>
       {[["Comprobantes",paginacion.total,"#3498db"],["CUIT receptores",conciliacion.totalCuits,"#f5a623"],["Contrapartes vinculadas",conciliacion.vinculadas,"#27ae60"],["Pendientes de alta",conciliacion.pendientes,"#e74c3c"]].map(([label,value,color])=>
         <div className="card" key={label} style={{padding:"14px 16px"}}><div style={{fontSize:11,color:"#8890a8",textTransform:"uppercase"}}>{label}</div><div style={{fontSize:24,fontWeight:700,color,marginTop:5}}>{value||0}</div></div>
       )}
@@ -11764,17 +11788,18 @@ const DocumentosArca = () => {
       <div><div style={{fontSize:11,color:"#8890a8",textTransform:"uppercase"}}>CPE / CPEDG almacenadas</div><div style={{fontSize:24,fontWeight:700,color:"#3498db",marginTop:5}}>{paginacion.total||0}</div></div>
       <div style={{fontSize:11,color:"#8890a8",maxWidth:520}}>Identidad unica por CTG. El detalle oficial, los intervinientes, las plantas y el PDF quedan vinculados sin duplicados.</div>
     </div>}
+    {esLiquidacion&&<div className="card" style={{padding:"14px 16px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:11,color:"#8890a8",textTransform:"uppercase"}}>Liquidaciones almacenadas</div><div style={{fontSize:24,fontWeight:700,color:"#9b59b6",marginTop:5}}>{paginacion.total||0}</div></div><div style={{fontSize:11,color:"#8890a8",maxWidth:560}}>Muestra liquidador, receptor, toneladas, precio, IVA, sellado, ganancias, retención de IVA y todos los campos efectivamente devueltos por ARCA, sin inventar faltantes.</div></div>}
     <div className="card" style={{padding:"14px 16px",marginBottom:16,border:"1px solid #2f5f88"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:16}}>
         <div>
           <div style={{fontSize:15,fontWeight:700}}>Sincronizacion oficial ARCA</div>
-          <div style={{fontSize:11,color:"#8890a8",marginTop:3}}>{esCpe?`Consulta WSCPE por plantas activas y destino desde ${desde}. Consolida CPE/CPEDG por CTG y guarda detalle, intervinientes, plantas y PDF.`:`Consulta desde ${desde}. Importa facturas emitidas por WSFE y documentos disponibles por WSLPG. No emite, anula ni contabiliza.`}</div>
+          <div style={{fontSize:11,color:"#8890a8",marginTop:3}}>{esCpe?`Consulta WSCPE por plantas activas y destino desde ${desde}. Consolida CPE/CPEDG por CTG y guarda detalle, intervinientes, plantas y PDF.`:esLiquidacion?`Consulta LPG y LSG disponibles por WSLPG desde ${desde}. Actualiza datos oficiales, impuestos, retenciones, participantes e ítems sin generar asientos.`:`Consulta desde ${desde}. Importa facturas emitidas por WSFE y documentos disponibles por WSLPG. No emite, anula ni contabiliza.`}</div>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
           {esCpe&&<textarea value={loteCtgs} onChange={e=>setLoteCtgs(e.target.value)} placeholder="Pegá CTG/CTDG separados por espacio, coma o salto de línea" rows={3} style={{width:330,minHeight:62,resize:"vertical",background:"#11141d",color:"#e8eaf0",border:"1px solid #3a4050",borderRadius:7,padding:"8px 10px",fontSize:12}}/>}
           {esCpe&&<Btn variant="secondary" onClick={importarCtgPegados} disabled={sincronizando||!loteCtgs.trim()}>Procesar lote CTG/CTDG</Btn>}\n          {esCpe&&<Btn variant="secondary" onClick={importarListadoCtgArca} disabled={sincronizando}>Importar listado ARCA (CTG)</Btn>}
           {esCpe&&<Btn variant="secondary" onClick={materializarCpeEnMovimientos} disabled={sincronizando}>Pasar a Movimientos</Btn>}
-          <Btn onClick={esCpe?sincronizarCpeDesdeArca:sincronizarDesdeArca} disabled={sincronizando}>{sincronizando?"Sincronizando...":esCpe?"Bajar CPE por destino":"Sincronizar desde ARCA"}</Btn>
+          <Btn onClick={esCpe?sincronizarCpeDesdeArca:esLiquidacion?sincronizarLiquidacionesDesdeArca:sincronizarDesdeArca} disabled={sincronizando}>{sincronizando?"Sincronizando...":esCpe?"Bajar CPE por destino":esLiquidacion?"Actualizar liquidaciones B/C":"Sincronizar desde ARCA"}</Btn>
         </div>
       </div>
       {syncJobs.length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginTop:12}}>
@@ -11784,9 +11809,9 @@ const DocumentosArca = () => {
         </div>)}
       </div>}
       {syncError&&<div style={{marginTop:10,padding:10,background:"rgba(231,76,60,.12)",color:"#e74c3c",borderRadius:7}}>{syncError}</div>}
-      <div style={{fontSize:10,color:"#6f7892",marginTop:10}}>{esCpe?"Solo consulta. ARCA permite enumerar por destino y planta. Otras participaciones se completan por CTG sin duplicar documentos.":"Las facturas recibidas y los formularios generados exclusivamente en servicios interactivos no se listan por WSFE/WSLPG: requieren su canal oficial especifico o importacion por COE/PDF."}</div>
+      <div style={{fontSize:10,color:"#6f7892",marginTop:10}}>{esCpe?"Solo consulta. ARCA permite enumerar por destino y planta. Otras participaciones se completan por CTG sin duplicar documentos.":esLiquidacion?"Solo consulta. Se actualizan las liquidaciones que WSLPG permite enumerar. Las recibidas o generadas exclusivamente en servicios interactivos deben incorporarse por su COE/PDF oficial; no se inventan datos faltantes.":"Las facturas recibidas y los formularios generados exclusivamente en servicios interactivos no se listan por WSFE/WSLPG: requieren su canal oficial especifico o importacion por COE/PDF."}</div>
     </div>
-    <div className="card" style={{padding:"14px 16px",marginBottom:16,display:esCpe?"none":"block"}}>
+    <div className="card" style={{padding:"14px 16px",marginBottom:16,display:esCpe||esLiquidacion?"none":"block"}}>
       <div style={{display:"flex",justifyContent:"space-between",gap:16,alignItems:"flex-start",marginBottom:12}}>
         <div><div style={{fontSize:15,fontWeight:700}}>IVA Ventas · borrador de control</div><div style={{fontSize:11,color:"#8890a8",marginTop:3}}>Comprobantes WSFE emitidos. Requiere revisión humana antes de su presentación impositiva.</div></div>
         <Badge label={(ivaVentas.controlIntegridad?.observados||0)===0?"Integridad OK":`${ivaVentas.controlIntegridad?.observados||0} observados`} color={(ivaVentas.controlIntegridad?.observados||0)===0?"green":"red"}/>
@@ -11797,7 +11822,7 @@ const DocumentosArca = () => {
         )}
       </div>
     </div>
-    <div className="card" style={{padding:"14px 16px",marginBottom:16,display:esCpe?"none":"block"}}>
+    <div className="card" style={{padding:"14px 16px",marginBottom:16,display:esCpe||esLiquidacion?"none":"block"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,marginBottom:10}}>
         <div><div style={{fontSize:15,fontWeight:700}}>Conciliación ARCA → Cuenta corriente</div><div style={{fontSize:11,color:"#8890a8",marginTop:3}}>No genera movimientos sin confirmación humana. Solo modalidad FORMAL.</div></div>
         <div style={{fontSize:11,color:"#8890a8"}}>{ccConciliaciones.total||0} pendientes · {ccConciliaciones.posiblesDuplicados||0} posibles coincidencias · {ccConciliaciones.pendientesSinContraparte||0} sin contraparte</div>
@@ -11833,16 +11858,25 @@ const DocumentosArca = () => {
     {error&&<div style={{padding:12,background:"rgba(231,76,60,.12)",color:"#e74c3c",borderRadius:7,marginBottom:12}}>{error}</div>}
     <div className="card" style={{overflow:"hidden"}}>
       <table style={{width:"100%",borderCollapse:"collapse"}}>
-        <thead><tr>{(esCpe?["Fecha","CTG","Tipo","PDF",""]:["Fecha","Comprobante","Receptor","Contraparte","Importe","Estado",""]).map(h=><th key={h} style={{padding:"11px 12px",textAlign:"left",fontSize:10,color:"#8890a8",textTransform:"uppercase",borderBottom:"1px solid #2a2d3e"}}>{h}</th>)}</tr></thead>
+        <thead><tr>{(esCpe?["Fecha","CTG","Tipo","PDF",""]:esLiquidacion?["Fecha","COE","Documento / operación","Liquidador","Receptor","Toneladas","Total",""]:["Fecha","Comprobante","Receptor","Contraparte","Importe","Estado",""]).map(h=><th key={h} style={{padding:"11px 12px",textAlign:"left",fontSize:10,color:"#8890a8",textTransform:"uppercase",borderBottom:"1px solid #2a2d3e"}}>{h}</th>)}</tr></thead>
         <tbody>
-          {!cargando&&documentos.length===0&&<tr><td colSpan={esCpe?5:7} style={{padding:28,textAlign:"center",color:"#8890a8"}}>No hay documentos para estos filtros.</td></tr>}
+          {!cargando&&documentos.length===0&&<tr><td colSpan={esCpe?5:esLiquidacion?8:7} style={{padding:28,textAlign:"center",color:"#8890a8"}}>No hay documentos para estos filtros.</td></tr>}
           {documentos.map(d=>{const p=d.payload||{};if(esCpe)return <tr key={d.id} style={{borderBottom:"1px solid #252837"}}>
             <td style={{padding:"10px 12px"}}>{d.document_date?String(d.document_date).slice(0,10):"-"}</td>
             <td style={{padding:"10px 12px",fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{d.external_key}</td>
             <td style={{padding:"10px 12px"}}>{p.tipoCpe||"CPE / CPEDG"}</td>
             <td style={{padding:"10px 12px"}}><Badge label={d.tiene_pdf?"PDF guardado":"PDF pendiente"} color={d.tiene_pdf?"green":"red"}/></td>
             <td style={{padding:"10px 12px"}}><div style={{display:"flex",gap:6}}><Btn variant="secondary" onClick={()=>setDetalle(d)}>Ver</Btn>{d.tiene_pdf&&<Btn onClick={()=>abrirPdfOficial(d)}>PDF</Btn>}</div></td>
-          </tr>;return <tr key={d.id} style={{borderBottom:"1px solid #252837"}}>
+          </tr>;if(esLiquidacion){const l=d.detalle_liquidacion||{};return <tr key={d.id} style={{borderBottom:"1px solid #252837"}}>
+            <td style={{padding:"10px 12px"}}>{d.document_date?String(d.document_date).slice(0,10):"-"}</td>
+            <td style={{padding:"10px 12px",fontFamily:"monospace"}}>{l.coe||d.external_key}</td>
+            <td style={{padding:"10px 12px"}}>{valorVisible(l.tipoFormularioHistorico||l.familiaDocumento)}<div style={{fontSize:10,color:"#8890a8"}}>{valorVisible(l.tipoOperacion)}</div></td>
+            <td style={{padding:"10px 12px"}}>{valorVisible(l.liquidadorNombre)}<div style={{fontSize:10,color:"#8890a8"}}>{valorVisible(l.liquidadorCuit)}</div></td>
+            <td style={{padding:"10px 12px"}}>{valorVisible(l.receptorNombre)}<div style={{fontSize:10,color:"#8890a8"}}>{valorVisible(l.receptorCuit)}</div></td>
+            <td style={{padding:"10px 12px"}}>{l.toneladas==null?"No informado":Number(l.toneladas).toLocaleString("es-AR",{maximumFractionDigits:3})}</td>
+            <td style={{padding:"10px 12px",fontWeight:600}}>{l.importeTotal==null?"No informado":money(l.importeTotal)}</td>
+            <td style={{padding:"10px 12px"}}><div style={{display:"flex",gap:6}}><Btn variant="secondary" onClick={()=>setDetalle(d)}>Ver datos</Btn>{d.tiene_pdf&&<Btn onClick={()=>abrirPdfOficial(d)}>PDF</Btn>}</div></td>
+          </tr>;}return <tr key={d.id} style={{borderBottom:"1px solid #252837"}}>
             <td style={{padding:"10px 12px"}}>{d.document_date?String(d.document_date).slice(0,10):"-"}</td>
             <td style={{padding:"10px 12px"}}><div style={{fontWeight:600}}>{tipoNombre(p.CbteTipo)}</div><div style={{fontSize:11,color:"#8890a8"}}>PV {p.PtoVta} · N° {p.CbteDesde}</div></td>
             <td style={{padding:"10px 12px",fontFamily:"'IBM Plex Mono',monospace"}}>{p.DocNro||"-"}</td>
@@ -11858,7 +11892,7 @@ const DocumentosArca = () => {
         <div style={{display:"flex",gap:7}}><Btn variant="secondary" disabled={pagina<=1} onClick={()=>setPagina(v=>Math.max(1,v-1))}>Anterior</Btn><Btn variant="secondary" disabled={pagina>=(paginacion.paginas||1)} onClick={()=>setPagina(v=>v+1)}>Siguiente</Btn></div>
       </div>
     </div>
-    {detalle&&<Modal title={esCpe?"Detalle CPE / CPEDG":"Detalle del comprobante ARCA"} onClose={()=>setDetalle(null)}>
+    {detalle&&<Modal title={esCpe?"Detalle CPE / CPEDG":esLiquidacion?"Detalle completo de la liquidación":"Detalle del comprobante ARCA"} onClose={()=>setDetalle(null)}>
       {esCpe?<div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           <FF label="CTG"><div style={{fontFamily:"monospace",fontWeight:700}}>{detalle.external_key}</div></FF><FF label="Fecha"><div>{String(detalle.document_date||"").slice(0,10)||"-"}</div></FF>
@@ -11867,7 +11901,27 @@ const DocumentosArca = () => {
         <div style={{display:"flex",gap:8,marginTop:14}}>{detalle.tiene_pdf&&<Btn onClick={()=>abrirPdfOficial(detalle)}>Abrir PDF oficial</Btn>}</div>
         <div style={{marginTop:14}}><div className="form-label">Datos oficiales completos</div><pre style={{maxHeight:360,overflow:"auto",padding:12,background:"#0d1017",border:"1px solid #252837",borderRadius:7,fontSize:11,whiteSpace:"pre-wrap"}}>{JSON.stringify(detalle.payload?.detalle||detalle.payload,null,2)}</pre></div>
         <div style={{marginTop:14,fontSize:11,color:"#565d7a"}}>Hash SHA-256: {detalle.payload_hash}</div>
-      </div>:<React.Fragment><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+      </div>:esLiquidacion?<div>{(()=>{const l=detalle.detalle_liquidacion||{};const importe=v=>v==null?"No informado":money(v);return <React.Fragment>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <FF label="COE"><div style={{fontFamily:"monospace",fontWeight:700}}>{valorVisible(l.coe||detalle.external_key)}</div></FF><FF label="Fecha"><div>{String(detalle.document_date||"").slice(0,10)||"No informada"}</div></FF>
+          <FF label="Documento"><div>{valorVisible(l.tipoFormularioHistorico||l.familiaDocumento)}</div></FF><FF label="Familia oficial"><div>{valorVisible(l.familiaDocumento)}</div></FF>
+          <FF label="Tipo de operación"><div>{valorVisible(l.tipoOperacion)}</div></FF><FF label="Estado"><div>{valorVisible(l.estado)}</div></FF>
+          <FF label="Quién liquida"><div>{valorVisible(l.liquidadorNombre)}<br/><span className="mono">{valorVisible(l.liquidadorCuit)}</span></div></FF><FF label="A quién liquida"><div>{valorVisible(l.receptorNombre)}<br/><span className="mono">{valorVisible(l.receptorCuit)}</span></div></FF>
+          <FF label="Producto / campaña"><div>{valorVisible(l.producto)} · {valorVisible(l.campana)}</div></FF><FF label="Kilos / toneladas"><div>{l.kilos==null?"No informado":Number(l.kilos).toLocaleString("es-AR")} kg · {l.toneladas==null?"No informado":Number(l.toneladas).toLocaleString("es-AR",{maximumFractionDigits:3})} t</div></FF>
+          <FF label="Precio por tonelada"><div>{importe(l.precioTonelada)}</div></FF><FF label="Importe bruto"><div>{importe(l.importeBruto)}</div></FF>
+          <FF label="Importe neto"><div>{importe(l.importeNeto)}</div></FF><FF label="IVA"><div>{importe(l.iva)}</div></FF>
+          <FF label="Sellado"><div>{importe(l.sellado)}</div></FF><FF label="Retención Ganancias"><div>{importe(l.retencionGanancias)}</div></FF>
+          <FF label="Retención IVA"><div>{importe(l.retencionIva)}</div></FF><FF label="Comisiones"><div>{importe(l.comisiones)}</div></FF>
+          <FF label="Otras retenciones"><div>{importe(l.otrasRetenciones)}</div></FF><FF label="Otros conceptos"><div>{importe(l.otrosConceptos)}</div></FF>
+          <FF label="Total"><div style={{fontWeight:700}}>{importe(l.importeTotal)}</div></FF><FF label="Moneda"><div>{valorVisible(l.moneda)}</div></FF>
+        </div>
+        {(l.participantes||[]).length>0&&<div style={{marginTop:14}}><div className="form-label">Participantes oficiales</div><table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}><thead><tr>{["Rol","CUIT","Razón social"].map(h=><th key={h} style={{padding:7,textAlign:"left",borderBottom:"1px solid #2a2d3e"}}>{h}</th>)}</tr></thead><tbody>{l.participantes.map((p,i)=><tr key={`${p.rol}-${p.cuit}-${i}`}><td style={{padding:7}}>{p.rol}</td><td style={{padding:7,fontFamily:"monospace"}}>{p.cuit}</td><td style={{padding:7}}>{valorVisible(p.nombre)}</td></tr>)}</tbody></table></div>}
+        {(l.items||[]).length>0&&<div style={{marginTop:14}}><div className="form-label">Granos, kilos y precios</div><table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}><thead><tr>{["Producto","Código","Campaña","Kilos","Precio/tn","Importe"].map(h=><th key={h} style={{padding:7,textAlign:"left",borderBottom:"1px solid #2a2d3e"}}>{h}</th>)}</tr></thead><tbody>{l.items.map((item,i)=><tr key={`${item.ruta}-${i}`}><td style={{padding:7}}>{valorVisible(item.producto)}</td><td style={{padding:7}}>{valorVisible(item.codigoProducto)}</td><td style={{padding:7}}>{valorVisible(item.campana)}</td><td style={{padding:7}}>{item.kilos==null?"No informado":Number(item.kilos).toLocaleString("es-AR")}</td><td style={{padding:7}}>{importe(item.precioTonelada)}</td><td style={{padding:7}}>{importe(item.importe)}</td></tr>)}</tbody></table></div>}
+        {(l.conceptosImpositivos||[]).length>0&&<div style={{marginTop:14}}><div className="form-label">IVA, impuestos, retenciones y comisiones</div><table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}><thead><tr>{["Concepto","Código","Base imponible","Alícuota %","Importe"].map(h=><th key={h} style={{padding:7,textAlign:"left",borderBottom:"1px solid #2a2d3e"}}>{h}</th>)}</tr></thead><tbody>{l.conceptosImpositivos.map((item,i)=><tr key={`${item.ruta}-${i}`}><td style={{padding:7}}>{valorVisible(item.concepto)}</td><td style={{padding:7}}>{valorVisible(item.codigo)}</td><td style={{padding:7}}>{importe(item.baseImponible)}</td><td style={{padding:7}}>{item.alicuota==null?"No informada":Number(item.alicuota).toLocaleString("es-AR")}</td><td style={{padding:7,fontWeight:600}}>{importe(item.importe)}</td></tr>)}</tbody></table></div>}
+        {detalle.tiene_pdf&&<div style={{marginTop:14}}><Btn onClick={()=>abrirPdfOficial(detalle)}>Abrir PDF oficial</Btn></div>}
+        <div style={{marginTop:14}}><div className="form-label">Todos los datos oficiales informados por ARCA</div><div style={{maxHeight:360,overflow:"auto",background:"#0d1017",border:"1px solid #252837",borderRadius:7}}>{(l.camposOficiales||[]).map((item,i)=><div key={`${item.campo}-${i}`} style={{display:"grid",gridTemplateColumns:"minmax(220px,1fr) 2fr",gap:10,padding:"6px 10px",borderBottom:"1px solid #202432",fontSize:11}}><span style={{color:"#8890a8",wordBreak:"break-all"}}>{item.campo}</span><span style={{wordBreak:"break-word"}}>{String(item.valor)}</span></div>)}</div></div>
+        <div style={{marginTop:14,fontSize:11,color:"#565d7a"}}>Fuente: {detalle.fuente} · Hash SHA-256: {detalle.payload_hash}</div>
+      </React.Fragment>;})()}</div>:<React.Fragment><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
         <FF label="Tipo"><div>{tipoNombre(detalle.payload?.CbteTipo)}</div></FF><FF label="Fecha"><div>{String(detalle.document_date||"").slice(0,10)}</div></FF>
         <FF label="Punto de venta / número"><div>{detalle.payload?.PtoVta} / {detalle.payload?.CbteDesde}</div></FF><FF label="CUIT receptor"><div>{detalle.payload?.DocNro||"-"}</div></FF>
         <FF label="Importe total"><div>{money(detalle.payload?.ImpTotal)}</div></FF><FF label="Moneda"><div>{detalle.payload?.MonId||"-"} · Cotización {detalle.payload?.MonCotiz||"-"}</div></FF>
@@ -12102,6 +12156,7 @@ const Certificados1116 = ({usuario}) => {
   const [generandoTrazabilidad, setGenerandoTrazabilidad] = useState(false);
   const [extrayendoCertificados, setExtrayendoCertificados] = useState(false);
   const [resultadoExtraccion, setResultadoExtraccion] = useState(null);
+  const [certificadoDetalle, setCertificadoDetalle] = useState(null);
 
   const cargar = async () => {
     setCargando(true);
@@ -12323,7 +12378,7 @@ const Certificados1116 = ({usuario}) => {
                           </span>
                         )}
                       </td>
-                      <td><Btn variant="danger" size="sm" onClick={()=>eliminar(c.id)}>✕</Btn></td>
+                      <td><div style={{display:"flex",gap:5}}><Btn variant="secondary" size="sm" onClick={()=>setCertificadoDetalle(c)}>Ver datos</Btn><Btn variant="danger" size="sm" onClick={()=>eliminar(c.id)}>✕</Btn></div></td>
                     </tr>
                     {expandido===c.id && ctgs.length>0 && (
                       <tr>
@@ -12349,6 +12404,19 @@ const Certificados1116 = ({usuario}) => {
           </table>
         </div>
       )}
+      {certificadoDetalle&&<Modal title={`Certificado ${certificadoDetalle.coe||certificadoDetalle.numero_certificado||""}`} onClose={()=>setCertificadoDetalle(null)}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <FF label="Tipo / formulario"><div>{certificadoDetalle.tipo_formulario||"No informado"}</div></FF><FF label="Estado"><div>{certificadoDetalle.estado||certificadoDetalle.estado_extraccion||"No informado"}</div></FF>
+          <FF label="COE"><div className="mono">{certificadoDetalle.coe||"No informado"}</div></FF><FF label="Número de certificado"><div>{certificadoDetalle.numero_certificado||"No informado"}</div></FF>
+          <FF label="Fecha de emisión"><div>{certificadoDetalle.fecha_emision?formatFechaAR(certificadoDetalle.fecha_emision):"No informada"}</div></FF><FF label="Producto / especie"><div>{certificadoDetalle.especie_nombre||certificadoDetalle.datos_raw?.producto||"No informado"}</div></FF>
+          <FF label="Productor"><div>{certificadoDetalle.nombre_productor||certificadoDetalle.productor_nombre_cp||"No informado"}<br/><span className="mono">{certificadoDetalle.cuit_productor||"CUIT no informado"}</span></div></FF><FF label="Comprador / certificador"><div>{certificadoDetalle.nombre_comprador_certificador||"No informado"}<br/><span className="mono">{certificadoDetalle.cuit_comprador_certificador||"CUIT no informado"}</span></div></FF>
+          <FF label="Kilos brutos certificados"><div>{certificadoDetalle.kilos_brutos_certificados==null?"No informado":Number(certificadoDetalle.kilos_brutos_certificados).toLocaleString("es-AR")}</div></FF><FF label="Kilos netos acondicionados"><div>{certificadoDetalle.kilos_netos_acondicionados==null?(certificadoDetalle.kilos_netos==null?"No informado":Number(certificadoDetalle.kilos_netos).toLocaleString("es-AR")):Number(certificadoDetalle.kilos_netos_acondicionados).toLocaleString("es-AR")}</div></FF>
+          <FF label="Merma humedad"><div>{certificadoDetalle.merma_humedad_kg==null?"No informado":`${Number(certificadoDetalle.merma_humedad_kg).toLocaleString("es-AR")} kg`}</div></FF><FF label="Merma calidad"><div>{certificadoDetalle.merma_calidad_kg==null?"No informado":`${Number(certificadoDetalle.merma_calidad_kg).toLocaleString("es-AR")} kg`}</div></FF>
+          <FF label="Otras mermas"><div>{certificadoDetalle.otras_mermas_kg==null?"No informado":`${Number(certificadoDetalle.otras_mermas_kg).toLocaleString("es-AR")} kg`}</div></FF><FF label="CTG que lo componen"><div>{(certificadoDetalle.ctgs||[]).map(x=>x.nro_ctg).filter(Boolean).join(", ")||"No informados"}</div></FF>
+          <FF label="Observaciones de extracción"><div>{certificadoDetalle.observaciones_extraccion||certificadoDetalle.observaciones||"Sin observaciones"}</div></FF><FF label="Documento ARCA vinculado"><div>{certificadoDetalle.arca_document_id||"No vinculado"}</div></FF>
+        </div>
+        <div style={{marginTop:14}}><div className="form-label">Todos los datos extraídos del certificado</div><pre style={{maxHeight:360,overflow:"auto",padding:12,background:"#0d1017",border:"1px solid #252837",borderRadius:7,fontSize:11,whiteSpace:"pre-wrap"}}>{JSON.stringify(Object.fromEntries(Object.entries(certificadoDetalle.datos_raw||{}).filter(([clave])=>!/^(pdf|pdfPath|token|cookie|privateKey|certificatePem)$/i.test(clave))),null,2)}</pre></div>
+      </Modal>}
     </div>
   );
 };
@@ -13015,7 +13083,7 @@ function Login({onLogin}) {
           Ingresar
         </button>
         <div style={{marginTop:20,textAlign:"center",fontSize:11,color:"#565d7a"}}>
-          v2.7.14 — GranoSYS - INVDELSAL</div>
+          v2.7.16 — GranoSYS - INVDELSAL</div>
       </div>
     </div>
   );
@@ -14427,7 +14495,7 @@ function App() {
         )}
         <div style={{padding:"10px 16px",borderTop:"1px solid #2a2d3e"}}>
           <div style={{fontSize:10,color:"#565d7a",userSelect:"none"}}>
-            v2.7.14 — GranoSYS - <span
+            v2.7.16 — GranoSYS - <span
               onDoubleClick={()=>setShowAccesoOculto(true)}
               style={{cursor:"default",color:"#565d7a"}}
             >INVDELSAL</span>
@@ -14647,3 +14715,4 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App/
 </script>
 </body>
 </html>
+
