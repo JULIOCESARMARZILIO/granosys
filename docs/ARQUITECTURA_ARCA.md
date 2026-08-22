@@ -63,6 +63,15 @@
 - Los documentos recibidos no disponen de un listado masivo equivalente en WSFE/WSCDC. Se integrarán mediante Portal IVA / Libro IVA Digital y luego se validarán contra los servicios oficiales.
 - WSCPE no publica una consulta historica general por CUIT/rol. `consultarCPEPorDestino` solo enumera la calidad destino para planta y rango de fechas; remitente comercial y otros roles requieren obtener los CTG del listado oficial interactivo y luego consultar cada documento por WSCPE.
 
+## Liquidaciones B/C y LPG/LSG (v2.7.16)
+
+- `arca_official_documents` conserva el XML WSLPG íntegro y su hash; la API de consulta lo normaliza al leer sin duplicar ni modificar la evidencia oficial.
+- La clasificación histórica 1116 B (compraventa) o 1116 C (consignación) se muestra únicamente cuando el tipo de operación oficial permite determinarla. En caso contrario se conserva la familia LPG/LSG sin inferir datos.
+- El detalle expone por separado COE, estado, liquidador, receptor, producto, campaña, kilos, toneladas, precio, importes, moneda y todos los participantes devueltos por ARCA.
+- IVA, base imponible, alícuota, sellos, Ganancias, retenciones, percepciones, comisiones y otros tributos se conservan como conceptos repetibles; no se reduce la liquidación al primer importe encontrado.
+- Los PDF, token, firma, certificado y clave privada nunca forman parte de la respuesta JSON de la pantalla. El PDF oficial, cuando existe, se sirve por el endpoint autenticado de archivos.
+- La actualización WSLPG es solo consulta. No crea asientos, movimientos de cuenta corriente ni liquidaciones operativas sin una decisión humana posterior.
+
 
 ## Trazabilidad CPE → certificado → liquidación (v2.7.8)
 
@@ -72,3 +81,4 @@
 - Las propuestas heurísticas nunca producen efectos fiscales ni quedan confirmadas sin intervención humana.
 - La vinculación certificado–liquidación usa la referencia oficial exacta al COE o número de certificado dentro del documento WSLPG.
 - La tabla `arca_trace_links` conserva método, puntaje, kilos comparados, diferencia, evidencia, estado y usuario revisor para auditoría.
+
