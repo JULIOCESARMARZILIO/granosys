@@ -6,6 +6,7 @@ const { initDB, pool } = require('./db');
 const arcaOfficialClient = require('./services/arcaOfficialClient');
 const arcaCertificateExtractor = require('./services/arcaCertificateExtractor');
 const arcaCertificateDischarge = require('./services/arcaCertificateDischarge');
+const { materializarLiquidacionesOficiales } = require('./services/arcaLiquidationMaterializer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -361,6 +362,9 @@ async function start() {
     }
     setImmediate(async () => {
       try {
+        const liquidaciones = await materializarLiquidacionesOficiales();
+        console.log('LIQUIDACIONES_ARCA_MATERIALIZADAS=' + JSON.stringify(liquidaciones));
+
         const movimientos = await arcaOfficialClient.materializarMovimientosCpe({
           desde: '2026-02-01',
           soloConfirmadas: true
