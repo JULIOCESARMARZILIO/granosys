@@ -1,4 +1,4 @@
-const { obtenerCoe, resumirDocumento, escalares } = require('../src/services/arcaLiquidationMaterializer');
+const { obtenerCoe, resumirDocumento, escalares, coeContraDocumento } = require('../src/services/arcaLiquidationMaterializer');
 
 describe('materializador de liquidaciones ARCA', () => {
   test('prioriza el COE del external_key', () => {
@@ -39,5 +39,15 @@ describe('materializador de liquidaciones ARCA', () => {
     expect(escalares(payload).map(item => item.path)).toEqual(expect.arrayContaining([
       'liquidacion.coe', 'liquidacion.impuestos[0].tipo', 'liquidacion.impuestos[0].importe'
     ]));
+  });
+
+  test('reconoce ajustes y su contra-documento sin confundirlos con principales', () => {
+    const ajuste = resumirDocumento({ id: 9, fuente: 'ARCA_LIQUIDACIONES_INTERACTIVAS',
+      external_key: '330231991190', document_date: '2026-07-22', payload_hash: 'ghi',
+      payload: { tipoOperacion: 'Consignación de granos - Ajuste Unificado' } });
+    expect(ajuste.esAjuste).toBe(true);
+    expect(coeContraDocumento('Anulado por Contra Documento COE 330231991190'))
+      .toBe('330231991190');
+    expect(coeContraDocumento('Activo')).toBeNull();
   });
 });

@@ -72,6 +72,8 @@ function resumirDocumento(documento) {
   const { fields, find } = indicePayload(payload);
   const clase = coe.startsWith('330') ? 'PRIMARIA' : 'SECUNDARIA';
   const descripcionOperacion = find(['tipoOperacion', 'descripcionOperacion', 'operacion', 'descripcion']);
+  const esAjuste = /ajuste|nota\s+de\s+(credito|d[eé]bito)|contra\s*documento/i
+    .test(String(descripcionOperacion || ''));
   const tipo = /venta/i.test(String(descripcionOperacion || '')) ? 'VENTA' : 'COMPRA';
   const fechaDocumento = fecha(
     find(['fechaEmision', 'fechaLiquidacion', 'fechaOperacion', 'fecha']),
@@ -88,6 +90,9 @@ function resumirDocumento(documento) {
     documentId: documento.id,
     payloadHash: documento.payload_hash,
     descripcionOperacion: descripcionOperacion ? String(descripcionOperacion) : null,
+    esAjuste,
+    coePrincipal: String(find(['coeOriginal', 'coeOrigen', 'coeLiquidacionOriginal',
+      'coeAjustado', 'coeRelacionado']) || '').match(COE_RE)?.[1] || null,
     estado: find(['estado', 'estadoOficial']),
     sistema: find(['sistema', 'sistemaEmision']),
     moneda: find(['moneda', 'codigoMoneda']) || 'PESOS',
@@ -103,6 +108,12 @@ function resumirDocumento(documento) {
     cuitComprador: cuit(find(['cuitComprador'])),
     cuitCorredor: cuit(find(['cuitCorredorConsignatario', 'cuitCorredor', 'cuitConsignatario']))
   };
+}
+
+function coeContraDocumento(value) {
+  const text = String(value || '');
+  if (!/contra\s*documento/i.test(text)) return null;
+  return text.match(COE_RE)?.[1] || null;
 }
 
 async function guardarDocumento(client, data) {
@@ -207,9 +218,54 @@ async function guardarDocumento(client, data) {
   return created;
 }
 
+async function relacionarAjuste(client, idLiquidacion, principalCoe, ajuste) {
+  await client.query(`
+    INSERT INTO liquidacion_relaciones(id_liquidacion,id_documento_arca,tipo_relacion,metadata)
+    SELECT $1,$2,'AJUSTE_OFICIAL',$3::jsonb
+    WHERE NOT EXISTS (
+      SELECT 1 FROM liquidacion_relaciones
+      WHERE id_liquidacion=$1 AND id_documento_arca=$2 AND tipo_relacion='AJUSTE_OFICIAL'
+    )
+  `, [idLiquidacion, ajuste.documentId, JSON.stringify({
+    coePrincipal: principalCoe,
+    coeAjuste: ajuste.coe,
+    descripcionOperacion: ajuste.descripcionOperacion,
+    estado: ajuste.estado,
+    payload: ajuste.payload
+  })]);
+
+  await client.query(`
+    INSERT INTO liquidacion_referencias(id_liquidacion,tipo,numero,fecha,importe,metadata)
+    SELECT $1,'COE_AJUSTE',$2,$3,$4,$5::jsonb
+    WHERE NOT EXISTS (
+      SELECT 1 FROM liquidacion_referencias
+      WHERE id_liquidacion=$1 AND tipo='COE_AJUSTE' AND numero=$2
+    )
+  `, [idLiquidacion, ajuste.coe, ajuste.fecha, ajuste.importeTotal,
+    JSON.stringify({ fuente: ajuste.fuente, estado: ajuste.estado })]);
+
+  for (let index = 0; index < ajuste.fields.length; index += 1) {
+    const field = ajuste.fields[index];
+    const numeric = typeof field.value === 'number' && Number.isFinite(field.value) ? field.value : null;
+    const boolean = typeof field.value === 'boolean' ? field.value : null;
+    const ruta = `ajustes[${ajuste.coe}].${field.path || `campo[${index}]`}`;
+    await client.query(`
+      INSERT INTO liquidacion_campos_oficiales
+        (id_liquidacion,ruta,campo,ocurrencia,tipo_dato,valor_texto,valor_numero,valor_booleano)
+      VALUES($1,$2,$3,0,$4,$5,$6,$7)
+      ON CONFLICT(id_liquidacion,ruta,ocurrencia) DO UPDATE SET
+        tipo_dato=EXCLUDED.tipo_dato,valor_texto=EXCLUDED.valor_texto,
+        valor_numero=EXCLUDED.valor_numero,valor_booleano=EXCLUDED.valor_booleano
+    `, [idLiquidacion, ruta, field.key || 'campo',
+      boolean !== null ? 'BOOLEANO' : numeric !== null ? 'NUMERO' : 'TEXTO',
+      numeric === null && boolean === null ? String(field.value) : null, numeric, boolean]);
+  }
+}
+
 async function materializarLiquidacionesOficiales() {
   const client = await pool.connect();
-  const result = { oficiales: 0, coeUnicos: 0, creadas: 0, actualizadas: 0, omitidas: 0, errores: [] };
+  const result = { oficiales: 0, coeUnicos: 0, principales: 0, creadas: 0,
+    actualizadas: 0, ajustesVinculados: 0, ajustesPendientes: [], omitidas: 0, errores: [] };
   try {
     await client.query('BEGIN');
     await ensureLiquidacionesGranosSchema(client);
@@ -229,7 +285,14 @@ async function materializarLiquidacionesOficiales() {
       if (!unique.has(data.coe)) unique.set(data.coe, data);
     }
     result.coeUnicos = unique.size;
+    const contraAPrincipal = new Map();
     for (const data of unique.values()) {
+      const contraCoe = coeContraDocumento(data.estado);
+      if (contraCoe) contraAPrincipal.set(contraCoe, data.coe);
+    }
+    const principales = [...unique.values()].filter(data => !data.esAjuste);
+    result.principales = principales.length;
+    for (const data of principales) {
       const savepoint = `liq_${data.coe}`;
       await client.query(`SAVEPOINT ${savepoint}`);
       try {
@@ -240,6 +303,34 @@ async function materializarLiquidacionesOficiales() {
       } catch (error) {
         await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
         result.errores.push({ coe: data.coe, error: error.message });
+      }
+    }
+    for (const ajuste of [...unique.values()].filter(data => data.esAjuste)) {
+      const principalCoe = ajuste.coePrincipal || contraAPrincipal.get(ajuste.coe) || null;
+      if (!principalCoe) {
+        result.ajustesPendientes.push({ coe: ajuste.coe, motivo: 'COE principal no informado por ARCA' });
+        continue;
+      }
+      const parent = await client.query(`
+        SELECT id_liquidacion FROM liquidaciones_primarias WHERE coe=$1
+        UNION ALL
+        SELECT id_liquidacion FROM liquidaciones_secundarias WHERE coe=$1
+        LIMIT 1
+      `, [principalCoe]);
+      if (!parent.rows[0]) {
+        result.ajustesPendientes.push({ coe: ajuste.coe, coePrincipal: principalCoe,
+          motivo: 'La liquidacion principal todavia no esta disponible' });
+        continue;
+      }
+      const savepoint = `ajuste_${ajuste.coe}`;
+      await client.query(`SAVEPOINT ${savepoint}`);
+      try {
+        await relacionarAjuste(client, parent.rows[0].id_liquidacion, principalCoe, ajuste);
+        result.ajustesVinculados += 1;
+        await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+      } catch (error) {
+        await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+        result.errores.push({ coe: ajuste.coe, coePrincipal: principalCoe, error: error.message });
       }
     }
     await client.query('COMMIT');
@@ -255,6 +346,7 @@ async function materializarLiquidacionesOficiales() {
 module.exports = {
   escalares,
   obtenerCoe,
+  coeContraDocumento,
   resumirDocumento,
   materializarLiquidacionesOficiales
 };
