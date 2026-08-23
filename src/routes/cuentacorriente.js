@@ -9,10 +9,32 @@ router.get('/contrapartes/:id', async (req, res) => {
     let where = 'cc.id_contraparte = $1';
     if (modalidad) { params.push(modalidad); where += ` AND cc.modalidad = $${params.length}`; }
     const { rows } = await pool.query(`
-      SELECT cc.*, l.nro_liquidacion, c.numero_contrato
+      SELECT cc.*, l.nro_liquidacion, c.numero_contrato,
+             op.numero AS numero_orden_pago, op.clase_pago, op.estado AS estado_orden_pago,
+             op.importe_total AS importe_orden_pago, op.fecha_pago AS fecha_pago_orden,
+             COALESCE((
+               SELECT jsonb_agg(jsonb_build_object(
+                 'id', mt.id,
+                 'medio_pago', mt.medio_pago,
+                 'importe', mt.importe,
+                 'cuenta_bancaria', cb.nombre,
+                 'cheque_id', ch.id,
+                 'cheque_tipo', ch.tipo,
+                 'cheque_numero', ch.numero,
+                 'cheque_banco', ch.banco,
+                 'cheque_fecha_pago', ch.fecha_pago,
+                 'cheque_estado', ch.estado,
+                 'cruzado', ch.cruzado
+               ) ORDER BY mt.id)
+               FROM movimientos_tesoreria mt
+               LEFT JOIN cuentas_bancarias cb ON cb.id=mt.id_cuenta_bancaria
+               LEFT JOIN cheques_tesoreria ch ON ch.id_movimiento_tesoreria=mt.id
+               WHERE mt.id_orden_pago=op.id
+             ), '[]'::jsonb) AS instrumentos_pago
       FROM cc_contrapartes cc
       LEFT JOIN liquidaciones l ON cc.id_liquidacion = l.id
       LEFT JOIN contratos c ON cc.id_contrato = c.id
+      LEFT JOIN ordenes_pago op ON op.id=cc.id_orden_pago
       WHERE ${where}
       ORDER BY cc.fecha DESC, cc.id DESC
     `, params);
@@ -128,44 +150,9 @@ router.get('/consolidado', async (req, res) => {
 
 
 router.post('/movimientos', async (req, res) => {
-  try {
-    const { id_contraparte, id_contrato, id_liquidacion, fecha, tipo_movimiento, concepto, monto, modalidad } = req.body;
-    
-    if (!id_contraparte || !fecha || !tipo_movimiento || !monto || !modalidad) {
-      return res.status(400).json({ error: "Faltan campos obligatorios" });
-    }
-
-    const valorMonto = parseFloat(monto);
-    if (isNaN(valorMonto) || valorMonto <= 0) {
-      return res.status(400).json({ error: "El monto debe ser un número positivo" });
-    }
-
-    let debe = 0;
-    let haber = 0;
-    
-    if (tipo_movimiento === 'PAGO' || tipo_movimiento === 'ADELANTO') {
-      debe = valorMonto;
-    } else if (tipo_movimiento === 'COBRO') {
-      haber = valorMonto;
-    } else {
-      return res.status(400).json({ error: "Tipo de movimiento no válido. Debe ser PAGO, COBRO o ADELANTO" });
-    }
-
-    const saldo_acumulado = debe - haber;
-
-    const { rows } = await pool.query(`
-      INSERT INTO cc_contrapartes
-        (id_contraparte, id_contrato, id_liquidacion, fecha, tipo_movimiento,
-         concepto, debe, haber, saldo_acumulado, modalidad, estado)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'ABIERTO')
-      RETURNING *
-    `, [id_contraparte, id_contrato || null, id_liquidacion || null, fecha, tipo_movimiento,
-        concepto, debe, haber, saldo_acumulado, modalidad]);
-
-    res.status(201).json(rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.status(405).json({
+    error: 'Cuenta Corriente es de solo consulta. Registre el pago mediante una Orden de Pago en Tesoreria.'
+  });
 });
 
 router.put('/movimientos/:id/asignar', async (req, res) => {
@@ -238,49 +225,9 @@ router.get('/transportistas/:id', async (req, res) => {
 
 // POST /transportistas/movimientos - Registrar pago o adelanto a un transportista
 router.post('/transportistas/movimientos', async (req, res) => {
-  try {
-    const { id_transportista, fecha, tipo_movimiento, concepto, monto } = req.body;
-    
-    if (!id_transportista || !fecha || !tipo_movimiento || !monto) {
-      return res.status(400).json({ error: "Faltan campos obligatorios" });
-    }
-
-    const valorMonto = parseFloat(monto);
-    if (isNaN(valorMonto) || valorMonto <= 0) {
-      return res.status(400).json({ error: "El monto debe ser un número positivo" });
-    }
-
-    let debe = 0;
-    let haber = 0;
-    
-    if (tipo_movimiento === 'PAGO' || tipo_movimiento === 'ADELANTO') {
-      debe = valorMonto;
-    } else if (tipo_movimiento === 'AJUSTE') {
-      haber = valorMonto;
-    } else {
-      return res.status(400).json({ error: "Tipo de movimiento no válido. Debe ser PAGO, ADELANTO o AJUSTE" });
-    }
-
-    // Obtener último saldo
-    const { rows: lastCc } = await pool.query(
-      'SELECT saldo_acumulado FROM cc_transportistas WHERE id_transportista = $1 ORDER BY fecha DESC, id DESC LIMIT 1',
-      [id_transportista]
-    );
-    const lastSaldo = lastCc[0] ? parseFloat(lastCc[0].saldo_acumulado) : 0;
-    const saldo_acumulado = lastSaldo + (debe - haber);
-
-    const { rows } = await pool.query(`
-      INSERT INTO cc_transportistas
-        (id_transportista, fecha, concepto, descripcion, debe, haber, saldo_acumulado, estado)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'ABIERTO')
-      RETURNING *
-    `, [id_transportista, fecha, concepto, concepto, debe, haber, saldo_acumulado]);
-
-    res.status(201).json(rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.status(405).json({
+    error: 'Cuenta Corriente es de solo consulta. Registre el pago mediante una Orden de Pago en Tesoreria.'
+  });
 });
 
 module.exports = router;
-
