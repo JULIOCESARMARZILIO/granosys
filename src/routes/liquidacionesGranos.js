@@ -8,6 +8,7 @@ const {
   calcularTotales,
   ensureLiquidacionesGranosSchema
 } = require('../services/liquidacionesGranosSchema');
+const { generarAsientoLiquidacion } = require('../services/contabilidadLiquidaciones');
 
 function cuit(value) {
   const normalized = String(value || '').replace(/\D/g, '');
@@ -233,6 +234,32 @@ router.post('/primarias', (req, res) => crear(req, res, 'PRIMARIA'));
 router.post('/secundarias', (req, res) => crear(req, res, 'SECUNDARIA'));
 
 router.get('/catalogos/conceptos', (req, res) => res.json({ conceptos: TIPOS_CONCEPTO, impuestos: TIPOS_IMPUESTO }));
+
+router.post('/:id/asiento-borrador', async (req, res) => {
+  try {
+    const asiento = await generarAsientoLiquidacion(req.params.id, req.user?.id || null);
+    await registrarAuditoria(req, { accion: 'GENERAR_BORRADOR', modulo: 'contabilidad',
+      registro_id: asiento.id, datos_despues: asiento });
+    res.status(201).json(asiento);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.get('/:id/asiento', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT a.*,COALESCE(JSONB_AGG(JSONB_BUILD_OBJECT(
+      'id',r.id,'orden',r.orden,'cuenta',pc.codigo,'cuenta_nombre',pc.nombre,
+      'descripcion',r.descripcion,'debe',r.debe,'haber',r.haber,'impuesto_id',r.id_liquidacion_impuesto,
+      'concepto_id',r.id_liquidacion_concepto) ORDER BY r.orden,r.id)
+      FILTER(WHERE r.id IS NOT NULL),'[]'::jsonb) renglones
+      FROM asientos_contables a LEFT JOIN asiento_renglones r ON r.id_asiento=a.id
+      LEFT JOIN plan_cuentas pc ON pc.id=r.id_cuenta
+      WHERE a.origen_modulo='LIQUIDACIONES_GRANOS' AND a.origen_id=$1 GROUP BY a.id`, [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Asiento no encontrado.' });
+    res.json(rows[0]);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
 
 router.get('/:id', async (req, res) => {
   try {
