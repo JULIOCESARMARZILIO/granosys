@@ -154,7 +154,10 @@ async function ensureLiquidacionesGranosSchema(client) {
       id BIGSERIAL PRIMARY KEY,
       id_liquidacion INTEGER NOT NULL REFERENCES liquidaciones(id) ON DELETE CASCADE,
       id_liquidacion_relacionada INTEGER REFERENCES liquidaciones(id) ON DELETE RESTRICT,
-      id_documento_arca BIGINT REFERENCES arca_official_documents(id) ON DELETE SET NULL,
+      -- arca_official_documents se crea de forma diferida por el cliente ARCA.
+      -- Se conserva el identificador sin FK para que el arranque no dependa
+      -- del orden de inicializacion de una integracion externa.
+      id_documento_arca BIGINT,
       id_certificado_1116 INTEGER REFERENCES certificados_1116(id) ON DELETE SET NULL,
       tipo_relacion VARCHAR(40) NOT NULL,
       importe_aplicado NUMERIC(18,4),
