@@ -2147,6 +2147,1334 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null,
       FROM arca_cpe_registry r
       JOIN arca_official_documents d ON d.id=r.document_id
       WHERE r.ctg ~ '^[0-9]{8,20}
+
+    const { rows: secuencia } = await client.query(`
+      SELECT COALESCE(MAX((regexp_match(numero_movimiento, '^MOV-([0-9]+)$'))[1]::bigint),0) AS ultimo
+      FROM movimientos WHERE numero_movimiento ~ '^MOV-[0-9]+$'
+    `);
+    let siguiente = Number(secuencia[0]?.ultimo || 0) + 1;
+
+    const pickRol = (items, patrones) => items.find(item => patrones.some(pattern => pattern.test(String(item.rol || '')))) || null;
+    resultado.actualizadas = 0;
+    for (const doc of documentos) {
+      resultado.revisadas += 1;
+      const payload = doc.payload || {};
+      const rawXml = String(payload.rawXml || payload.raw_xml || '');
+      const estadoOficial = estadoCpeDesdePayload(payload);
+      if (soloConfirmadas && !esEstadoConfirmadoCpe(estadoOficial)) {
+        resultado.omitidasNoConfirmadas += 1;
+        continue;
+      }
+      resultado.confirmadas += 1;
+      const datosCarga = payload.datosCarga || payload.datos_carga || {};
+      const cabecera = payload.cabecera || {};
+      const transporte = payload.transporte || {};
+      if (!datosCarga.codGrano) {
+        datosCarga.codGrano = primerTag(rawXml, ['codGrano', 'codigoGrano', 'codEspecie', 'codigoEspecie']);
+      }
+      if (!datosCarga.codDerivadoGranario) {
+        datosCarga.codDerivadoGranario = primerTag(rawXml, ['codDerivadoGranario', 'codigoDerivadoGranario']);
+      }
+      const producto = productoCpeOficial(doc.tipo_cpe, datosCarga, payload, catalogos);
+      const especie = await asegurarEspecieProductoCpe(client, producto);
+      const participantes = Array.isArray(doc.participantes) ? doc.participantes : [];
+      const plantas = Array.isArray(doc.plantas) ? doc.plantas : [];
+      const plantaOrigen = plantas.find(item => /ORIGEN/i.test(String(item.rol || ''))) || null;
+      const clasificacionOrigen = clasificarOrigenCtg(doc.ctg);
+
+      const { rows: ya } = await client.query('SELECT id,id_especie,observaciones FROM movimientos WHERE nro_ctg=$1 LIMIT 1', [doc.ctg]);
+      if (ya[0]) {
+        await client.query(`
+          UPDATE movimientos SET
+            tipo_origen_cpe=COALESCE($1,tipo_origen_cpe),
+            origen_produccion=COALESCE($2,origen_produccion),
+            nro_planta_origen=COALESCE($3,nro_planta_origen),
+            id_ubicacion_origen=COALESCE($4,id_ubicacion_origen)
+          WHERE id=$5
+        `, [clasificacionOrigen.tipoOrigenCpe, clasificacionOrigen.origenProduccion,
+          plantaOrigen?.nro_planta || null, plantaOrigen?.ubicacion_id || null, ya[0].id]);
+        if (especie && Number(ya[0].id_especie) !== Number(especie.id)) {
+          const notaProducto = `Producto ARCA: ${producto.nombre} (código ${producto.codigoArca}).`;
+          const observacionActual = String(ya[0].observaciones || '')
+            .replace(/\s*Producto ARCA:[^.]*\./gi, '')
+            .trim();
+          await client.query(
+            'UPDATE movimientos SET id_especie=$1,observaciones=$2 WHERE id=$3',
+            [especie.id, `${observacionActual} ${notaProducto}`.trim(), ya[0].id]
+          );
+          resultado.actualizadas += 1;
+        }
+        await client.query(`INSERT INTO arca_cpe_movement_links(ctg,document_id,movimiento_id,created_by)
+          VALUES($1,$2,$3,$4) ON CONFLICT(ctg) DO NOTHING`, [doc.ctg, doc.document_id, ya[0].id, userId]);
+        await client.query('DELETE FROM arca_cpe_movement_pending WHERE ctg=$1', [doc.ctg]);
+        resultado.existentes += 1;
+        continue;
+      }
+      const motivos = [];
+      if (!doc.document_date) motivos.push('FECHA_CPE_FALTANTE');
+      if (!especie) motivos.push(producto.esDerivado ? 'DERIVADO_SIN_MAPEO' : 'ESPECIE_SIN_MAPEO');
+      if (motivos.length) {
+        await client.query(`INSERT INTO arca_cpe_movement_pending(ctg,document_id,motivos,payload_hash)
+          VALUES($1,$2,$3::jsonb,$4) ON CONFLICT(ctg) DO UPDATE SET document_id=EXCLUDED.document_id,motivos=EXCLUDED.motivos,payload_hash=EXCLUDED.payload_hash,updated_at=NOW()`,
+          [doc.ctg, doc.document_id, JSON.stringify(motivos), doc.payload_hash]);
+        resultado.pendientes += 1;
+        if (resultado.detallePendientes.length < 50) resultado.detallePendientes.push({ ctg: doc.ctg, motivos });
+        continue;
+      }
+
+      const persona = item => ({ cuit: item?.cuit || null, nombre: item?.razon_social_oficial || null });
+      const titular = persona(pickRol(participantes, [/SOLICITANTE/i, /TITULAR/i, /^ORIGEN$/i]));
+      const remitente = persona(pickRol(participantes, [/REMITENTE_COMERCIAL_VENTA_PRIMARIA/i, /^REMITENTE_COMERCIAL$/i, /^ORIGEN$/i]));
+      const remitenteVenta = persona(pickRol(participantes, [/REMITENTE_COMERCIAL_VENTA_PRIMARIA/i]));
+      const destinatario = persona(pickRol(participantes, [/^DESTINATARIO$/i]));
+      const destino = persona(pickRol(participantes, [/^DESTINO$/i, /TITULAR_PLANTA/i]));
+      const pagador = persona(pickRol(participantes, [/PAGADOR_FLETE/i]));
+      const plantaDestino = plantas.find(item => /DESTINO/i.test(String(item.rol || ''))) || null;
+      const bruto = Number(datosCarga.pesoBruto || datosCarga.pesoBrutoOrigen || primerTag(rawXml, ['pesoBruto', 'pesoBrutoOrigen', 'pesoBrutoSalida']) || 0) || null;
+      const tara = Number(datosCarga.pesoTara || datosCarga.tara || primerTag(rawXml, ['pesoTara', 'tara', 'pesoTaraOrigen']) || 0) || null;
+      const neto = Number(datosCarga.pesoNeto || datosCarga.pesoNetoCarga || primerTag(rawXml, ['pesoNeto', 'pesoNetoCarga', 'pesoNetoOrigen', 'kilosNetos']) || 0) || (bruto && tara ? bruto - tara : null);
+      const estadoArca = String(cabecera.estado || primerTag(rawXml, ['estado', 'estadoCartaPorte']) || '');
+      const estado = /ANUL/i.test(estadoArca) ? 'ANULADO' : /RECHAZ/i.test(estadoArca) ? 'RECHAZADO' : 'EN_TRANSITO';
+      const numeroMovimiento = `MOV-${String(siguiente++).padStart(4, '0')}`;
+      const { rows: creadas } = await client.query(`
+        INSERT INTO movimientos(
+          numero_movimiento,modalidad,estado,estado_liquidacion,nro_cpe,nro_ctg,fecha_cpe,
+          titular_cpe_cuit,titular_cpe_nombre,remitente_comercial_productor_cuit,remitente_comercial_productor_nombre,
+          rte_comercial_venta_primaria_cuit,rte_comercial_venta_primaria_nombre,destinatario_cuit,destinatario_nombre,
+          destino_cuit,destino_nombre,flete_pagador_cuit,flete_pagador_nombre,id_especie,
+          localidad_origen,provincia_origen,nro_planta_origen,nro_planta_destino,localidad_destino,provincia_destino,
+          id_ubicacion_origen,id_ubicacion_destino,tipo_origen_cpe,origen_produccion,
+          patente_chasis,patente_acoplado,fecha_partida,km_a_recorrer,
+          peso_bruto_salida_kg,peso_tara_salida_kg,peso_neto_salida_kg,observaciones,usuario_carga
+        ) VALUES($1,'FORMAL',$2,'SIN_ASIGNAR',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
+          $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37) RETURNING id
+      `, [numeroMovimiento,estado,numeroCpe(primerTag(rawXml,['nroCartaPorte','nroCPE','numeroCartaPorte'])),doc.ctg,doc.document_date,
+        titular.cuit,titular.nombre,remitente.cuit,remitente.nombre,remitenteVenta.cuit,remitenteVenta.nombre,
+        destinatario.cuit,destinatario.nombre,destino.cuit,destino.nombre,pagador.cuit,pagador.nombre,especie.id,
+        plantaOrigen?.localidad||null,plantaOrigen?.provincia||null,plantaOrigen?.nro_planta||null,
+        plantaDestino?.nro_planta||null,plantaDestino?.localidad||null,plantaDestino?.provincia||null,
+        plantaOrigen?.ubicacion_id||null,plantaDestino?.ubicacion_id||null,
+        clasificacionOrigen.tipoOrigenCpe,clasificacionOrigen.origenProduccion,
+        transporte.dominio||transporte.patenteChasis||primerTag(rawXml,['patenteChasis','dominioAutomotor','patenteCamion']),
+        transporte.dominioAcoplado||transporte.patenteAcoplado||primerTag(rawXml,['patenteAcoplado','dominioAcoplado']),
+        transporte.fechaHoraPartida||transporte.fechaPartida||primerTag(rawXml,['fechaPartida','fechaInicioViaje']),
+        Number(transporte.kmRecorrer||transporte.kilometros||primerTag(rawXml,['kmRecorrer','kilometros','distanciaKm'])||0)||null,bruto,tara,neto,
+        `Importado de ARCA ${doc.tipo_cpe}; CTG ${doc.ctg}. Documento oficial ${doc.document_id}.`,userId]);
+      await client.query(`INSERT INTO arca_cpe_movement_links(ctg,document_id,movimiento_id,created_by) VALUES($1,$2,$3,$4)`, [doc.ctg,doc.document_id,creadas[0].id,userId]);
+      await client.query('DELETE FROM arca_cpe_movement_pending WHERE ctg=$1', [doc.ctg]);
+      resultado.creadas += 1;
+    }
+    await client.query('COMMIT');
+    return resultado;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function camposEscalaresDiagnostico(value, path = '', salida = [], visitados = new Set()) {
+  if (value === null || value === undefined || salida.length >= 300 || visitados.has(value)) return salida;
+  if (typeof value === 'object') {
+    visitados.add(value);
+    for (const [clave, contenido] of Object.entries(value)) {
+      if (/rawxml|raw_xml|pdf|token|sign|cert|key/i.test(clave)) continue;
+      camposEscalaresDiagnostico(contenido, path ? `${path}.${clave}` : clave, salida, visitados);
+    }
+    return salida;
+  }
+  const texto = String(value).trim();
+  if (!texto || texto.length > 120 || /^\d{11,20}$/.test(texto)) return salida;
+  salida.push({ path, value: texto });
+  return salida;
+}
+
+async function diagnosticarDerivadosPendientes() {
+  const { rows } = await pool.query(`
+    SELECT p.ctg,d.payload
+    FROM arca_cpe_movement_pending p
+    JOIN arca_official_documents d ON d.id=p.document_id
+    WHERE p.motivos @> '["DERIVADO_SIN_MAPEO"]'::jsonb
+    ORDER BY p.ctg LIMIT 5
+  `);
+  return rows.map(row => ({
+    ctg: row.ctg,
+    campos: camposEscalaresDiagnostico(row.payload).filter(item =>
+      /producto|grano|deriv|mercader|especie|carga|cod|desc/i.test(item.path)
+    )
+  }));
+}
+
+async function listarReporteCpeCertificados() {
+  const cuitInversiones = '30710183992';
+  const { rows: certificadosRows } = await pool.query(`
+    SELECT c.id,c.coe,c.numero_certificado,c.fecha_emision,
+      c.kilos_netos_acondicionados,
+      COUNT(cc.id)::int AS total_ctgs,
+      COUNT(cc.id) FILTER (WHERE cc.cpe_document_id IS NOT NULL)::int AS ctgs_vinculados,
+      COALESCE(SUM(cc.kg_netos_acondicionados)
+        FILTER (WHERE cc.cpe_document_id IS NOT NULL),0) AS kilos_asignados
+    FROM certificados_1116 c
+    LEFT JOIN certificado_1116_ctgs cc ON cc.id_certificado_1116=c.id
+    GROUP BY c.id,c.coe,c.numero_certificado,c.fecha_emision,c.kilos_netos_acondicionados
+    ORDER BY c.fecha_emision,c.coe,c.id
+  `);
+  const certificados = certificadosRows.map(row => {
+    const totalCtgs=Number(row.total_ctgs||0);
+    const ctgsVinculados=Number(row.ctgs_vinculados||0);
+    const kilosCertificados=row.kilos_netos_acondicionados==null?null:Number(row.kilos_netos_acondicionados);
+    const kilosAsignados=Number(row.kilos_asignados||0);
+    return {
+      id:row.id,
+      coe:row.coe,
+      numeroCertificado:row.numero_certificado,
+      fecha:row.fecha_emision,
+      totalCtgs,
+      ctgsVinculados,
+      estado:totalCtgs===0?'SIN_CTG':ctgsVinculados===totalCtgs?'COMPLETO':ctgsVinculados>0?'PARCIAL':'PENDIENTE',
+      kilosCertificados,
+      kilosAsignados,
+      saldoKilos:kilosCertificados==null?null:kilosCertificados-kilosAsignados
+    };
+  });
+  const certificadosConKilos=certificados.filter(item=>item.kilosCertificados!=null);
+  const resumenCertificados = {
+    total:certificados.length,
+    completos:certificados.filter(item=>item.estado==='COMPLETO').length,
+    parciales:certificados.filter(item=>item.estado==='PARCIAL').length,
+    pendientes:certificados.filter(item=>item.estado==='PENDIENTE').length,
+    sinCtg:certificados.filter(item=>item.estado==='SIN_CTG').length,
+    kilosCertificados:certificadosConKilos.reduce((s,item)=>s+item.kilosCertificados,0),
+    kilosAsignados:certificados.reduce((s,item)=>s+item.kilosAsignados,0),
+    saldoKilos:certificadosConKilos.reduce((s,item)=>s+item.saldoKilos,0),
+    sinKilos:certificados.length-certificadosConKilos.length
+  };
+  const { rows } = await pool.query(`
+    SELECT r.ctg,d.document_date,
+      COALESCE(jsonb_agg(DISTINCT jsonb_build_object(
+        'rol',p.rol,'cuit',p.cuit,'nombre',p.razon_social_oficial
+      )) FILTER (WHERE p.id IS NOT NULL),'[]'::jsonb) AS participantes,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object(
+        'rol',pl.rol,'planta',pl.nro_planta,'cuit',pl.cuit_titular,
+        'nombre',pl.nombre_oficial,'localidad',pl.localidad,'provincia',pl.provincia
+      ) ORDER BY pl.rol,pl.nro_planta) FROM arca_cpe_plants pl
+        WHERE pl.document_id=r.document_id),'[]'::jsonb) AS plantas,
+      COALESCE((SELECT jsonb_agg(DISTINCT jsonb_build_object(
+        'coe',l.certificado_coe,'estado',l.estado
+      )) FROM arca_certificado_ctg_links l WHERE l.ctg=r.ctg AND l.cpe_document_id=r.document_id),'[]'::jsonb) AS certificados
+    FROM arca_cpe_registry r
+    JOIN arca_official_documents d ON d.id=r.document_id
+    JOIN arca_cpe_participants objetivo
+      ON objetivo.document_id=r.document_id AND objetivo.cuit=$1
+    LEFT JOIN arca_cpe_participants p ON p.document_id=r.document_id
+    WHERE r.ctg LIKE '101%'
+    GROUP BY r.ctg,r.document_id,d.document_date
+    ORDER BY r.ctg
+  `, [cuitInversiones]);
+
+  const rolesInteres = /^(ORIGEN|SOLICITANTE|TITULAR_PLANTA|DESTINO|DESTINATARIO|REMITENTE_COMERCIAL(?:_VENTA_(?:PRIMARIA|SECUNDARIA)(?:_2)?)?)$/;
+  const detalle = rows.map(row => {
+    const intervinientes=(row.participantes || []).filter(item => rolesInteres.test(String(item.rol || '')));
+    const origenPropio=intervinientes.some(p=>p.rol==='ORIGEN'&&p.cuit===cuitInversiones);
+    const destinoPropio=intervinientes.some(p=>/^(DESTINO|DESTINATARIO)$/.test(p.rol)&&p.cuit===cuitInversiones);
+    const certificados=row.certificados||[];
+    return {
+      ctg:row.ctg,
+      fecha:row.document_date,
+      estadoCertificado:certificados.length?'VINCULADO':'SIN_CERTIFICADO',
+      clasificacion:origenPropio&&destinoPropio?'TRASLADO_PROPIO':destinoPropio?'TERCERO_A_PLANTA_PROPIA':'REVISAR',
+      intervinientes,
+      plantas:row.plantas||[],
+      certificados
+    };
+  });
+  return {
+    resumen:{
+      total:detalle.length,
+      vinculadas:detalle.filter(item=>item.estadoCertificado==='VINCULADO').length,
+      sinCertificado:detalle.filter(item=>item.estadoCertificado==='SIN_CERTIFICADO').length,
+      trasladosPropiosSinCertificado:detalle.filter(item=>item.estadoCertificado==='SIN_CERTIFICADO'&&item.clasificacion==='TRASLADO_PROPIO').length,
+      tercerosSinCertificado:detalle.filter(item=>item.estadoCertificado==='SIN_CERTIFICADO'&&item.clasificacion==='TERCERO_A_PLANTA_PROPIA').length
+    },
+    detalle,
+    resumenCertificados,
+    certificados
+  };
+}
+
+function seleccionarPersonaReporte(intervinientes = [], roles = []) {
+  for (const rol of roles) {
+    const persona = intervinientes.find(item => String(item.rol || '').toUpperCase() === rol);
+    if (persona) return persona;
+  }
+  return null;
+}
+
+// Reporte operativo completo para exportar CPE/CPEDG. Es solo lectura y usa
+// las tablas normalizadas para no depender de la forma interna del XML de ARCA.
+async function listarReporteCpeIntervinientes() {
+  await ensureCpeMasterTables();
+  const { rows } = await pool.query(`
+    SELECT r.ctg,r.tipo_cpe,d.document_date,d.payload,d.payload_hash,
+      m.numero_movimiento,m.estado AS estado_movimiento,
+      m.peso_bruto_salida_kg,m.peso_tara_salida_kg,m.peso_neto_salida_kg,
+      m.patente_chasis,m.patente_acoplado,m.fecha_partida,m.km_a_recorrer,
+      e.nombre AS producto_nombre,e.codigo AS producto_codigo,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object(
+        'rol',p.rol,'cuit',p.cuit,
+        'nombre',COALESCE(p.razon_social_oficial,c.razon_social),
+        'contraparteId',p.contraparte_id
+      ) ORDER BY p.rol,p.cuit)
+        FROM arca_cpe_participants p
+        LEFT JOIN contrapartes c ON c.id=p.contraparte_id
+        WHERE p.document_id=r.document_id),'[]'::jsonb) AS intervinientes,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object(
+        'rol',pl.rol,'planta',pl.nro_planta,'cuitTitular',pl.cuit_titular,
+        'nombre',pl.nombre_oficial,'localidad',pl.localidad,
+        'provincia',pl.provincia,'direccion',pl.direccion
+      ) ORDER BY pl.rol,pl.nro_planta)
+        FROM arca_cpe_plants pl WHERE pl.document_id=r.document_id),'[]'::jsonb) AS plantas,
+      COALESCE((SELECT jsonb_agg(DISTINCT jsonb_build_object(
+        'coe',l.certificado_coe,'estado',l.estado
+      )) FROM arca_certificado_ctg_links l
+        WHERE l.ctg=r.ctg AND l.cpe_document_id=r.document_id),'[]'::jsonb) AS certificados
+    FROM arca_cpe_registry r
+    JOIN arca_official_documents d ON d.id=r.document_id
+    LEFT JOIN arca_cpe_movement_links ml ON ml.ctg=r.ctg
+    LEFT JOIN movimientos m ON m.id=ml.movimiento_id
+    LEFT JOIN especies e ON e.id=m.id_especie
+    ORDER BY d.document_date,r.ctg
+  `);
+
+  const detalle = rows.map(row => {
+    const payload = row.payload || {};
+    const intervinientes = Array.isArray(row.intervinientes) ? row.intervinientes : [];
+    const datosCarga = payload.datosCarga || payload.datos_carga || {};
+    const producto = productoCpeOficial(row.tipo_cpe, datosCarga, payload);
+    const comprador = seleccionarPersonaReporte(intervinientes, [
+      'COMPRADOR','DESTINATARIO','DESTINO','REMITENTE_COMERCIAL_VENTA_PRIMARIA'
+    ]);
+    const vendedor = seleccionarPersonaReporte(intervinientes, [
+      'VENDEDOR','REMITENTE_COMERCIAL','ORIGEN','SOLICITANTE'
+    ]);
+    const transporte = payload.transporte || {};
+    const rawXml = String(payload.rawXml || payload.raw_xml || '');
+    const numero = value => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed !== 0 ? parsed : null;
+    };
+    const bruto = numero(row.peso_bruto_salida_kg)
+      || numero(valorAnidadoPorClaves(payload, ['pesoBruto','pesoBrutoOrigen','pesoBrutoSalida']))
+      || numero(primerTag(rawXml, ['pesoBruto','pesoBrutoOrigen','pesoBrutoSalida']));
+    const tara = numero(row.peso_tara_salida_kg)
+      || numero(valorAnidadoPorClaves(payload, ['pesoTara','tara','pesoTaraOrigen']))
+      || numero(primerTag(rawXml, ['pesoTara','tara','pesoTaraOrigen']));
+    const neto = numero(row.peso_neto_salida_kg)
+      || numero(valorAnidadoPorClaves(payload, ['pesoNeto','pesoNetoCarga','pesoNetoOrigen','kilosNetos']))
+      || numero(primerTag(rawXml, ['pesoNeto','pesoNetoCarga','pesoNetoOrigen','kilosNetos']))
+      || (bruto && tara ? bruto - tara : null);
+    return {
+      ctg: row.ctg,
+      fecha: row.document_date,
+      tipoCpe: row.tipo_cpe,
+      estadoArca: estadoCpeDesdePayload(payload) || null,
+      producto: row.producto_nombre || producto.nombre || null,
+      codigoProducto: producto.codigoArca || row.producto_codigo || null,
+      pesoBrutoKg: bruto,
+      taraKg: tara,
+      pesoNetoKg: neto,
+      patenteChasis: row.patente_chasis || transporte.dominio || transporte.patenteChasis
+        || primerTag(rawXml, ['patenteChasis','dominioAutomotor','patenteCamion']) || null,
+      patenteAcoplado: row.patente_acoplado || transporte.dominioAcoplado || transporte.patenteAcoplado
+        || primerTag(rawXml, ['patenteAcoplado','dominioAcoplado']) || null,
+      fechaPartida: row.fecha_partida || transporte.fechaHoraPartida || transporte.fechaPartida || null,
+      kilometros: numero(row.km_a_recorrer) || numero(transporte.kmRecorrer || transporte.kilometros),
+      numeroMovimiento: row.numero_movimiento || null,
+      estadoMovimiento: row.estado_movimiento || null,
+      comprador,
+      vendedor,
+      intervinientes,
+      plantas: Array.isArray(row.plantas) ? row.plantas : [],
+      certificados: Array.isArray(row.certificados) ? row.certificados : [],
+      payloadHash: row.payload_hash
+    };
+  });
+  return {
+    total: detalle.length,
+    conCompradorIdentificado: detalle.filter(item => item.comprador).length,
+    conCertificado: detalle.filter(item => item.certificados.length > 0).length,
+    detalle
+  };
+}
+
+async function iniciarRefreshDerivadosPendientes() {
+  const { rows } = await pool.query(`
+    SELECT ctg FROM arca_cpe_movement_pending
+    WHERE motivos @> '["DERIVADO_SIN_MAPEO"]'::jsonb ORDER BY ctg
+  `);
+  const ctgs = rows.map(row => row.ctg);
+  if (!ctgs.length) return null;
+  return iniciarSyncCpePorCtg({ ctgs, desde: '2026-02-01' });
+}
+
+async function ejecutarSyncCpeDestino(jobId, { desde, hasta, userId = null, soloConfirmadas = true }) {
+  await pool.query("UPDATE arca_sync_jobs SET estado='EJECUTANDO', started_at=NOW() WHERE id=$1", [jobId]);
+  const errores = [];
+  let importados = 0;
+  let revisados = 0;
+  let listados = 0;
+  let omitidosNoConfirmados = 0;
+  try {
+    const config = getConfig();
+    const plantas = await consultarPlantasWscpe(config.cuit);
+    if (!plantas.length) {
+      throw new Error(`ARCA no informo plantas activas para el CUIT ${config.cuit}.`);
+    }
+
+    const ctgs = new Set();
+    for (const planta of plantas) {
+      for (const rango of rangosWscpe(desde, hasta)) {
+        try {
+          const cartas = await consultarCpesDestinoWscpe({
+            planta: planta.nroPlanta,
+            desde: rango.desde,
+            hasta: rango.hasta
+          });
+          listados += cartas.length;
+          cartas.forEach(item => {
+            if (soloConfirmadas && !esEstadoConfirmadoCpe(item.estado)) {
+              omitidosNoConfirmados += 1;
+              return;
+            }
+            ctgs.add(item.ctg);
+          });
+        } catch (error) {
+          errores.push({
+            fase: 'LISTADO',
+            planta: planta.nroPlanta,
+            desde: rango.desde,
+            hasta: rango.hasta,
+            error: error.message
+          });
+        }
+      }
+    }
+
+    for (const ctg of ctgs) {
+      revisados += 1;
+      try {
+        await importarCpePorCtg(ctg, { jobId, userId });
+        importados += 1;
+      } catch (error) {
+        errores.push({ fase: 'DETALLE', ctg, error: error.message });
+      }
+      await pool.query(`
+        UPDATE arca_sync_jobs SET total_importados=$1,total_revisados=$2 WHERE id=$3
+      `, [importados, revisados, jobId]);
+    }
+
+    const estado = errores.length ? (importados ? 'PARCIAL' : 'ERROR') : 'COMPLETADO';
+    const resumen = {
+      listados,
+      ctgConfirmadosUnicos: ctgs.size,
+      omitidosNoConfirmados,
+      errores
+    };
+    await pool.query(`
+      UPDATE arca_sync_jobs
+      SET estado=$1,total_importados=$2,total_revisados=$3,error=$4,finished_at=NOW()
+      WHERE id=$5
+    `, [estado, importados, revisados, JSON.stringify(resumen).slice(0, 20000), jobId]);
+  } catch (error) {
+    await pool.query(`
+      UPDATE arca_sync_jobs
+      SET estado='ERROR',total_importados=$1,total_revisados=$2,error=$3,finished_at=NOW()
+      WHERE id=$4
+    `, [importados, revisados, error.message, jobId]);
+  }
+}
+
+async function iniciarSyncCpeDestino({
+  desde = '2026-02-01',
+  hasta = new Date().toISOString().slice(0, 10),
+  userId = null,
+  soloConfirmadas = true
+} = {}) {
+  const fechaDesde = validarFechaIso(desde, 'La fecha desde');
+  const fechaHasta = validarFechaIso(hasta, 'La fecha hasta');
+  if (fechaDesde > fechaHasta) throw new Error('La fecha desde no puede ser posterior a la fecha hasta.');
+  await ensureSyncTables();
+  const id = crypto.randomUUID();
+  await pool.query(`
+    INSERT INTO arca_sync_jobs(id,fuente,desde,estado,solicitado_por)
+    VALUES($1,'WSCPE_DESTINO',$2,'PENDIENTE',$3)
+  `, [id, fechaDesde, userId]);
+  setImmediate(() => void ejecutarSyncCpeDestino(id, {
+    desde: fechaDesde,
+    hasta: fechaHasta,
+    userId,
+    soloConfirmadas
+  }));
+  return {
+    id,
+    fuente: 'WSCPE_DESTINO',
+    desde: fechaDesde,
+    hasta: fechaHasta,
+    estado: 'PENDIENTE',
+    soloConfirmadas
+  };
+}
+
+async function obtenerResumenDocumentos() {
+  await ensureSyncTables();
+  const { rows } = await pool.query(`
+    SELECT fuente, COUNT(*)::integer AS total,
+           MIN(document_date) AS fecha_desde,
+           MAX(document_date) AS fecha_hasta,
+           COUNT(DISTINCT payload_hash)::integer AS hashes_distintos
+    FROM arca_official_documents
+    GROUP BY fuente
+    ORDER BY fuente
+  `);
+  return rows.map(row => ({
+    ...row,
+    integridad: row.total === row.hashes_distintos ? 'SIN_DUPLICADOS_DE_CONTENIDO' : 'REVISAR_CONTENIDO_REPETIDO'
+  }));
+}
+
+function camposOficialesVisibles(value, path = '', salida = [], visitados = new Set()) {
+  if (value === null || value === undefined || salida.length >= 500) return salida;
+  if (typeof value === 'object') {
+    if (visitados.has(value)) return salida;
+    visitados.add(value);
+    for (const [clave, contenido] of Object.entries(value)) {
+      if (/rawxml|raw_xml|pdf|token|sign|firma|certificado_pem|private.?key/i.test(clave)) continue;
+      camposOficialesVisibles(contenido, path ? `${path}.${clave}` : clave, salida, visitados);
+    }
+    return salida;
+  }
+  const texto = String(value).trim();
+  if (texto && texto.length <= 500) salida.push({ campo: path, valor: value });
+  return salida;
+}
+
+function camposXmlOficiales(xml) {
+  const salida = [];
+  const pila = [];
+  const ocurrencias = new Map();
+  const sensible = /^(?:pdf|token|sign|firma|certificado(?:_?pem)?|private.?key)$/i;
+  const tokens = String(xml || '').match(/<[^>]+>|[^<]+/g) || [];
+  for (const token of tokens) {
+    if (token.startsWith('<?') || token.startsWith('<!')) continue;
+    const cierre = token.match(/^<\/(?:[\w.-]+:)?([\w.-]+)\s*>$/);
+    if (cierre) {
+      const indice = pila.map(item => item.nombre.toLowerCase()).lastIndexOf(cierre[1].toLowerCase());
+      if (indice >= 0) pila.splice(indice);
+      continue;
+    }
+    const apertura = token.match(/^<(?:[\w.-]+:)?([\w.-]+)(?:\s[^>]*)?>$/);
+    if (apertura && !/\/\s*>$/.test(token)) {
+      const padre = pila.map(item => `${item.nombre}[${item.indice}]`).join('.');
+      const clave = `${padre}/${apertura[1].toLowerCase()}`;
+      const indice = (ocurrencias.get(clave) || 0) + 1;
+      ocurrencias.set(clave, indice);
+      pila.push({ nombre: apertura[1], indice });
+      continue;
+    }
+    if (token.startsWith('<') || !pila.length || pila.some(item => sensible.test(item.nombre))) continue;
+    const valor = decodeXml(token).replace(/\s+/g, ' ').trim();
+    if (valor && valor.length <= 500) salida.push({ campo: pila.map(item => `${item.nombre}[${item.indice}]`).join('.'), valor });
+  }
+  return salida;
+}
+
+function detalleLiquidacionWslpg(payload = {}) {
+  const rawXml = String(payload.rawXml || payload.raw_xml || '');
+  const { rawXml: omitidoRawXml, raw_xml: omitidoRawXmlAlternativo, ...payloadPublico } = payload;
+  void omitidoRawXml;
+  void omitidoRawXmlAlternativo;
+  const camposPayload = camposOficialesVisibles(payloadPublico);
+  const camposXml = camposXmlOficiales(rawXml);
+  const campos = [...camposXml, ...camposPayload];
+  const normalizar = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  const nombreCampo = campo => String(campo || '').split('.').pop().replace(/\[\d+\]$/,'');
+  const encontrarEn = (coleccion, aliases) => {
+    const buscados = aliases.map(normalizar);
+    const exacto = coleccion.find(item => buscados.includes(normalizar(nombreCampo(item.campo))));
+    return exacto ? exacto.valor : null;
+  };
+  const encontrar = aliases => encontrarEn(camposXml, aliases) ?? encontrarEn(camposPayload, aliases);
+  const parsearNumero = value => {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    let texto = String(value).trim().replace(/[^0-9,.-]/g, '');
+    if (!texto || !/[0-9]/.test(texto)) return null;
+    const ultimaComa = texto.lastIndexOf(',');
+    const ultimoPunto = texto.lastIndexOf('.');
+    if (ultimaComa >= 0 && ultimoPunto >= 0) {
+      const decimal = ultimaComa > ultimoPunto ? ',' : '.';
+      texto = texto.replace(decimal === ',' ? /\./g : /,/g, '').replace(decimal, '.');
+    } else if (ultimaComa >= 0) {
+      texto = texto.replace(/\./g, '').replace(',', '.');
+    } else if ((texto.match(/\./g) || []).length > 1) {
+      const partes = texto.split('.');
+      texto = `${partes.slice(0, -1).join('')}.${partes.at(-1)}`;
+    }
+    const parsed = Number(texto);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const numero = aliases => {
+    return parsearNumero(encontrar(aliases));
+  };
+  const agruparPorPadre = coleccion => {
+    const grupos = new Map();
+    for (const item of coleccion) {
+      const partes = item.campo.split('.');
+      const clave = partes.slice(0, -1).join('.') || 'raiz';
+      if (!grupos.has(clave)) grupos.set(clave, []);
+      grupos.get(clave).push({ ...item, nombre: nombreCampo(partes.at(-1)) });
+    }
+    return [...grupos.entries()].map(([ruta, valores]) => ({ ruta, valores }));
+  };
+  const valorGrupo = (grupo, aliases) => encontrarEn(grupo.valores.map(item => ({ campo: item.nombre, valor: item.valor })), aliases);
+  const grupos = agruparPorPadre(camposXml);
+  const conceptosImpositivos = grupos.map(grupo => {
+    const ruta = normalizar(grupo.ruta);
+    const descripcion = valorGrupo(grupo, ['descripcion','detalle','concepto','tipoRetencion','tipoImpuesto']);
+    const importe = parsearNumero(valorGrupo(grupo, ['importe','monto','importeRetencion','importeImpuesto','importeTributo','importeIva']));
+    const esImpositivo = /iva|retenc|percepc|ganancia|sello|tribut|comision|ingresosbrutos|suss/.test(ruta + normalizar(descripcion));
+    if (!esImpositivo || importe === null) return null;
+    return {
+      ruta: grupo.ruta,
+      concepto: descripcion || grupo.ruta.split('.').at(-1),
+      codigo: valorGrupo(grupo, ['codigo','id','codigoRegimen','codigoImpuesto']),
+      baseImponible: parsearNumero(valorGrupo(grupo, ['baseImponible','importeBase','baseCalculo'])),
+      alicuota: parsearNumero(valorGrupo(grupo, ['alicuota','porcentaje','tasa'])),
+      importe
+    };
+  }).filter(Boolean);
+  const participantes = grupos.map(grupo => {
+    const cuit = String(valorGrupo(grupo, ['cuit','cuitPersona','cuitParticipante','cuitLiquidador','cuitVendedor','cuitProductor','cuitComprador','cuitCorredor']) || '').replace(/\D/g, '');
+    if (cuit.length !== 11) return null;
+    return {
+      rol: nombreCampo(grupo.ruta),
+      cuit,
+      nombre: valorGrupo(grupo, ['razonSocial','denominacion','nombre','apellidoNombre','razonSocialLiquidador','razonSocialVendedor','razonSocialProductor']) || null
+    };
+  }).filter(Boolean).filter((item, index, todos) => todos.findIndex(otro => otro.rol === item.rol && otro.cuit === item.cuit) === index);
+  const items = grupos.map(grupo => {
+    const producto = valorGrupo(grupo, ['descripcionGrano','descGrano','producto','especie','grano','descripcionProducto']);
+    const kilosItem = parsearNumero(valorGrupo(grupo, ['kilosNetos','kgNetos','pesoNeto','cantidadKilos','kilogramos','kilosLiquidados']));
+    const precio = parsearNumero(valorGrupo(grupo, ['precioTonelada','precioPorTonelada','precio','precioOperacion']));
+    if (!producto && kilosItem === null && precio === null) return null;
+    return {
+      ruta: grupo.ruta,
+      producto: producto || null,
+      codigoProducto: valorGrupo(grupo, ['codigoGrano','codGrano','codigoProducto','codEspecie']),
+      campana: valorGrupo(grupo, ['campania','campana','descripcionCampania']),
+      kilos: kilosItem,
+      toneladas: kilosItem === null ? null : kilosItem / 1000,
+      precioTonelada: precio,
+      importe: parsearNumero(valorGrupo(grupo, ['importe','importeBruto','subtotal','importeNeto']))
+    };
+  }).filter(Boolean);
+  const kilos = numero(['kilosNetos','kgNetos','pesoNeto','cantidadKilos','kilogramos','kilosLiquidados']);
+  const toneladasInformadas = numero(['toneladas','cantidadToneladas','toneladasLiquidadas']);
+  const coe = encontrar(['coe','coeLiquidacion','numeroCoe']);
+  const tipoDocumento = String(encontrar(['tipoDocumento']) || payload.tipoDocumento || (String(coe || '').startsWith('331') ? 'LSG' : String(coe || '').startsWith('330') ? 'LPG' : '')).toUpperCase();
+  const tipoOperacion = encontrar(['tipoOperacion','descripcionOperacion','tipoLiquidacion','descripcionTipoOperacion']);
+  const operacionNormalizada = normalizar(tipoOperacion);
+  const tipoFormularioHistorico = /consign/.test(operacionNormalizada)
+    ? '1116 C / Consignación'
+    : /compraventa|comprayventa/.test(operacionNormalizada)
+      ? '1116 B / Compraventa'
+      : null;
+  return {
+    coe,
+    familiaDocumento: tipoDocumento === 'LSG' ? 'Liquidación secundaria de granos (LSG)' : tipoDocumento === 'LPG' ? 'Liquidación primaria de granos (LPG)' : tipoDocumento || null,
+    tipoFormularioHistorico,
+    tipoOperacion,
+    estado: encontrar(['estado','estadoLiquidacion']),
+    liquidadorCuit: encontrar(['cuitLiquidador','cuitEmisor','cuitComprador','cuitCorredor']),
+    liquidadorNombre: encontrar(['razonSocialLiquidador','denominacionLiquidador','nombreLiquidador','razonSocialEmisor']),
+    receptorCuit: encontrar(['cuitVendedor','cuitProductor','cuitReceptor','cuitRepresentado']),
+    receptorNombre: encontrar(['razonSocialVendedor','nombreProductor','razonSocialProductor','denominacionReceptor']),
+    producto: encontrar(['descripcionGrano','descGrano','producto','especie','grano']),
+    campana: encontrar(['campania','campana','descripcionCampania']),
+    kilos,
+    toneladas: toneladasInformadas ?? (kilos !== null ? kilos / 1000 : null),
+    precioTonelada: numero(['precioTonelada','precioPorTonelada','precio','precioOperacion']),
+    importeBruto: numero(['importeBruto','importeTotalBruto','subtotalBruto']),
+    importeNeto: numero(['importeNeto','netoGravado','importeNetoGravado','subtotalNeto']),
+    iva: numero(['importeIva','iva','montoIva']),
+    sellado: numero(['sellado','impuestoSellos','importeSellos','retencionSellos']),
+    retencionGanancias: numero(['retencionGanancias','importeRetencionGanancias','ganancias']),
+    retencionIva: numero(['retencionIva','importeRetencionIva','ivaRetenido']),
+    comisiones: numero(['comision','comisiones','importeComision']),
+    otrasRetenciones: numero(['otrasRetenciones','importeOtrasRetenciones']),
+    otrosConceptos: numero(['otrosConceptos','otrosTributos','gastos']),
+    importeTotal: numero(['importeTotal','total','totalLiquidacion','importeNetoAPagar']),
+    moneda: encontrar(['moneda','codigoMoneda','monId']),
+    participantes,
+    items,
+    conceptosImpositivos,
+    camposOficiales: campos
+  };
+}
+
+async function listarDocumentosOficiales({
+  fuente = 'WSFE_EMITIDA',
+  desde = null,
+  hasta = null,
+  buscar = '',
+  pagina = 1,
+  limite = 50
+} = {}) {
+  await ensureSyncTables();
+  const safePage = Math.max(1, Number(pagina) || 1);
+  const safeLimit = Math.max(1, Math.min(200, Number(limite) || 50));
+  const esLiquidacion = fuente === 'WSLPG_LIQUIDACIONES';
+  const conditions = [esLiquidacion
+    ? `(d.fuente LIKE 'WSLPG_%' AND d.fuente NOT LIKE '%CERTIFICACION%')`
+    : 'd.fuente = $1'];
+  const params = esLiquidacion ? [] : [fuente];
+  if (desde) {
+    params.push(desde);
+    conditions.push(`d.document_date >= $${params.length}`);
+  }
+  if (hasta) {
+    params.push(hasta);
+    conditions.push(`d.document_date <= $${params.length}`);
+  }
+  if (buscar) {
+    params.push(`%${String(buscar).trim()}%`);
+    conditions.push(`(
+      d.external_key ILIKE $${params.length}
+      OR COALESCE(d.payload->>'DocNro','') ILIKE $${params.length}
+      OR COALESCE(cp.razon_social,'') ILIKE $${params.length}
+    )`);
+  }
+  const where = conditions.join(' AND ');
+  const offset = (safePage - 1) * safeLimit;
+  const baseJoin = `
+    FROM arca_official_documents d
+    LEFT JOIN LATERAL (
+      SELECT c.id, c.razon_social, c.cuit
+      FROM contrapartes c
+      WHERE c.activo = TRUE
+        AND regexp_replace(COALESCE(c.cuit,''), '[^0-9]', '', 'g')
+          = regexp_replace(COALESCE(d.payload->>'DocNro',''), '[^0-9]', '', 'g')
+      ORDER BY c.id
+      LIMIT 1
+    ) cp ON TRUE
+  `;
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::integer AS total ${baseJoin} WHERE ${where}`,
+    params
+  );
+  const queryParams = [...params, safeLimit, offset];
+  const { rows } = await pool.query(`
+    SELECT d.id, d.fuente, d.external_key, d.document_date,
+           d.payload, d.payload_hash,
+           d.first_imported_at, d.last_seen_at,
+           cp.id AS contraparte_id, cp.razon_social AS contraparte_razon_social,
+           cp.cuit AS contraparte_cuit,
+           EXISTS(
+             SELECT 1 FROM arca_official_files f
+             WHERE f.document_id=d.id AND f.file_type='PDF'
+           ) AS tiene_pdf
+    ${baseJoin}
+    WHERE ${where}
+    ORDER BY d.document_date DESC NULLS LAST, d.id DESC
+    LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+  `, queryParams);
+  return {
+    documentos: rows.map(row => {
+      const payload = row.payload || {};
+      const detalleLiquidacion = esLiquidacion ? detalleLiquidacionWslpg(payload) : null;
+      const { rawXml, ...publicPayload } = payload;
+      return {
+        ...row,
+        payload: { ...publicPayload, ...detalleFiscalWsfe(payload) },
+        detalle_liquidacion: detalleLiquidacion,
+        contraparte_estado: row.contraparte_id ? 'VINCULADA' : 'PENDIENTE_ALTA'
+      };
+    }),
+    paginacion: {
+      pagina: safePage,
+      limite: safeLimit,
+      total: countResult.rows[0]?.total || 0,
+      paginas: Math.ceil((countResult.rows[0]?.total || 0) / safeLimit)
+    }
+  };
+}
+
+async function resumirConciliacionContrapartes() {
+  await ensureSyncTables();
+  const { rows } = await pool.query(`
+    WITH receptores AS (
+      SELECT regexp_replace(COALESCE(payload->>'DocNro',''), '[^0-9]', '', 'g') AS cuit,
+             COUNT(*)::integer AS comprobantes,
+             SUM(COALESCE(NULLIF(payload->>'ImpTotal','')::numeric, 0)) AS importe_total
+      FROM arca_official_documents
+      WHERE fuente='WSFE_EMITIDA'
+      GROUP BY 1
+    )
+    SELECT r.cuit, r.comprobantes, r.importe_total,
+           cp.id AS contraparte_id, cp.razon_social,
+           CASE WHEN cp.id IS NULL THEN 'PENDIENTE_ALTA' ELSE 'VINCULADA' END AS estado
+    FROM receptores r
+    LEFT JOIN LATERAL (
+      SELECT c.id, c.razon_social
+      FROM contrapartes c
+      WHERE c.activo=TRUE
+        AND regexp_replace(COALESCE(c.cuit,''), '[^0-9]', '', 'g') = r.cuit
+      ORDER BY c.id
+      LIMIT 1
+    ) cp ON TRUE
+    WHERE length(r.cuit)=11
+    ORDER BY (cp.id IS NULL) DESC, r.comprobantes DESC, r.cuit
+  `);
+  return {
+    totalCuits: rows.length,
+    vinculadas: rows.filter(row => row.estado === 'VINCULADA').length,
+    pendientes: rows.filter(row => row.estado === 'PENDIENTE_ALTA').length,
+    receptores: rows
+  };
+}
+
+async function resumirIvaVentas({ desde = null, hasta = null } = {}) {
+  await ensureSyncTables();
+  const conditions = ["fuente='WSFE_EMITIDA'"];
+  const params = [];
+  if (desde) {
+    params.push(desde);
+    conditions.push(`document_date >= $${params.length}`);
+  }
+  if (hasta) {
+    params.push(hasta);
+    conditions.push(`document_date <= $${params.length}`);
+  }
+  const { rows } = await pool.query(`
+    SELECT id, external_key, document_date, payload, payload_hash
+    FROM arca_official_documents
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY document_date, id
+  `, params);
+
+  const totales = {
+    comprobantes: rows.length,
+    importeTotal: 0,
+    netoGravado: 0,
+    iva: 0,
+    exento: 0,
+    noGravado: 0,
+    otrosTributos: 0
+  };
+  const periodos = new Map();
+  const alicuotas = new Map();
+  const tributos = new Map();
+  const observaciones = [];
+
+  for (const row of rows) {
+    const payload = row.payload || {};
+    const fiscal = detalleFiscalWsfe(payload);
+    const signo = signoComprobanteWsfe(payload.CbteTipo);
+    const periodo = String(row.document_date || '').slice(0, 7) || 'SIN_FECHA';
+    const mensual = periodos.get(periodo) || {
+      periodo,
+      comprobantes: 0,
+      importeTotal: 0,
+      netoGravado: 0,
+      iva: 0,
+      exento: 0,
+      noGravado: 0,
+      otrosTributos: 0
+    };
+    mensual.comprobantes += 1;
+    for (const [key, source] of [
+      ['importeTotal', 'ImpTotal'],
+      ['netoGravado', 'ImpNeto'],
+      ['iva', 'ImpIVA'],
+      ['exento', 'ImpOpEx'],
+      ['noGravado', 'ImpTotConc'],
+      ['otrosTributos', 'ImpTrib']
+    ]) {
+      const amount = signo * fiscal[source];
+      totales[key] += amount;
+      mensual[key] += amount;
+    }
+    periodos.set(periodo, mensual);
+
+    for (const item of fiscal.AlicIva) {
+      const key = String(item.Id || 0);
+      const current = alicuotas.get(key) || { codigo: Number(item.Id || 0), baseImponible: 0, importeIva: 0 };
+      current.baseImponible += signo * numeroFiscal(item.BaseImp);
+      current.importeIva += signo * numeroFiscal(item.Importe);
+      alicuotas.set(key, current);
+    }
+    for (const item of fiscal.Tributos) {
+      const key = `${item.Id || 0}:${item.Desc || ''}`;
+      const current = tributos.get(key) || {
+        codigo: Number(item.Id || 0),
+        descripcion: item.Desc || 'Sin descripciÃ³n',
+        baseImponible: 0,
+        importe: 0
+      };
+      current.baseImponible += signo * numeroFiscal(item.BaseImp);
+      current.importe += signo * numeroFiscal(item.Importe);
+      tributos.set(key, current);
+    }
+
+    const componentes = fiscal.ImpTotConc + fiscal.ImpNeto + fiscal.ImpOpEx + fiscal.ImpTrib + fiscal.ImpIVA;
+    if (Math.abs(componentes - fiscal.ImpTotal) > 0.02) {
+      observaciones.push({
+        id: row.id,
+        comprobante: row.external_key,
+        fecha: row.document_date,
+        tipo: Number(payload.CbteTipo || 0),
+        diferencia: Number((fiscal.ImpTotal - componentes).toFixed(2)),
+        payloadHash: row.payload_hash
+      });
+    }
+  }
+
+  const redondear = value => Number(value.toFixed(2));
+  const redondearObjeto = item => Object.fromEntries(
+    Object.entries(item).map(([key, value]) => [
+      key,
+      typeof value === 'number' && key !== 'comprobantes' && key !== 'codigo' ? redondear(value) : value
+    ])
+  );
+  return {
+    alcance: 'IVA_VENTAS_WSFE_EMITIDA',
+    criterioNotasCredito: 'IMPORTES_CON_SIGNO_NEGATIVO',
+    totales: redondearObjeto(totales),
+    periodos: [...periodos.values()].map(redondearObjeto),
+    alicuotas: [...alicuotas.values()].map(redondearObjeto).sort((a, b) => a.codigo - b.codigo),
+    tributos: [...tributos.values()].map(redondearObjeto).sort((a, b) => a.codigo - b.codigo),
+    controlIntegridad: { observados: observaciones.length, comprobantes: observaciones },
+    advertencia: 'Borrador de control. No reemplaza IVA Simple, Libro IVA Digital ni la revisiÃ³n profesional.'
+  };
+}
+
+async function listarConciliacionesCuentaCorriente({
+  desde = null,
+  hasta = null,
+  estado = 'PENDIENTE',
+  limite = 200
+} = {}) {
+  await ensureReconciliationTable();
+  const safeLimit = Math.max(1, Math.min(500, Number(limite) || 200));
+  const conditions = ["d.fuente='WSFE_EMITIDA'"];
+  const params = [];
+  if (desde) {
+    params.push(desde);
+    conditions.push(`d.document_date >= $${params.length}`);
+  }
+  if (hasta) {
+    params.push(hasta);
+    conditions.push(`d.document_date <= $${params.length}`);
+  }
+  if (estado === 'PENDIENTE') conditions.push('r.id IS NULL');
+  if (estado === 'RESUELTO') conditions.push('r.id IS NOT NULL');
+  params.push(safeLimit);
+  const { rows } = await pool.query(`
+    SELECT d.id AS document_id, d.external_key, d.document_date, d.payload_hash,
+           d.payload->>'CbteTipo' AS cbte_tipo,
+           d.payload->>'PtoVta' AS punto_venta,
+           d.payload->>'CbteDesde' AS numero,
+           d.payload->>'DocNro' AS receptor_cuit,
+           COALESCE(NULLIF(d.payload->>'ImpTotal','')::numeric,0) AS importe,
+           d.payload->>'MonId' AS moneda,
+           cp.id AS contraparte_id, cp.razon_social AS contraparte,
+           r.id AS conciliacion_id, r.estado, r.decision, r.cc_movimiento_id,
+           r.observacion, r.decidido_por, r.decidido_at,
+           candidato.id AS candidato_cc_id, candidato.fecha AS candidato_fecha,
+           candidato.tipo_movimiento AS candidato_tipo,
+           candidato.concepto AS candidato_concepto,
+           ABS(candidato.debe-candidato.haber) AS candidato_importe
+    FROM arca_official_documents d
+    LEFT JOIN LATERAL (
+      SELECT c.id, c.razon_social
+      FROM contrapartes c
+      WHERE c.activo=TRUE
+        AND regexp_replace(COALESCE(c.cuit,''), '[^0-9]', '', 'g')
+          = regexp_replace(COALESCE(d.payload->>'DocNro',''), '[^0-9]', '', 'g')
+      ORDER BY c.id
+      LIMIT 1
+    ) cp ON TRUE
+    LEFT JOIN arca_cc_reconciliations r ON r.document_id=d.id
+    LEFT JOIN LATERAL (
+      SELECT cc.id, cc.fecha, cc.tipo_movimiento, cc.concepto, cc.debe, cc.haber
+      FROM cc_contrapartes cc
+      WHERE cp.id IS NOT NULL
+        AND cc.id_contraparte=cp.id
+        AND cc.modalidad='FORMAL'
+        AND ABS(ABS(cc.debe-cc.haber)-COALESCE(NULLIF(d.payload->>'ImpTotal','')::numeric,0)) <= 0.02
+        AND ABS(cc.fecha-d.document_date) <= 31
+      ORDER BY ABS(cc.fecha-d.document_date), cc.id
+      LIMIT 1
+    ) candidato ON TRUE
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY d.document_date DESC, d.id DESC
+    LIMIT $${params.length}
+  `, params);
+  return {
+    estado,
+    total: rows.length,
+    pendientesSinContraparte: rows.filter(row => !row.contraparte_id).length,
+    posiblesDuplicados: rows.filter(row => row.candidato_cc_id).length,
+    conciliaciones: rows.map(row => ({
+      ...row,
+      recomendacion: !row.contraparte_id
+        ? 'ALTA_CONTRAPARTE_REQUERIDA'
+        : row.candidato_cc_id
+          ? 'VINCULAR_EXISTENTE'
+          : 'REVISAR_CREACION'
+    }))
+  };
+}
+
+async function decidirConciliacionCuentaCorriente({
+  documentId,
+  decision,
+  ccMovimientoId = null,
+  observacion = '',
+  userId
+}) {
+  await ensureReconciliationTable();
+  if (!userId) throw new Error('La decisiÃ³n requiere un usuario autenticado.');
+  const allowed = new Set(['VINCULAR_EXISTENTE', 'CREAR_MOVIMIENTO', 'RECHAZAR']);
+  if (!allowed.has(decision)) throw new Error('DecisiÃ³n de conciliaciÃ³n invÃ¡lida.');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: documents } = await client.query(`
+      SELECT d.*, cp.id AS contraparte_id
+      FROM arca_official_documents d
+      LEFT JOIN LATERAL (
+        SELECT c.id
+        FROM contrapartes c
+        WHERE c.activo=TRUE
+          AND regexp_replace(COALESCE(c.cuit,''), '[^0-9]', '', 'g')
+            = regexp_replace(COALESCE(d.payload->>'DocNro',''), '[^0-9]', '', 'g')
+        ORDER BY c.id LIMIT 1
+      ) cp ON TRUE
+      WHERE d.id=$1 AND d.fuente='WSFE_EMITIDA'
+      FOR UPDATE OF d
+    `, [documentId]);
+    const document = documents[0];
+    if (!document) throw new Error('Documento ARCA emitido no encontrado.');
+    if (!document.contraparte_id) throw new Error('Debe dar de alta o vincular la contraparte antes de conciliar.');
+    const existing = await client.query(
+      'SELECT id FROM arca_cc_reconciliations WHERE document_id=$1',
+      [documentId]
+    );
+    if (existing.rows[0]) throw new Error('El documento ARCA ya fue conciliado.');
+
+    const payload = document.payload || {};
+    const fiscal = detalleFiscalWsfe(payload);
+    const importe = fiscal.ImpTotal;
+    if (importe <= 0) throw new Error('El documento no tiene un importe total vÃ¡lido.');
+    let movimientoId = null;
+    let estado = 'RECHAZADO';
+
+    if (decision === 'VINCULAR_EXISTENTE') {
+      if (!ccMovimientoId) throw new Error('Debe indicar el movimiento existente.');
+      const { rows } = await client.query(`
+        SELECT id
+        FROM cc_contrapartes
+        WHERE id=$1 AND id_contraparte=$2 AND modalidad='FORMAL'
+          AND ABS(ABS(debe-haber)-$3::numeric) <= 0.02
+        FOR UPDATE
+      `, [ccMovimientoId, document.contraparte_id, importe]);
+      if (!rows[0]) throw new Error('El movimiento no corresponde a la contraparte o al importe del comprobante.');
+      movimientoId = rows[0].id;
+      estado = 'VINCULADO';
+    }
+
+    if (decision === 'CREAR_MOVIMIENTO') {
+      if (payload.MonId && payload.MonId !== 'PES') {
+        throw new Error('Los comprobantes en moneda extranjera requieren conciliaciÃ³n manual con cotizaciÃ³n.');
+      }
+      const signo = signoComprobanteWsfe(payload.CbteTipo);
+      const debe = signo > 0 ? importe : 0;
+      const haber = signo < 0 ? importe : 0;
+      const { rows } = await client.query(`
+        INSERT INTO cc_contrapartes
+          (id_contraparte, fecha, tipo_movimiento, concepto, debe, haber,
+           saldo_acumulado, modalidad, estado)
+        VALUES ($1,$2,'DOCUMENTO_ARCA',$3,$4,$5,NULL,'FORMAL','ABIERTO')
+        RETURNING id
+      `, [
+        document.contraparte_id,
+        document.document_date,
+        `ARCA ${payload.PtoVta || '-'}-${payload.CbteDesde || '-'} Â· ${document.payload_hash.slice(0, 12)}`,
+        debe,
+        haber
+      ]);
+      movimientoId = rows[0].id;
+      estado = 'CREADO';
+    }
+
+    const { rows: reconciliations } = await client.query(`
+      INSERT INTO arca_cc_reconciliations
+        (document_id, contraparte_id, cc_movimiento_id, estado, decision,
+         importe, payload_hash, observacion, decidido_por)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      RETURNING *
+    `, [
+      document.id,
+      document.contraparte_id,
+      movimientoId,
+      estado,
+      decision,
+      importe,
+      document.payload_hash,
+      String(observacion || '').slice(0, 500) || null,
+      userId
+    ]);
+    await client.query('COMMIT');
+    return reconciliations[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+
+
+async function importarCertificadoInteractivo({ coe, metadata = {}, pdfBuffer }) {
+  await ensureSyncTables();
+  const safeCoe = String(coe || '').replace(/\D/g, '');
+  if (!/^332\d{9}$/.test(safeCoe)) {
+    throw new Error('COE de certificado invalido.');
+  }
+  if (!Buffer.isBuffer(pdfBuffer) || pdfBuffer.length < 5 ||
+      pdfBuffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    throw new Error('El archivo no es un PDF valido.');
+  }
+  const fechaTexto = String(metadata.fecha_emision || '');
+  const fechaMatch = fechaTexto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const fecha = fechaMatch
+    ? `${fechaMatch[3]}-${fechaMatch[2]}-${fechaMatch[1]}`
+    : null;
+  const payload = {
+    ...metadata,
+    coe: safeCoe,
+    origen: 'SERVICIO_INTERACTIVO_ARCA',
+    soloConsulta: true
+  };
+  const resultado = await guardarDocumentoOficial(
+    'ARCA_CEG_INTERACTIVO',
+    safeCoe,
+    fecha,
+    payload,
+    pdfBuffer
+  );
+  return {
+    coe: safeCoe,
+    documentId: resultado.documentId,
+    pdfGuardado: resultado.pdfGuardado,
+    ctgs: Array.isArray(metadata.ctgs) ? metadata.ctgs.length : 0
+  };
+}
+
+async function materializarCertificadosCtg() {
+  await ensureSyncTables();
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS arca_certificado_ctg_links (
+      id BIGSERIAL PRIMARY KEY,
+      certificado_document_id BIGINT NOT NULL
+        REFERENCES arca_official_documents(id) ON DELETE CASCADE,
+      certificado_coe VARCHAR(20) NOT NULL,
+      ctg VARCHAR(20) NOT NULL,
+      cpe_document_id BIGINT
+        REFERENCES arca_official_documents(id) ON DELETE SET NULL,
+      estado VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(certificado_document_id, ctg)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_arca_certificado_ctg_links_ctg
+    ON arca_certificado_ctg_links(ctg)
+  `);
+
+  const { rows: certificados } = await pool.query(`
+    SELECT id, external_key AS coe, payload
+    FROM arca_official_documents
+    WHERE fuente IN ('WSLPG_CERTIFICACION', 'WSLPG_CERTIFICACION_COE', 'ARCA_CEG_INTERACTIVO')
+    ORDER BY id
+  `);
+  let certificadosConCtg = 0;
+  let relaciones = 0;
+  let vinculadas = 0;
+  let pendientes = 0;
+
+  for (const certificado of certificados) {
+    const rawXml = String(certificado.payload?.rawXml || '');
+    const ctgsPayload = Array.isArray(certificado.payload?.ctgs)
+      ? certificado.payload.ctgs
+      : [];
+    const ctgs = [...new Set([...ctgsPayload, ...tags(rawXml, 'ctg')]
+      .map(value => String(value || '').replace(/\D/g, ''))
+      .filter(value => /^\d{8,20}$/.test(value)))];
+    if (ctgs.length) certificadosConCtg += 1;
+
+    for (const ctg of ctgs) {
+      const { rows: cpes } = await pool.query(`
+        SELECT id
+        FROM arca_official_documents
+        WHERE external_key=$1
+          AND fuente IN ('WSCPE_CPE', 'WSCPE_CTG', 'WSCPE_DESTINO')
+        ORDER BY CASE
+          WHEN fuente='WSCPE_CPE' THEN 0
+          WHEN fuente='WSCPE_CTG' THEN 1
+          ELSE 2
+        END, id
+        LIMIT 1
+      `, [ctg]);
+      const cpeDocumentId = cpes[0]?.id || null;
+      const estado = cpeDocumentId ? 'VINCULADO' : 'PENDIENTE';
+      await pool.query(`
+        INSERT INTO arca_certificado_ctg_links
+          (certificado_document_id, certificado_coe, ctg, cpe_document_id, estado)
+        VALUES ($1,$2,$3,$4,$5)
+        ON CONFLICT (certificado_document_id, ctg) DO UPDATE
+        SET cpe_document_id=EXCLUDED.cpe_document_id,
+            estado=EXCLUDED.estado,
+            updated_at=NOW()
+      `, [certificado.id, certificado.coe, ctg, cpeDocumentId, estado]);
+      relaciones += 1;
+      if (cpeDocumentId) vinculadas += 1;
+      else pendientes += 1;
+    }
+  }
+
+  return {
+    certificadosRevisados: certificados.length,
+    certificadosConCtg,
+    relaciones,
+    vinculadas,
+    pendientes
+  };
+}
+
+async function obtenerSyncJob(id) {
+  await ensureSyncTables();
+  const { rows } = await pool.query(
+    'SELECT * FROM arca_sync_jobs WHERE id=$1',
+    [id]
+  );
+  return rows[0] || null;
+}
+
+function diagnosticarCredenciales() {
+  const config = getConfig();
+  const certificate = validateCredentials(config);
+  return {
+    modo: config.production ? 'PRODUCTION' : 'HOMOLOGATION',
+    cuitConfigurada: config.cuit,
+    certificado: {
+      subject: certificate.subject,
+      issuer: certificate.issuer,
+      serialNumber: certificate.serialNumber,
+      fingerprint256: certificate.fingerprint256,
+      validoDesde: certificate.validFrom,
+      validoHasta: certificate.validTo,
+      coincideConClavePrivada: true
+    }
+  };
+}
+
+module.exports = {
+  getTicket,
+  wslpgDummy,
+  diagnosticarWslpg,
+  diagnosticarAutorizaciones,
+  consultarPadronA13,
+  iniciarSyncFacturasEmitidas,
+  iniciarSyncWslpg,
+  iniciarSyncWslpgPdfPorCoe,
+  importarWslpgPorCoe,
+  iniciarSyncWslpgAjustesPorCoe,
+  importarWslpgAjustesPorCoe,
+  iniciarSyncCpePorCtg,
+  iniciarSyncCpeDestino,
+  consultarPlantasWscpe,
+  consultarCpesDestinoWscpe,
+  consultarCpePorCtg,
+  consultarTiposGranoWscpe,
+  consultarDerivadosGranariosWscpe,
+  importarCpePorCtg,
+  obtenerPdfDocumento,
+  obtenerSyncJob,
+  obtenerResumenDocumentos,
+  listarDocumentosOficiales,
+  resumirConciliacionContrapartes,
+  resumirIvaVentas,
+  listarConciliacionesCuentaCorriente,
+  decidirConciliacionCuentaCorriente,
+  importarCpeNormalizada,
+  materializarMovimientosCpe,
+  diagnosticarDerivadosPendientes,
+  listarReporteCpeCertificados,
+  listarReporteCpeIntervinientes,
+  iniciarRefreshDerivadosPendientes,
+  materializarCertificadosCtg,
+  importarCertificadoInteractivo,
+  productoCpeOficial,
+  diagnosticarCredenciales,
+  _internal: {
+    productoCpeOficial,
+    seleccionarPersonaReporte,
+    catalogoCodigoDescripcion,
+    descripcionEspecificaDerivado,
+    xmlEscape,
+    decodeXml,
+    tag,
+    tags,
+    tipoWslpgPorCoe,
+    solicitudWslpgPorCoe,
+    solicitudAjusteWslpgPorCoe,
+    parsearAjusteWslpg,
+    decodificarPdfWslpg,
+    payloadOficialSinPdf,
+    fechaWslpg,
+    wslpgBusinessError,
+    detalleFiscalWsfe,
+    detalleLiquidacionWslpg,
+    signoComprobanteWsfe,
+    xmlToObject,
+    extraerIntervinientesCpe,
+    extraerPlantasCpe,
+    erroresWscpe,
+    fechaCpe,
+    normalizarCuit,
+    normalizarNumeroPlanta,
+    tipoContrapartePorRol,
+    parsearPersonaPadronA13,
+    validarFechaIso,
+    rangosWscpe,
+    normalizarEstadoCpe,
+    esEstadoConfirmadoCpe,
+    estadoCpeDesdePayload,
+    clasificarOrigenCtg,
+    wscpeTargets,
+    getConfig,
+    validateCredentials
+  }
+};
+
+        AND (d.document_date >= $1::date OR ($2::text[] IS NOT NULL AND r.ctg=ANY($2::text[])))
+        AND ($2::text[] IS NULL OR r.ctg=ANY($2::text[]))
+      ORDER BY document_date, r.ctg
     `, [fechaDesde, ctgsFiltrados?.length ? ctgsFiltrados : null]);
 
     const { rows: secuencia } = await client.query(`
