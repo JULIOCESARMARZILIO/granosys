@@ -274,6 +274,63 @@ async function ensureLiquidacionesGranosSchema(client) {
       UNIQUE(id_liquidacion,ruta,ocurrencia)
     );
 
+    CREATE TABLE IF NOT EXISTS plan_cuentas (
+      id BIGSERIAL PRIMARY KEY,
+      codigo VARCHAR(30) NOT NULL UNIQUE,
+      nombre VARCHAR(180) NOT NULL,
+      tipo VARCHAR(20) NOT NULL,
+      naturaleza VARCHAR(10) NOT NULL,
+      imputable BOOLEAN NOT NULL DEFAULT TRUE,
+      activa BOOLEAN NOT NULL DEFAULT TRUE,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK(tipo IN ('ACTIVO','PASIVO','PATRIMONIO','RESULTADO_POSITIVO','RESULTADO_NEGATIVO','ORDEN')),
+      CHECK(naturaleza IN ('DEUDORA','ACREEDORA'))
+    );
+
+    CREATE TABLE IF NOT EXISTS asientos_contables (
+      id BIGSERIAL PRIMARY KEY,
+      numero VARCHAR(40) NOT NULL UNIQUE,
+      fecha DATE NOT NULL,
+      descripcion VARCHAR(300) NOT NULL,
+      origen_modulo VARCHAR(50) NOT NULL,
+      origen_id BIGINT NOT NULL,
+      estado VARCHAR(20) NOT NULL DEFAULT 'BORRADOR',
+      moneda VARCHAR(10) NOT NULL DEFAULT 'PESOS',
+      tipo_cambio NUMERIC(18,8),
+      total_debe NUMERIC(18,4) NOT NULL DEFAULT 0,
+      total_haber NUMERIC(18,4) NOT NULL DEFAULT 0,
+      creado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+      confirmado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+      confirmado_at TIMESTAMPTZ,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK(estado IN ('BORRADOR','CONFIRMADO','ANULADO')),
+      UNIQUE(origen_modulo,origen_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS asiento_renglones (
+      id BIGSERIAL PRIMARY KEY,
+      id_asiento BIGINT NOT NULL REFERENCES asientos_contables(id) ON DELETE CASCADE,
+      orden INTEGER NOT NULL,
+      id_cuenta BIGINT NOT NULL REFERENCES plan_cuentas(id) ON DELETE RESTRICT,
+      id_contraparte INTEGER REFERENCES contrapartes(id) ON DELETE SET NULL,
+      id_liquidacion INTEGER REFERENCES liquidaciones(id) ON DELETE SET NULL,
+      id_liquidacion_concepto BIGINT REFERENCES liquidacion_conceptos(id) ON DELETE SET NULL,
+      id_liquidacion_impuesto BIGINT REFERENCES liquidacion_impuestos(id) ON DELETE SET NULL,
+      descripcion VARCHAR(300) NOT NULL,
+      debe NUMERIC(18,4) NOT NULL DEFAULT 0,
+      haber NUMERIC(18,4) NOT NULL DEFAULT 0,
+      moneda VARCHAR(10) NOT NULL DEFAULT 'PESOS',
+      importe_moneda_origen NUMERIC(18,4),
+      tipo_cambio NUMERIC(18,8),
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK(debe >= 0 AND haber >= 0),
+      CHECK((debe > 0 AND haber = 0) OR (haber > 0 AND debe = 0))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_liq_primaria_coe ON liquidaciones_primarias(coe);
     CREATE INDEX IF NOT EXISTS idx_liq_secundaria_coe ON liquidaciones_secundarias(coe);
     CREATE INDEX IF NOT EXISTS idx_liq_conceptos_liq ON liquidacion_conceptos(id_liquidacion, orden, id);
@@ -285,8 +342,36 @@ async function ensureLiquidacionesGranosSchema(client) {
     CREATE INDEX IF NOT EXISTS idx_liq_items_ctg ON liquidacion_items(ctg);
     CREATE INDEX IF NOT EXISTS idx_liq_referencias_numero ON liquidacion_referencias(tipo,numero);
     CREATE INDEX IF NOT EXISTS idx_liq_campos_busqueda ON liquidacion_campos_oficiales(campo,id_liquidacion);
+    CREATE INDEX IF NOT EXISTS idx_asientos_origen ON asientos_contables(origen_modulo,origen_id);
+    CREATE INDEX IF NOT EXISTS idx_asiento_renglones_cuenta ON asiento_renglones(id_cuenta,id_asiento);
     CREATE UNIQUE INDEX IF NOT EXISTS uq_liq_primaria_coe ON liquidaciones_primarias(coe) WHERE coe IS NOT NULL AND coe <> '';
     CREATE UNIQUE INDEX IF NOT EXISTS uq_liq_secundaria_coe ON liquidaciones_secundarias(coe) WHERE coe IS NOT NULL AND coe <> '';
+
+    INSERT INTO plan_cuentas(codigo,nombre,tipo,naturaleza) VALUES
+      ('1.1.02.001','Deudores por ventas de granos','ACTIVO','DEUDORA'),
+      ('1.1.03.101','IVA credito fiscal 10,5%','ACTIVO','DEUDORA'),
+      ('1.1.03.102','IVA credito fiscal 21%','ACTIVO','DEUDORA'),
+      ('1.1.03.110','IVA retenciones sufridas - granos computables','ACTIVO','DEUDORA'),
+      ('1.1.03.111','IVA retenciones sufridas - granos libre disponibilidad','ACTIVO','DEUDORA'),
+      ('1.1.03.120','Ganancias retenciones sufridas - granos','ACTIVO','DEUDORA'),
+      ('1.1.03.130','IIBB retenciones sufridas - granos','ACTIVO','DEUDORA'),
+      ('1.1.03.131','IIBB percepciones sufridas - granos','ACTIVO','DEUDORA'),
+      ('1.1.04.001','Existencia de granos','ACTIVO','DEUDORA'),
+      ('2.1.01.001','Proveedores de granos','PASIVO','ACREEDORA'),
+      ('2.1.02.101','IVA debito fiscal 10,5%','PASIVO','ACREEDORA'),
+      ('2.1.02.102','IVA debito fiscal 21%','PASIVO','ACREEDORA'),
+      ('2.1.02.110','IVA retenciones practicadas a depositar','PASIVO','ACREEDORA'),
+      ('2.1.02.120','Ganancias retenciones practicadas a depositar','PASIVO','ACREEDORA'),
+      ('2.1.02.130','IIBB retenciones practicadas a depositar','PASIVO','ACREEDORA'),
+      ('2.1.02.131','IIBB percepciones practicadas a depositar','PASIVO','ACREEDORA'),
+      ('2.1.02.140','Sellos a depositar','PASIVO','ACREEDORA'),
+      ('4.1.01.001','Ventas de granos','RESULTADO_POSITIVO','ACREEDORA'),
+      ('5.1.01.001','Fletes sobre granos','RESULTADO_NEGATIVO','DEUDORA'),
+      ('5.1.01.002','Comisiones y corretajes de granos','RESULTADO_NEGATIVO','DEUDORA'),
+      ('5.1.01.003','Acondicionamiento, secada y zaranda','RESULTADO_NEGATIVO','DEUDORA'),
+      ('5.1.01.004','Impuesto de sellos sobre granos','RESULTADO_NEGATIVO','DEUDORA'),
+      ('5.1.01.099','Otros conceptos de liquidaciones de granos','RESULTADO_NEGATIVO','DEUDORA')
+    ON CONFLICT(codigo) DO UPDATE SET nombre=EXCLUDED.nombre,tipo=EXCLUDED.tipo,naturaleza=EXCLUDED.naturaleza;
   `);
 }
 
