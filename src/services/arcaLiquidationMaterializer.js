@@ -273,8 +273,14 @@ async function relacionarAjuste(client, idLiquidacion, principalCoe, ajuste) {
   // Una ejecución anterior pudo haber materializado el ajuste como liquidación
   // independiente. Solo se retira ese BORRADOR automático una vez que el ajuste
   // quedó enlazado de forma segura con su principal.
-  await client.query("DELETE FROM liquidaciones_primarias WHERE coe=$1 AND estado='BORRADOR'", [ajuste.coe]);
-  await client.query("DELETE FROM liquidaciones_secundarias WHERE coe=$1 AND estado='BORRADOR'", [ajuste.coe]);
+  await client.query(`
+    DELETE FROM liquidaciones l
+    WHERE l.estado='BORRADOR' AND l.id IN (
+      SELECT id_liquidacion FROM liquidaciones_primarias WHERE coe=$1
+      UNION ALL
+      SELECT id_liquidacion FROM liquidaciones_secundarias WHERE coe=$1
+    )
+  `, [ajuste.coe]);
 }
 
 async function materializarLiquidacionesOficiales() {
