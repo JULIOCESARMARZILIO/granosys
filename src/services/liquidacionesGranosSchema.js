@@ -52,6 +52,7 @@ function calcularTotales(conceptos = [], impuestos = []) {
   const neto = total(suma, 'importeNeto') - total(resta, 'importeNeto');
   const iva = total(suma, 'importeIva') - total(resta, 'importeIva');
   const descuentosConceptos = total(resta, 'importeTotal');
+  const brutoConceptos = total(suma, 'importeNeto');
   const retenciones = impuestos.reduce((acc, item) => {
     return acc + (String(item.signo || 'RESTA').toUpperCase() === 'RESTA' ? Number(item.importe || 0) : 0);
   }, 0);
@@ -61,6 +62,7 @@ function calcularTotales(conceptos = [], impuestos = []) {
     iva,
     iva105: normalizados.filter(item => Number(item.alicuotaIva) === 10.5).reduce((a, item) => a + item.importeIva * (item.signo === 'RESTA' ? -1 : 1), 0),
     iva21: normalizados.filter(item => Number(item.alicuotaIva) === 21).reduce((a, item) => a + item.importeIva * (item.signo === 'RESTA' ? -1 : 1), 0),
+    brutoConceptos,
     descuentosConceptos,
     retenciones,
     tributos,
