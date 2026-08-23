@@ -79,7 +79,7 @@ async function crear(req, res, clase) {
     `, [nro, body.tipo || 'COMPRA', body.modalidad || 'FORMAL', clase,
       body.idContrato || body.id_contrato || null, body.idContraparte || body.id_contraparte || null,
       body.fechaLiquidacion || body.fecha_liquidacion,
-      totales.neto, totales.descuentosConceptos, totales.retenciones,
+      totales.brutoConceptos, totales.descuentosConceptos, totales.retenciones,
       totales.total, body.moneda || 'PESOS', body.observaciones || null]);
     const id = rows[0].id;
     if (clase === 'PRIMARIA') {
