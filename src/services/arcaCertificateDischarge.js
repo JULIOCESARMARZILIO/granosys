@@ -12,7 +12,7 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
   if (movimientosFaltantes.length) {
     await arcaOfficialClient.materializarMovimientosCpe({
       desde: '2000-01-01',
-      soloConfirmadas: true,
+      soloConfirmadas: false,
       ctgs: movimientosFaltantes.map(row => row.ctg)
     });
   }
@@ -65,7 +65,19 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
       let estado = 'PENDIENTE';
       let motivo = null;
       if (!row.movimiento_id) motivo = 'MOVIMIENTO_FORMAL_NO_ENCONTRADO';
-      else if (!Number.isFinite(kilos) || kilos <= 0) motivo = 'KILOS_CERTIFICADOS_FALTANTES';
+      else if (!Number.isFinite(kilos) || kilos <= 0) {
+        const marker = 'Descarga respaldada por certificado ARCA; el certificado no discrimina kilos para este CTG.';
+        await client.query(`
+          UPDATE movimientos SET
+            estado='DESCARGADO',
+            observaciones=CASE WHEN COALESCE(observaciones,'') ILIKE '%' || $1 || '%'
+              THEN observaciones ELSE CONCAT_WS(' ',NULLIF(observaciones,''),$1) END
+          WHERE id=$2
+        `, [marker, row.movimiento_id]);
+        estado = 'APLICADO_SIN_KILOS';
+        motivo = 'CERTIFICADO_SIN_KILOS_POR_CTG';
+        resultado.descargadas += 1;
+      }
       else if (['ANULADO','RECHAZADO'].includes(String(row.estado || '').toUpperCase())) motivo = 'MOVIMIENTO_NO_APLICABLE';
       else {
         const existente = row.kg_liquidables == null ? row.peso_neto_llegada_kg : row.kg_liquidables;
