@@ -2147,7 +2147,6 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null,
       FROM arca_cpe_registry r
       JOIN arca_official_documents d ON d.id=r.document_id
       WHERE r.ctg ~ '^[0-9]{8,20}
-      ORDER BY d.document_date, r.ctg
     `, [fechaDesde, ctgsFiltrados?.length ? ctgsFiltrados : null]);
 
     const { rows: secuencia } = await client.query(`
@@ -3476,7 +3475,7 @@ module.exports = {
 
         AND (d.document_date >= $1::date OR ($2::text[] IS NOT NULL AND r.ctg=ANY($2::text[])))
         AND ($2::text[] IS NULL OR r.ctg=ANY($2::text[]))
-      ORDER BY d.document_date, r.ctg
+      ORDER BY document_date, r.ctg
     `, [fechaDesde, ctgsFiltrados?.length ? ctgsFiltrados : null]);
 
     const { rows: secuencia } = await client.query(`
