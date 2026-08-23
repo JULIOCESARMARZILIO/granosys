@@ -16,7 +16,16 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
     )
   `);
   const client = await pool.connect();
-  const resultado = { revisadas: 0, descargadas: 0, yaDescargadas: 0, pendientes: 0, conflictos: 0, kilosAplicados: 0 };
+  const resultado = {
+    revisadas: 0,
+    descargadas: 0,
+    yaDescargadas: 0,
+    pendientes: 0,
+    conflictos: 0,
+    kilosAplicados: 0,
+    pendientesPorMotivo: {},
+    pendientesDetalle: []
+  };
   try {
     await client.query('BEGIN');
     await client.query("SELECT pg_advisory_xact_lock(hashtext('granosys:arca-certificados-descargas'))");
@@ -64,6 +73,18 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
           if (yaDescargado) resultado.yaDescargadas += 1;
         }
       }
+      if (estado === 'PENDIENTE' || estado === 'CONFLICTO') {
+        resultado.pendientesPorMotivo[motivo] = (resultado.pendientesPorMotivo[motivo] || 0) + 1;
+        resultado.pendientesDetalle.push({
+          ctg: row.ctg,
+          movimientoId: row.movimiento_id || null,
+          estado,
+          motivo,
+          kilosCertificados: kilos || null,
+          kilosMovimiento: row.kg_liquidables == null ? row.peso_neto_llegada_kg : row.kg_liquidables,
+          certificados: row.certificados || []
+        });
+      }
       if (estado === 'PENDIENTE') resultado.pendientes += 1;
       await client.query(`
         INSERT INTO arca_certificado_descarga_audit
@@ -85,3 +106,4 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
 }
 
 module.exports = { materializarDescargasDesdeCertificados };
+
