@@ -9,6 +9,7 @@ const {
   ensureLiquidacionesGranosSchema
 } = require('../services/liquidacionesGranosSchema');
 const { generarAsientoLiquidacion } = require('../services/contabilidadLiquidaciones');
+const { materializarLiquidacionesOficiales } = require('../services/arcaLiquidationMaterializer');
 
 function cuit(value) {
   const normalized = String(value || '').replace(/\D/g, '');
@@ -234,6 +235,19 @@ router.post('/primarias', (req, res) => crear(req, res, 'PRIMARIA'));
 router.post('/secundarias', (req, res) => crear(req, res, 'SECUNDARIA'));
 
 router.get('/catalogos/conceptos', (req, res) => res.json({ conceptos: TIPOS_CONCEPTO, impuestos: TIPOS_IMPUESTO }));
+
+// Materializa documentos oficiales ya consultados. Es idempotente por COE,
+// no emite documentos y deja cada liquidacion en BORRADOR para revision humana.
+router.post('/sincronizar-oficiales', async (req, res) => {
+  try {
+    const resultado = await materializarLiquidacionesOficiales();
+    await registrarAuditoria(req, { accion: 'SINCRONIZAR', modulo: 'liquidaciones_granos',
+      datos_despues: resultado });
+    res.json({ ok: true, resultado, soloConsultaArca: true, generaAsientos: false });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
 
 router.post('/:id/asiento-borrador', async (req, res) => {
   try {
