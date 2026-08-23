@@ -2140,7 +2140,10 @@ async function materializarMovimientosCpe({ desde = '2026-02-01', userId = null,
              COALESCE((SELECT jsonb_agg(to_jsonb(pl) ORDER BY pl.id) FROM arca_cpe_plants pl WHERE pl.document_id=d.id), '[]'::jsonb) plantas
       FROM arca_cpe_registry r
       JOIN arca_official_documents d ON d.id=r.document_id
-      WHERE d.document_date >= $1::date AND r.ctg ~ '^\\d{8,20}
+      WHERE d.document_date >= $1::date AND r.ctg ~ '^[0-9]{8,20}$'
+        AND ($2::text[] IS NULL OR r.ctg=ANY($2::text[]))
+      ORDER BY d.document_date, r.ctg
+    `, [fechaDesde, ctgsFiltrados?.length ? ctgsFiltrados : null]);
 
     const { rows: secuencia } = await client.query(`
       SELECT COALESCE(MAX((regexp_match(numero_movimiento, '^MOV-([0-9]+)$'))[1]::bigint),0) AS ultimo
