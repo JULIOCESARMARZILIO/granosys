@@ -35,6 +35,7 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
     yaDescargadas: 0,
     pendientes: 0,
     conflictos: 0,
+    ignoradasNoFormales: 0,
     kilosAplicados: 0,
     pendientesPorMotivo: {},
     pendientesDetalle: []
@@ -44,7 +45,7 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('granosys:arca-certificados-descargas'))");
     const { rows } = await client.query(`
       SELECT cc.nro_ctg AS ctg, m.id AS movimiento_id, m.estado,
-        m.peso_neto_llegada_kg, m.kg_liquidables,
+        m.modalidad, m.peso_neto_llegada_kg, m.kg_liquidables,
         SUM(COALESCE(
           cc.kg_netos_acondicionados,
           CASE WHEN (SELECT COUNT(*) FROM certificado_1116_ctgs unico
@@ -56,7 +57,7 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
       JOIN certificados_1116 c ON c.id=cc.id_certificado_1116
       LEFT JOIN movimientos m ON (m.id=cc.id_movimiento OR (cc.id_movimiento IS NULL AND m.nro_ctg=cc.nro_ctg))
       WHERE cc.cpe_document_id IS NOT NULL
-      GROUP BY cc.nro_ctg,m.id,m.estado,m.peso_neto_llegada_kg,m.kg_liquidables
+      GROUP BY cc.nro_ctg,m.id,m.estado,m.modalidad,m.peso_neto_llegada_kg,m.kg_liquidables
       ORDER BY cc.nro_ctg
     `);
     for (const row of rows) {
@@ -65,6 +66,21 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
       let estado = 'PENDIENTE';
       let motivo = null;
       if (!row.movimiento_id) motivo = 'MOVIMIENTO_FORMAL_NO_ENCONTRADO';
+      else if (String(row.modalidad || '').toUpperCase() !== 'FORMAL') {
+        const marker = 'Descarga ARCA retirada: el movimiento es informal y no corresponde aplicarla.';
+        await client.query(`
+          UPDATE movimientos SET
+            estado=CASE WHEN estado='DESCARGADO' THEN 'EN_TRANSITO' ELSE estado END,
+            peso_neto_llegada_kg=CASE WHEN ABS(COALESCE(peso_neto_llegada_kg,0)-$1) <= 0.001 THEN NULL ELSE peso_neto_llegada_kg END,
+            kg_liquidables=CASE WHEN ABS(COALESCE(kg_liquidables,0)-$1) <= 0.001 THEN NULL ELSE kg_liquidables END,
+            observaciones=CASE WHEN COALESCE(observaciones,'') ILIKE '%' || $2 || '%'
+              THEN observaciones ELSE CONCAT_WS(' ',NULLIF(observaciones,''),$2) END
+          WHERE id=$3 AND modalidad<>'FORMAL'
+        `, [kilos, marker, row.movimiento_id]);
+        estado = 'IGNORADO_NO_FORMAL';
+        motivo = 'MOVIMIENTO_NO_FORMAL';
+        resultado.ignoradasNoFormales += 1;
+      }
       else if (!Number.isFinite(kilos) || kilos <= 0) {
         const marker = 'Descarga respaldada por certificado ARCA; el certificado no discrimina kilos para este CTG.';
         await client.query(`
