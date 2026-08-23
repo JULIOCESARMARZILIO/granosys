@@ -121,6 +121,7 @@ app.use('/api/contratos',    require('./routes/contratos'));
 app.use('/api/movimientos',  require('./routes/movimientos'));
 app.use('/api/derivados',    require('./routes/derivados'));
 app.use('/api/liquidaciones',require('./routes/liquidaciones'));
+app.use('/api/liquidaciones-granos', require('./routes/liquidacionesGranos'));
 app.use('/api/cc',           require('./routes/cuentacorriente'));
 app.use('/api/tesoreria',    require('./routes/tesoreria'));
 app.use('/api/stock',        require('./routes/stock'));

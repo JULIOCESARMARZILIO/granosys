@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 const crypto = require('crypto');
+const { ensureLiquidacionesGranosSchema } = require('./services/liquidacionesGranosSchema');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -1200,6 +1201,8 @@ async function initDB() {
     if (contratoOc20260004Corregido > 0) {
       console.log('Contrato OC-2026-0004 corregido: 304020 kg ingresados -> 307.100 tn pactadas.');
     }
+
+    await ensureLiquidacionesGranosSchema(client);
 
     console.log('Base de datos inicializada correctamente');
   } finally {
