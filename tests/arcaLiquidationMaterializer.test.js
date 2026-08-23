@@ -50,4 +50,12 @@ describe('materializador de liquidaciones ARCA', () => {
       .toBe('330231991190');
     expect(coeContraDocumento('Activo')).toBeNull();
   });
+
+  test('reconoce ajustes aun cuando el listado oficial fue guardado como JSON textual', () => {
+    const ajuste = resumirDocumento({ id: 10, fuente: 'ARCA_LIQUIDACIONES_INTERACTIVAS',
+      external_key: '330231991191', document_date: '2026-07-22', payload_hash: 'jkl',
+      payload: { contenido: JSON.stringify({ tipo_operacion: 'Ajuste Unificado', estado: 'Activo' }) } });
+    expect(ajuste.esAjuste).toBe(true);
+    expect(ajuste.descripcionOperacion).toBe('Ajuste Unificado');
+  });
 });
