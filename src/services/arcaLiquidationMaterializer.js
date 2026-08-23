@@ -230,10 +230,10 @@ async function guardarDocumento(client, data) {
 async function relacionarAjuste(client, idLiquidacion, principalCoe, ajuste) {
   await client.query(`
     INSERT INTO liquidacion_relaciones(id_liquidacion,id_documento_arca,tipo_relacion,metadata)
-    SELECT $1,$2,'AJUSTE_OFICIAL',$3::jsonb
+    SELECT $1::integer,$2::bigint,'AJUSTE_OFICIAL',$3::jsonb
     WHERE NOT EXISTS (
       SELECT 1 FROM liquidacion_relaciones
-      WHERE id_liquidacion=$1 AND id_documento_arca=$2 AND tipo_relacion='AJUSTE_OFICIAL'
+      WHERE id_liquidacion=$1::integer AND id_documento_arca=$2::bigint AND tipo_relacion='AJUSTE_OFICIAL'
     )
   `, [idLiquidacion, ajuste.documentId, JSON.stringify({
     coePrincipal: principalCoe,
@@ -245,10 +245,10 @@ async function relacionarAjuste(client, idLiquidacion, principalCoe, ajuste) {
 
   await client.query(`
     INSERT INTO liquidacion_referencias(id_liquidacion,tipo,numero,fecha,importe,metadata)
-    SELECT $1,'COE_AJUSTE',$2,$3,$4,$5::jsonb
+    SELECT $1::integer,'COE_AJUSTE',$2::text,$3::date,$4::numeric,$5::jsonb
     WHERE NOT EXISTS (
       SELECT 1 FROM liquidacion_referencias
-      WHERE id_liquidacion=$1 AND tipo='COE_AJUSTE' AND numero=$2
+      WHERE id_liquidacion=$1::integer AND tipo='COE_AJUSTE' AND numero=$2::text
     )
   `, [idLiquidacion, ajuste.coe, ajuste.fecha, ajuste.importeTotal,
     JSON.stringify({ fuente: ajuste.fuente, estado: ajuste.estado })]);
