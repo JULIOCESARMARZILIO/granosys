@@ -14,6 +14,12 @@ function escalares(node, path = '', result = []) {
   } else if (node && typeof node === 'object') {
     Object.entries(node).forEach(([key, value]) => escalares(value, path ? `${path}.${key}` : key, result));
   } else if (node !== undefined && node !== null) {
+    if (typeof node === 'string' && /^[\s]*[\[{]/.test(node)) {
+      try {
+        escalares(JSON.parse(node), path, result);
+        return result;
+      } catch (_) { /* el valor no era JSON; se conserva como texto */ }
+    }
     result.push({ path, key: normalizarNombre(path.split('.').pop()), value: node });
   }
   return result;
@@ -71,7 +77,10 @@ function resumirDocumento(documento) {
   const payload = documento.payload || {};
   const { fields, find } = indicePayload(payload);
   const clase = coe.startsWith('330') ? 'PRIMARIA' : 'SECUNDARIA';
-  const descripcionOperacion = find(['tipoOperacion', 'descripcionOperacion', 'operacion', 'descripcion']);
+  const descripcionOperacion = find(['tipoOperacion', 'descripcionOperacion', 'operacion', 'descripcion'])
+    || fields.find(field => /ajuste|nota\s+de\s+(credito|d[eé]bito)|contra\s*documento/i
+      .test(String(field.value || '')))?.value
+    || null;
   const esAjuste = /ajuste|nota\s+de\s+(credito|d[eé]bito)|contra\s*documento/i
     .test(String(descripcionOperacion || ''));
   const tipo = /venta/i.test(String(descripcionOperacion || '')) ? 'VENTA' : 'COMPRA';
@@ -260,6 +269,12 @@ async function relacionarAjuste(client, idLiquidacion, principalCoe, ajuste) {
       boolean !== null ? 'BOOLEANO' : numeric !== null ? 'NUMERO' : 'TEXTO',
       numeric === null && boolean === null ? String(field.value) : null, numeric, boolean]);
   }
+
+  // Una ejecución anterior pudo haber materializado el ajuste como liquidación
+  // independiente. Solo se retira ese BORRADOR automático una vez que el ajuste
+  // quedó enlazado de forma segura con su principal.
+  await client.query("DELETE FROM liquidaciones_primarias WHERE coe=$1 AND estado='BORRADOR'", [ajuste.coe]);
+  await client.query("DELETE FROM liquidaciones_secundarias WHERE coe=$1 AND estado='BORRADOR'", [ajuste.coe]);
 }
 
 async function materializarLiquidacionesOficiales() {
