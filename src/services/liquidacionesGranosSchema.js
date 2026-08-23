@@ -166,11 +166,125 @@ async function ensureLiquidacionesGranosSchema(client) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS liquidacion_datos_oficiales (
+      id_liquidacion INTEGER PRIMARY KEY REFERENCES liquidaciones(id) ON DELETE CASCADE,
+      fuente VARCHAR(40),
+      familia_documento VARCHAR(80),
+      tipo_formulario_historico VARCHAR(80),
+      codigo_operacion VARCHAR(30),
+      descripcion_operacion VARCHAR(200),
+      sistema_emision VARCHAR(30),
+      estado_oficial VARCHAR(40),
+      fecha_emision TIMESTAMPTZ,
+      fecha_anulacion TIMESTAMPTZ,
+      punto_emision INTEGER,
+      numero_comprobante BIGINT,
+      moneda VARCHAR(10),
+      tipo_cambio NUMERIC(18,8),
+      importe_bruto NUMERIC(18,4),
+      importe_neto_gravado NUMERIC(18,4),
+      importe_no_gravado NUMERIC(18,4),
+      importe_exento NUMERIC(18,4),
+      importe_iva NUMERIC(18,4),
+      importe_tributos NUMERIC(18,4),
+      importe_retenciones NUMERIC(18,4),
+      importe_percepciones NUMERIC(18,4),
+      importe_total NUMERIC(18,4),
+      saldo_pagable NUMERIC(18,4),
+      payload_oficial JSONB NOT NULL DEFAULT '{}'::jsonb,
+      payload_hash VARCHAR(64),
+      version_esquema VARCHAR(30),
+      sincronizado_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS liquidacion_participantes (
+      id BIGSERIAL PRIMARY KEY,
+      id_liquidacion INTEGER NOT NULL REFERENCES liquidaciones(id) ON DELETE CASCADE,
+      orden INTEGER NOT NULL DEFAULT 0,
+      rol VARCHAR(60) NOT NULL,
+      cuit VARCHAR(11),
+      razon_social VARCHAR(250),
+      id_contraparte INTEGER REFERENCES contrapartes(id) ON DELETE SET NULL,
+      nro_planta VARCHAR(30),
+      actividad VARCHAR(120),
+      domicilio VARCHAR(250),
+      localidad VARCHAR(120),
+      provincia VARCHAR(120),
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS liquidacion_items (
+      id BIGSERIAL PRIMARY KEY,
+      id_liquidacion INTEGER NOT NULL REFERENCES liquidaciones(id) ON DELETE CASCADE,
+      orden INTEGER NOT NULL DEFAULT 0,
+      codigo_producto VARCHAR(30),
+      descripcion_producto VARCHAR(150),
+      campana VARCHAR(30),
+      grado VARCHAR(30),
+      cosecha VARCHAR(30),
+      procedencia VARCHAR(200),
+      destino VARCHAR(200),
+      coe_certificado VARCHAR(20),
+      ctg VARCHAR(20),
+      kilos_brutos NUMERIC(14,3),
+      kilos_merma NUMERIC(14,3),
+      kilos_netos NUMERIC(14,3),
+      kilos_netos_acondicionados NUMERIC(14,3),
+      kilos_liquidados NUMERIC(14,3),
+      precio_tonelada NUMERIC(18,6),
+      importe_bruto NUMERIC(18,4),
+      importe_ajustes_calidad NUMERIC(18,4),
+      importe_neto NUMERIC(18,4),
+      calidad JSONB NOT NULL DEFAULT '{}'::jsonb,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS liquidacion_referencias (
+      id BIGSERIAL PRIMARY KEY,
+      id_liquidacion INTEGER NOT NULL REFERENCES liquidaciones(id) ON DELETE CASCADE,
+      orden INTEGER NOT NULL DEFAULT 0,
+      tipo VARCHAR(50) NOT NULL,
+      numero VARCHAR(100) NOT NULL,
+      fecha DATE,
+      kilos NUMERIC(14,3),
+      importe NUMERIC(18,4),
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    -- Inventario sin perdida de todos los campos escalares que entregue ARCA.
+    -- Permite conservar futuras versiones del WS aunque aun no tengan columna tipada.
+    CREATE TABLE IF NOT EXISTS liquidacion_campos_oficiales (
+      id BIGSERIAL PRIMARY KEY,
+      id_liquidacion INTEGER NOT NULL REFERENCES liquidaciones(id) ON DELETE CASCADE,
+      ruta VARCHAR(500) NOT NULL,
+      campo VARCHAR(150) NOT NULL,
+      ocurrencia INTEGER NOT NULL DEFAULT 0,
+      tipo_dato VARCHAR(20) NOT NULL DEFAULT 'TEXTO',
+      valor_texto TEXT,
+      valor_numero NUMERIC(24,8),
+      valor_fecha TIMESTAMPTZ,
+      valor_booleano BOOLEAN,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(id_liquidacion,ruta,ocurrencia)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_liq_primaria_coe ON liquidaciones_primarias(coe);
     CREATE INDEX IF NOT EXISTS idx_liq_secundaria_coe ON liquidaciones_secundarias(coe);
     CREATE INDEX IF NOT EXISTS idx_liq_conceptos_liq ON liquidacion_conceptos(id_liquidacion, orden, id);
     CREATE INDEX IF NOT EXISTS idx_liq_impuestos_liq ON liquidacion_impuestos(id_liquidacion, orden, id);
     CREATE INDEX IF NOT EXISTS idx_liq_relaciones_liq ON liquidacion_relaciones(id_liquidacion, tipo_relacion);
+    CREATE INDEX IF NOT EXISTS idx_liq_participantes_cuit ON liquidacion_participantes(cuit,id_liquidacion);
+    CREATE INDEX IF NOT EXISTS idx_liq_items_producto ON liquidacion_items(codigo_producto,id_liquidacion);
+    CREATE INDEX IF NOT EXISTS idx_liq_items_certificado ON liquidacion_items(coe_certificado);
+    CREATE INDEX IF NOT EXISTS idx_liq_items_ctg ON liquidacion_items(ctg);
+    CREATE INDEX IF NOT EXISTS idx_liq_referencias_numero ON liquidacion_referencias(tipo,numero);
+    CREATE INDEX IF NOT EXISTS idx_liq_campos_busqueda ON liquidacion_campos_oficiales(campo,id_liquidacion);
     CREATE UNIQUE INDEX IF NOT EXISTS uq_liq_primaria_coe ON liquidaciones_primarias(coe) WHERE coe IS NOT NULL AND coe <> '';
     CREATE UNIQUE INDEX IF NOT EXISTS uq_liq_secundaria_coe ON liquidaciones_secundarias(coe) WHERE coe IS NOT NULL AND coe <> '';
   `);
