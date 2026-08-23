@@ -6,7 +6,7 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
   const { rows: movimientosFaltantes } = await pool.query(`
     SELECT DISTINCT cc.nro_ctg AS ctg
     FROM certificado_1116_ctgs cc
-    LEFT JOIN movimientos m ON m.nro_ctg=cc.nro_ctg AND m.modalidad='FORMAL'
+    LEFT JOIN movimientos m ON m.nro_ctg=cc.nro_ctg
     WHERE cc.cpe_document_id IS NOT NULL AND m.id IS NULL
   `);
   if (movimientosFaltantes.length) {
@@ -54,7 +54,7 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
         jsonb_agg(DISTINCT jsonb_build_object('coe',c.coe,'certificado',c.numero_certificado)) AS certificados
       FROM certificado_1116_ctgs cc
       JOIN certificados_1116 c ON c.id=cc.id_certificado_1116
-      LEFT JOIN movimientos m ON (m.id=cc.id_movimiento OR (cc.id_movimiento IS NULL AND m.nro_ctg=cc.nro_ctg)) AND m.modalidad='FORMAL'
+      LEFT JOIN movimientos m ON (m.id=cc.id_movimiento OR (cc.id_movimiento IS NULL AND m.nro_ctg=cc.nro_ctg))
       WHERE cc.cpe_document_id IS NOT NULL
       GROUP BY cc.nro_ctg,m.id,m.estado,m.peso_neto_llegada_kg,m.kg_liquidables
       ORDER BY cc.nro_ctg
