@@ -3,6 +3,19 @@ const arcaOfficialClient = require('./arcaOfficialClient');
 
 async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
   await arcaOfficialClient.materializarCertificadosCtg();
+  const { rows: movimientosFaltantes } = await pool.query(`
+    SELECT DISTINCT cc.nro_ctg AS ctg
+    FROM certificado_1116_ctgs cc
+    LEFT JOIN movimientos m ON m.nro_ctg=cc.nro_ctg AND m.modalidad='FORMAL'
+    WHERE cc.cpe_document_id IS NOT NULL AND m.id IS NULL
+  `);
+  if (movimientosFaltantes.length) {
+    await arcaOfficialClient.materializarMovimientosCpe({
+      desde: '2000-01-01',
+      soloConfirmadas: true,
+      ctgs: movimientosFaltantes.map(row => row.ctg)
+    });
+  }
   await pool.query(`
     CREATE TABLE IF NOT EXISTS arca_certificado_descarga_audit (
       ctg VARCHAR(20) PRIMARY KEY,
@@ -32,7 +45,12 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
     const { rows } = await client.query(`
       SELECT cc.nro_ctg AS ctg, m.id AS movimiento_id, m.estado,
         m.peso_neto_llegada_kg, m.kg_liquidables,
-        SUM(cc.kg_netos_acondicionados)::numeric AS kilos,
+        SUM(COALESCE(
+          cc.kg_netos_acondicionados,
+          CASE WHEN (SELECT COUNT(*) FROM certificado_1116_ctgs unico
+                          WHERE unico.id_certificado_1116=cc.id_certificado_1116)=1
+               THEN c.kilos_netos_acondicionados END
+        ))::numeric AS kilos,
         jsonb_agg(DISTINCT jsonb_build_object('coe',c.coe,'certificado',c.numero_certificado)) AS certificados
       FROM certificado_1116_ctgs cc
       JOIN certificados_1116 c ON c.id=cc.id_certificado_1116
@@ -54,7 +72,17 @@ async function materializarDescargasDesdeCertificados({ userId = null } = {}) {
         if (existente != null && Math.abs(Number(existente) - kilos) > 0.001) {
           estado = 'CONFLICTO';
           motivo = 'KILOS_EXISTENTES_DIFIEREN_DEL_CERTIFICADO';
+          const marker = 'Descarga respaldada por certificado ARCA con diferencia de kilos: movimiento ' +
+            Number(existente).toFixed(3) + ' kg; certificado ' + kilos.toFixed(3) + ' kg.';
+          await client.query(`
+            UPDATE movimientos SET
+              estado='DESCARGADO',
+              observaciones=CASE WHEN COALESCE(observaciones,'') ILIKE '%' || $1 || '%'
+                THEN observaciones ELSE CONCAT_WS(' ',NULLIF(observaciones,''),$1) END
+            WHERE id=$2
+          `, [marker, row.movimiento_id]);
           resultado.conflictos += 1;
+          resultado.descargadas += 1;
         } else {
           const yaDescargado = String(row.estado || '').toUpperCase() === 'DESCARGADO';
           const marker = 'Descarga respaldada por certificado ARCA.';
