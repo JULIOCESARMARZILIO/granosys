@@ -331,8 +331,70 @@ router.get('/:id', async (req, res) => {
       'SELECT * FROM servicios_movimiento WHERE id_movimiento = $1',
       [req.params.id]
     );
+    const { rows: liquidaciones } = await pool.query(`
+      SELECT l.id, l.nro_liquidacion, l.tipo, l.modalidad, l.fecha_liquidacion,
+             l.monto_bruto_total, l.total_retenciones, l.monto_neto_a_pagar,
+             l.moneda, l.estado, lm.kg_liquidables, lm.factor_aplicado,
+             lm.precio_aplicado, lm.monto_bruto_parcial
+      FROM liquidacion_movimientos lm
+      JOIN liquidaciones l ON l.id=lm.id_liquidacion
+      WHERE lm.id_movimiento=$1
+      ORDER BY l.fecha_liquidacion, l.id
+    `, [req.params.id]);
 
-    res.json({ ...rows[0], calidad, servicios });
+    // Los documentos ARCA se inicializan desde el cliente oficial. En bases
+    // nuevas o entornos de test esas tablas pueden no existir todavia; el
+    // detalle del movimiento sigue funcionando y devuelve listas vacias.
+    let cpe = null;
+    let certificados = [];
+    try {
+      if (rows[0].nro_ctg) {
+        const { rows: cpeRows } = await pool.query(`
+          SELECT d.id AS document_id, r.ctg, r.tipo_cpe, d.fuente,
+                 d.external_key, d.document_date, d.payload,
+                 EXISTS(SELECT 1 FROM arca_official_files f
+                        WHERE f.document_id=d.id AND f.file_type='PDF') AS tiene_pdf
+          FROM arca_cpe_registry r
+          JOIN arca_official_documents d ON d.id=r.document_id
+          WHERE r.ctg=$1
+          LIMIT 1
+        `, [rows[0].nro_ctg]);
+        cpe = cpeRows[0] || null;
+        const { rows: certificadosRows } = await pool.query(`
+          SELECT d.id AS document_id, d.external_key AS coe, d.fuente,
+                 d.document_date, d.payload, l.estado,
+                 EXISTS(SELECT 1 FROM arca_official_files f
+                        WHERE f.document_id=d.id AND f.file_type='PDF') AS tiene_pdf
+          FROM arca_certificado_ctg_links l
+          JOIN arca_official_documents d ON d.id=l.certificado_document_id
+          WHERE l.ctg=$1
+          ORDER BY d.document_date, d.id
+        `, [rows[0].nro_ctg]);
+        certificados = certificadosRows;
+      }
+    } catch (documentError) {
+      if (documentError.code !== '42P01') console.warn('Detalle documental del movimiento:', documentError.message);
+    }
+    try {
+      const { rows: manuales } = await pool.query(`
+        SELECT c.id, c.tipo_formulario, c.numero_certificado, c.coe,
+               c.fecha_emision, c.kilos_netos, c.nombre_productor,
+               c.cuit_productor, c.origen_carga, c.datos_raw
+        FROM certificados_1116 c
+        LEFT JOIN certificado_1116_ctgs ctg ON ctg.id_certificado_1116=c.id
+        WHERE c.id_movimiento=$1 OR ctg.id_movimiento=$1 OR ctg.nro_ctg=$2
+        GROUP BY c.id
+        ORDER BY c.fecha_emision, c.id
+      `, [req.params.id, rows[0].nro_ctg || null]);
+      certificados = [...certificados, ...manuales.map(item => ({ ...item, origen: 'CERTIFICADO_1116' }))];
+    } catch (documentError) {
+      console.warn('Certificados del movimiento:', documentError.message);
+    }
+
+    res.json({
+      ...rows[0], calidad, servicios, liquidaciones,
+      documentos: { cpe, certificados }
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

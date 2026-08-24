@@ -390,6 +390,68 @@ async function initDB() {
       CREATE UNIQUE INDEX IF NOT EXISTS uq_cuentas_bancarias_cbu
         ON cuentas_bancarias(cbu) WHERE cbu IS NOT NULL AND cbu <> '';
 
+      -- Cabecera central de pagos. Cuenta Corriente solo refleja el asiento
+      -- generado por esta orden; nunca vuelve a ser el origen manual de un
+      -- pago. PAGO_PROPIO identifica recursos que salen del circuito Formal
+      -- y quedan disponibles para imputacion operativa en Informal.
+      CREATE TABLE IF NOT EXISTS ordenes_pago (
+        id BIGSERIAL PRIMARY KEY,
+        numero VARCHAR(30) UNIQUE,
+        clase_pago VARCHAR(25) NOT NULL
+          CHECK (clase_pago IN ('PAGO_PROVEEDOR','PAGO_PROPIO')),
+        modalidad_origen VARCHAR(20) NOT NULL DEFAULT 'FORMAL'
+          CHECK (modalidad_origen IN ('FORMAL','INFORMAL')),
+        modalidad_destino VARCHAR(20)
+          CHECK (modalidad_destino IS NULL OR modalidad_destino IN ('FORMAL','INFORMAL')),
+        id_contraparte INTEGER NOT NULL REFERENCES contrapartes(id) ON DELETE RESTRICT,
+        id_cc_movimiento INTEGER UNIQUE REFERENCES cc_contrapartes(id) ON DELETE RESTRICT,
+        fecha DATE NOT NULL,
+        fecha_pago DATE,
+        concepto VARCHAR(300) NOT NULL,
+        importe_bruto NUMERIC(14,4) NOT NULL CHECK (importe_bruto > 0),
+        total_adiciones NUMERIC(14,4) NOT NULL DEFAULT 0 CHECK (total_adiciones >= 0),
+        total_retenciones NUMERIC(14,4) NOT NULL DEFAULT 0 CHECK (total_retenciones >= 0),
+        importe_total NUMERIC(14,4) NOT NULL CHECK (importe_total > 0),
+        moneda VARCHAR(10) NOT NULL DEFAULT 'PESOS',
+        estado VARCHAR(20) NOT NULL DEFAULT 'EMITIDA'
+          CHECK (estado IN ('BORRADOR','EMITIDA','PAGADA','ANULADA')),
+        creado_por INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_ordenes_pago_fecha_clase
+        ON ordenes_pago(fecha DESC, clase_pago, id DESC);
+
+      -- Parametros fiscales compartidos por Formal e Informal. Las tasas se
+      -- dejan configurables: IVA, Ganancias y retenciones no se hardcodean en
+      -- los pagos y pueden recibir vigencias nuevas desde el nucleo central.
+      CREATE TABLE IF NOT EXISTS conceptos_fiscales_tesoreria (
+        id SERIAL PRIMARY KEY,
+        codigo VARCHAR(40) NOT NULL UNIQUE,
+        nombre VARCHAR(120) NOT NULL,
+        categoria VARCHAR(30) NOT NULL
+          CHECK (categoria IN ('IVA','GANANCIAS','RETENCION_IVA','RETENCION_GANANCIAS','INGRESOS_BRUTOS','SUSS','OTRO')),
+        naturaleza VARCHAR(15) NOT NULL DEFAULT 'RETENCION'
+          CHECK (naturaleza IN ('ADICION','RETENCION','INFORMATIVO')),
+        alicuota_default NUMERIC(9,4),
+        vigente_desde DATE,
+        vigente_hasta DATE,
+        activo BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      INSERT INTO conceptos_fiscales_tesoreria (codigo,nombre,categoria,naturaleza)
+      VALUES
+        ('IVA','IVA','IVA','ADICION'),
+        ('GANANCIAS','Impuesto a las Ganancias','GANANCIAS','INFORMATIVO'),
+        ('RET_IVA','Retencion de IVA','RETENCION_IVA','RETENCION'),
+        ('RET_GANANCIAS','Retencion de Ganancias','RETENCION_GANANCIAS','RETENCION'),
+        ('RET_IIBB','Retencion de Ingresos Brutos','INGRESOS_BRUTOS','RETENCION'),
+        ('RET_SUSS','Retencion SUSS','SUSS','RETENCION')
+      ON CONFLICT (codigo) DO NOTHING;
+
       CREATE TABLE IF NOT EXISTS movimientos_tesoreria (
         id BIGSERIAL PRIMARY KEY,
         id_contraparte INTEGER REFERENCES contrapartes(id) ON DELETE RESTRICT,
@@ -417,6 +479,20 @@ async function initDB() {
         ON movimientos_tesoreria(id_cuenta_bancaria, external_transaction_id)
         WHERE external_transaction_id IS NOT NULL;
 
+      ALTER TABLE movimientos_tesoreria
+        ADD COLUMN IF NOT EXISTS id_orden_pago BIGINT REFERENCES ordenes_pago(id) ON DELETE RESTRICT;
+      ALTER TABLE movimientos_tesoreria
+        ADD COLUMN IF NOT EXISTS modalidad VARCHAR(20) DEFAULT 'FORMAL';
+      ALTER TABLE movimientos_tesoreria
+        ADD COLUMN IF NOT EXISTS clase_pago VARCHAR(25);
+      CREATE INDEX IF NOT EXISTS idx_movimientos_tesoreria_orden
+        ON movimientos_tesoreria(id_orden_pago, id);
+
+      ALTER TABLE cc_contrapartes
+        ADD COLUMN IF NOT EXISTS id_orden_pago BIGINT REFERENCES ordenes_pago(id) ON DELETE RESTRICT;
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_cc_contrapartes_orden_pago
+        ON cc_contrapartes(id_orden_pago) WHERE id_orden_pago IS NOT NULL;
+
       CREATE TABLE IF NOT EXISTS aplicaciones_tesoreria (
         id BIGSERIAL PRIMARY KEY,
         id_movimiento_tesoreria BIGINT NOT NULL REFERENCES movimientos_tesoreria(id) ON DELETE RESTRICT,
@@ -428,6 +504,27 @@ async function initDB() {
 
       CREATE INDEX IF NOT EXISTS idx_aplicaciones_tesoreria_liquidacion
         ON aplicaciones_tesoreria(id_liquidacion);
+
+      CREATE TABLE IF NOT EXISTS aplicaciones_orden_pago (
+        id BIGSERIAL PRIMARY KEY,
+        id_orden_pago BIGINT NOT NULL REFERENCES ordenes_pago(id) ON DELETE RESTRICT,
+        id_liquidacion INTEGER NOT NULL REFERENCES liquidaciones(id) ON DELETE RESTRICT,
+        importe NUMERIC(14,4) NOT NULL CHECK (importe > 0),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(id_orden_pago, id_liquidacion)
+      );
+
+      CREATE TABLE IF NOT EXISTS orden_pago_conceptos_fiscales (
+        id BIGSERIAL PRIMARY KEY,
+        id_orden_pago BIGINT NOT NULL REFERENCES ordenes_pago(id) ON DELETE RESTRICT,
+        id_concepto_fiscal INTEGER NOT NULL REFERENCES conceptos_fiscales_tesoreria(id) ON DELETE RESTRICT,
+        base_imponible NUMERIC(14,4),
+        alicuota NUMERIC(9,4),
+        importe NUMERIC(14,4) NOT NULL CHECK (importe >= 0),
+        naturaleza VARCHAR(15) NOT NULL CHECK (naturaleza IN ('ADICION','RETENCION','INFORMATIVO')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(id_orden_pago, id_concepto_fiscal)
+      );
 
       CREATE TABLE IF NOT EXISTS cheques_tesoreria (
         id BIGSERIAL PRIMARY KEY,
@@ -444,6 +541,7 @@ async function initDB() {
         estado VARCHAR(20) NOT NULL DEFAULT 'EN_CARTERA'
           CHECK (estado IN ('EMITIDO','EN_CARTERA','ENDOSADO','DEPOSITADO','ACREDITADO','RECHAZADO','ANULADO')),
         observaciones VARCHAR(500),
+        cruzado BOOLEAN NOT NULL DEFAULT TRUE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE(banco, numero, tipo)
@@ -451,6 +549,56 @@ async function initDB() {
 
       CREATE INDEX IF NOT EXISTS idx_cheques_tesoreria_estado_fecha
         ON cheques_tesoreria(estado, fecha_pago);
+
+      ALTER TABLE cheques_tesoreria
+        ADD COLUMN IF NOT EXISTS cruzado BOOLEAN NOT NULL DEFAULT TRUE;
+      ALTER TABLE cheques_tesoreria
+        DROP CONSTRAINT IF EXISTS cheques_tesoreria_estado_check;
+      ALTER TABLE cheques_tesoreria
+        ADD CONSTRAINT cheques_tesoreria_estado_check
+        CHECK (estado IN ('EMITIDO','EN_CARTERA','TRANSFERIDO','DEVUELTO','ENDOSADO','ENTREGADO','DEPOSITADO','ACREDITADO','RECHAZADO','ANULADO'));
+
+      -- Cada cambio de manos conserva el mismo cheque y deja registrado de
+      -- donde vino y quien lo entrego/recibio. Esa es la trazabilidad cruzada
+      -- Formal -> Pago Propio -> proveedor final.
+      CREATE TABLE IF NOT EXISTS trazabilidad_instrumentos_pago (
+        id BIGSERIAL PRIMARY KEY,
+        id_orden_pago BIGINT NOT NULL REFERENCES ordenes_pago(id) ON DELETE RESTRICT,
+        id_movimiento_tesoreria BIGINT NOT NULL REFERENCES movimientos_tesoreria(id) ON DELETE RESTRICT,
+        id_cheque BIGINT REFERENCES cheques_tesoreria(id) ON DELETE RESTRICT,
+        evento VARCHAR(35) NOT NULL,
+        modalidad_origen VARCHAR(20),
+        modalidad_destino VARCHAR(20),
+        id_contraparte_origen INTEGER REFERENCES contrapartes(id) ON DELETE SET NULL,
+        id_contraparte_destino INTEGER REFERENCES contrapartes(id) ON DELETE SET NULL,
+        entregado_por VARCHAR(150),
+        recibido_por VARCHAR(150),
+        fecha TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        observaciones VARCHAR(500),
+        creado_por INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_trazabilidad_instrumento
+        ON trazabilidad_instrumentos_pago(id_movimiento_tesoreria, fecha, id);
+
+      CREATE TABLE IF NOT EXISTS pago_propio_asignaciones (
+        id BIGSERIAL PRIMARY KEY,
+        id_orden_pago BIGINT NOT NULL REFERENCES ordenes_pago(id) ON DELETE RESTRICT,
+        id_movimiento_tesoreria BIGINT NOT NULL REFERENCES movimientos_tesoreria(id) ON DELETE RESTRICT,
+        id_contraparte_destino INTEGER NOT NULL REFERENCES contrapartes(id) ON DELETE RESTRICT,
+        id_cc_movimiento INTEGER UNIQUE REFERENCES cc_contrapartes(id) ON DELETE RESTRICT,
+        fecha DATE NOT NULL,
+        importe NUMERIC(14,4) NOT NULL CHECK (importe > 0),
+        concepto VARCHAR(300) NOT NULL,
+        entregado_por VARCHAR(150),
+        recibido_por VARCHAR(150),
+        estado VARCHAR(20) NOT NULL DEFAULT 'APLICADO'
+          CHECK (estado IN ('APLICADO','DEVUELTO','ANULADO')),
+        creado_por INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_pago_propio_asignaciones_instrumento
+        ON pago_propio_asignaciones(id_movimiento_tesoreria, id);
 
       CREATE TABLE IF NOT EXISTS stock (
         id SERIAL PRIMARY KEY,

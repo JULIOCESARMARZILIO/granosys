@@ -67,6 +67,7 @@ tr:last-child td{border-bottom:none}
 </head>
 <body>
 <div id="root"></div>
+<script type="text/babel" src="/tesoreria-component.jsx"></script>
 <script type="text/babel">
 const {useState, useEffect, useRef} = React;
 
@@ -139,6 +140,20 @@ const api = {
       return await r.json();
     } catch(e) {
       console.error("API PUT error:", path, e);
+      return null;
+    }
+  },
+  patch: async (path, data) => {
+    try {
+      const r = await fetch(`${API_URL}${path}`, {
+        method: "PATCH",
+        headers: authHeaders({"Content-Type":"application/json"}),
+        body: JSON.stringify(data)
+      });
+      if (!r.ok) throw new Error(await r.text());
+      return await r.json();
+    } catch(e) {
+      console.error("API PATCH error:", path, e);
       return null;
     }
   },
@@ -2894,6 +2909,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
   const [showImport,setShowImport]=useState(false);
   const [showRapido,setShowRapido]=useState(false);
   const [selected,setSelected]=useState(null);
+  const [detalleDocumental,setDetalleDocumental]=useState({cpe:null,certificados:[]});
   const [tab,setTab]=useState("salida");
   const [importing,setImporting]=useState(false);
   const [importResult,setImportResult]=useState(null);
@@ -3033,6 +3049,25 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     a.href = URL.createObjectURL(blob);
     a.download = `movimientos_${modulo.toLowerCase()}_${new Date().toISOString().slice(0,10)}.xlsx`;
     a.click();
+  };
+  const abrirPdfArcaMovimiento = async (documentId) => {
+    try {
+      const response = await fetch(`${API_URL}/api/arca/documentos/${documentId}/pdf`, {headers:authHeaders()});
+      if (!response.ok) throw new Error(await response.text());
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url,"_blank","noopener,noreferrer");
+      setTimeout(()=>URL.revokeObjectURL(url),60000);
+    } catch(e) { alert("No se pudo abrir el PDF: "+e.message); }
+  };
+  const exportarDetalleMovimiento = (datos,nombre) => {
+    if (!datos) return;
+    const filas = Array.isArray(datos) ? datos : [datos];
+    const limpias = filas.map(item=>Object.fromEntries(Object.entries(item||{}).map(([k,v])=>[k,typeof v==="object"&&v!==null?JSON.stringify(v):v])));
+    const ws = XLSX.utils.json_to_sheet(limpias);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,"Detalle");
+    XLSX.writeFile(wb,`${nombre}_${selected?.numero||"movimiento"}.xlsx`);
   };
   const [contratosReal,setContratosReal]=useState(null);
   const contratos = contratosReal !== null ? contratosReal : mockContratos.filter(c=>c.modalidad===modulo);
@@ -3376,8 +3411,9 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     }
   };
 
-  const openModal = (m) => {
+  const openModal = (m, initialTab="salida") => {
     setSelected(m);
+    setDetalleDocumental({cpe:null,certificados:[]});
     setIdContraparteDestinatario("");
     setUbicacionesDestinatario([]);
     setTempFactor(m ? (m.factor_manual !== null && m.factor_manual !== undefined ? m.factor_manual : 1.0) : 1.0);
@@ -3387,6 +3423,9 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     
     if (m) {
       api.get(`/api/movimientos/${m.id}`).then(res => {
+        if (!res) return;
+        setSelected({...m,...res,numero:m.numero||res.numero_movimiento});
+        setDetalleDocumental(res.documentos||{cpe:null,certificados:[]});
         const savedCalidad = res.calidad || [];
         cargarParametrosCalidadEspecie(m.id_especie || 1, savedCalidad);
       }).catch(err => {
@@ -3404,7 +3443,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
     setFechaArribo(m ? formatDateTimeLocal(m.fecha_arribo) : "");
     setFechaDescarga(m ? formatDateTimeLocal(m.fecha_descarga) : "");
     setNroTurno(m ? m.nro_turno || "" : "");
-    setTab("salida");
+    setTab(initialTab);
 
     if (m) {
       setMovForm({
@@ -4635,8 +4674,8 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
         </tr></thead>
         <tbody>{movsFiltrados.map(m=>(
           <tr key={m.id}>
-            <td><span className="mono" style={{color:"#f5a623",fontSize:12}}>{m.numero}</span></td>
-            {modulo==="FORMAL"&&<td><span className="mono" style={{fontSize:11,color:"#8890a8"}}>{m.nro_ctg||"—"}</span></td>}
+            <td><button onClick={()=>openModal(m)} className="mono" style={{color:"#f5a623",fontSize:12,background:"transparent",textDecoration:"underline"}}>{m.numero}</button></td>
+            {modulo==="FORMAL"&&<td>{m.nro_ctg?<button onClick={()=>openModal(m,"documentos")} className="mono" style={{fontSize:11,color:"#3498db",background:"transparent",textDecoration:"underline"}} title="Ver Carta de Porte y documentos vinculados">{m.nro_ctg}</button>:<span className="mono" style={{color:"#565d7a"}}>—</span>}</td>}
             {modulo==="FORMAL"&& (
               <td>
                 {m.nro_ctg && m.nro_ctg.startsWith("101") ? (
@@ -4680,7 +4719,7 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
             <td>{m.faltante===null?"—":m.faltante>0?<span className="mono" style={{color:"#e74c3c"}}>-{m.faltante}</span>:<span style={{color:"#27ae60"}}>✓</span>}</td>
             <td><span className="mono" style={{fontWeight:600}}>{m.kg_liquidables?.toLocaleString()||"—"}</span></td>
             <td><Badge label={m.estado} color={estadoColor(m.estado)}/></td>
-            <td><Badge label={m.estado_liq} color={liqColor(m.estado_liq)}/></td>
+            <td><button onClick={()=>openModal(m,"documentos")} style={{background:"transparent"}} title="Ver liquidación y certificados"><Badge label={m.estado_liq} color={liqColor(m.estado_liq)}/></button></td>
             <td><Btn variant="ghost" size="sm" onClick={()=>openModal(m)}>Ver</Btn></td>
           </tr>
         ))}</tbody></table>
@@ -5465,15 +5504,15 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
           footer={(
             <>
               <Btn variant="secondary" onClick={()=>setShowForm(false)}>Cerrar</Btn>
-              <Btn onClick={handleGuardarCambios}>Guardar Cambios</Btn>
+              {tab!=="documentos" && <Btn onClick={handleGuardarCambios}>Guardar Cambios</Btn>}
             </>
           )}
         >
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
             <div className="tab-bar" style={{marginBottom:0,flex:1}}>
-              {["salida","llegada", ...(modulo === "FORMAL" ? ["calidad"] : []), "liquidacion","flete"].map(t=>(
+              {["salida","llegada", ...(modulo === "FORMAL" ? ["calidad"] : []), "liquidacion","flete", ...(selected?["documentos"]:[])].map(t=>(
                 <button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>
-                  {t.charAt(0).toUpperCase()+t.slice(1)}
+                  {t==="documentos"?"Documentos vinculados":t.charAt(0).toUpperCase()+t.slice(1)}
                 </button>
               ))}
             </div>
@@ -6204,6 +6243,38 @@ const Movimientos = ({modulo, usuario, globalFiltroProductor, globalFiltroEspeci
                 </div>
               )}
               <Btn variant="success" size="sm">Generar Preliquidación</Btn>
+            </div>
+          )}
+
+          {tab==="documentos"&&selected&&(
+            <div>
+              <div className="alert-info" style={{marginBottom:14}}>
+                Trazabilidad completa del movimiento: Carta de Porte, liquidaciones y certificados vinculados. Los botones de exportación respetan el movimiento abierto.
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10,marginBottom:18}}>
+                {[["Movimiento",selected.numero],["CPE",selected.nro_cpe||"No informada"],["CTG",selected.nro_ctg||"No informado"],["Estado",selected.estado],["Liquidación",selected.nro_liquidacion||"Sin liquidar"],["Certificados",(detalleDocumental.certificados||[]).length]].map(([l,v])=><div key={l} style={{padding:12,background:"#11141c",border:"1px solid #2a2d3e",borderRadius:7}}><div className="form-label">{l}</div><strong className={l==="CTG"||l==="Movimiento"?"mono":""}>{v}</strong></div>)}
+              </div>
+
+              <div className="card" style={{marginBottom:16}}>
+                <div className="card-header"><div><strong>Carta de Porte Electrónica</strong><div style={{fontSize:11,color:"#8890a8"}}>Detalle oficial ya almacenado; no ejecuta acciones en ARCA.</div></div><div style={{display:"flex",gap:8}}>{detalleDocumental.cpe&&<Btn variant="secondary" size="sm" onClick={()=>exportarDetalleMovimiento({...detalleDocumental.cpe,...(detalleDocumental.cpe.payload||{})},"carta_de_porte")}>Exportar CPE</Btn>}{detalleDocumental.cpe?.tiene_pdf&&<Btn size="sm" onClick={()=>abrirPdfArcaMovimiento(detalleDocumental.cpe.document_id)}>Abrir PDF oficial</Btn>}</div></div>
+                {detalleDocumental.cpe?<div style={{padding:14}}>
+                  <div className="form-grid-3">
+                    <FF label="Tipo"><div>{detalleDocumental.cpe.tipo_cpe}</div></FF><FF label="Fecha"><div>{formatFechaAR(detalleDocumental.cpe.document_date)}</div></FF><FF label="Fuente"><div>{detalleDocumental.cpe.fuente}</div></FF>
+                  </div>
+                  <div className="form-label" style={{marginTop:8}}>Todos los datos de la Carta de Porte</div>
+                  <pre style={{maxHeight:320,overflow:"auto",padding:12,background:"#0d1017",border:"1px solid #252837",borderRadius:7,fontSize:11,whiteSpace:"pre-wrap"}}>{JSON.stringify(Object.fromEntries(Object.entries(detalleDocumental.cpe.payload||{}).filter(([k])=>!/^(rawXml|pdf|token|cookie|privateKey|certificatePem)$/i.test(k))),null,2)}</pre>
+                </div>:<div style={{padding:24,textAlign:"center",color:"#8890a8"}}>No hay documento oficial vinculado al CTG de este movimiento.</div>}
+              </div>
+
+              <div className="card" style={{marginBottom:16}}>
+                <div className="card-header"><strong>Liquidaciones vinculadas</strong>{!!selected.liquidaciones?.length&&<Btn variant="secondary" size="sm" onClick={()=>exportarDetalleMovimiento(selected.liquidaciones,"liquidaciones")}>Exportar liquidación</Btn>}</div>
+                <div style={{overflowX:"auto"}}><table><thead><tr><th>Número</th><th>Fecha</th><th>Tipo</th><th>Kg</th><th>Precio</th><th>Bruto parcial</th><th>Retenciones</th><th>Neto</th><th>Estado</th></tr></thead><tbody>{(selected.liquidaciones||[]).map(l=><tr key={l.id}><td className="mono" style={{color:"#9b59b6"}}>{l.nro_liquidacion}</td><td>{formatFechaAR(l.fecha_liquidacion)}</td><td>{l.tipo}</td><td>{Number(l.kg_liquidables||0).toLocaleString("es-AR")}</td><td>$ {Number(l.precio_aplicado||0).toLocaleString("es-AR")}</td><td>$ {Number(l.monto_bruto_parcial||0).toLocaleString("es-AR")}</td><td>$ {Number(l.total_retenciones||0).toLocaleString("es-AR")}</td><td>$ {Number(l.monto_neto_a_pagar||0).toLocaleString("es-AR")}</td><td><Badge label={l.estado} color={l.estado==="PAGADA"?"green":"orange"}/></td></tr>)}{!selected.liquidaciones?.length&&<tr><td colSpan="9" style={{textAlign:"center",padding:24,color:"#8890a8"}}>El movimiento todavía no tiene una liquidación vinculada.</td></tr>}</tbody></table></div>
+              </div>
+
+              <div className="card">
+                <div className="card-header"><strong>Certificados vinculados</strong>{!!detalleDocumental.certificados?.length&&<Btn variant="secondary" size="sm" onClick={()=>exportarDetalleMovimiento(detalleDocumental.certificados,"certificados")}>Exportar certificados</Btn>}</div>
+                <div style={{overflowX:"auto"}}><table><thead><tr><th>Tipo / fuente</th><th>COE / número</th><th>Fecha</th><th>Productor</th><th>Kilos</th><th>Estado</th><th>Documento</th></tr></thead><tbody>{(detalleDocumental.certificados||[]).map((c,idx)=><tr key={`${c.document_id||c.id}-${idx}`}><td>{c.tipo_formulario?`1116 ${c.tipo_formulario}`:c.fuente}</td><td className="mono">{c.coe||c.numero_certificado||"—"}</td><td>{formatFechaAR(c.document_date||c.fecha_emision)}</td><td>{c.nombre_productor||c.payload?.productor||"—"}</td><td>{Number(c.kilos_netos||c.payload?.kilos_netos_acondicionados||0).toLocaleString("es-AR")}</td><td>{c.estado||c.origen_carga||"VINCULADO"}</td><td>{c.tiene_pdf&&c.document_id?<Btn size="sm" onClick={()=>abrirPdfArcaMovimiento(c.document_id)}>Abrir PDF</Btn>:<span style={{color:"#8890a8"}}>Sin PDF</span>}</td></tr>)}{!detalleDocumental.certificados?.length&&<tr><td colSpan="7" style={{textAlign:"center",padding:24,color:"#8890a8"}}>No hay certificados vinculados a esta Carta de Porte.</td></tr>}</tbody></table></div>
+              </div>
             </div>
           )}
 
@@ -7516,6 +7587,7 @@ const CuentaCorriente = ({modulo, globalFiltroProductor, globalFiltroEspecie}) =
   const [ccMovimientos, setCcMovimientos] = useState([]);
   const [openLiquidaciones, setOpenLiquidaciones] = useState([]);
   const [showDetalleModal, setShowDetalleModal] = useState(false);
+  const [ordenPagoDetalleCc, setOrdenPagoDetalleCc] = useState(null);
   
   // Form para registrar pago
   const [showRegPagoModal, setShowRegPagoModal] = useState(false);
@@ -7553,6 +7625,11 @@ const CuentaCorriente = ({modulo, globalFiltroProductor, globalFiltroEspecie}) =
     } catch(err) {
       alert("Error al cargar detalle de liquidación: " + err.message);
     }
+  };
+
+  const abrirOrdenPagoCc = async (ordenId) => {
+    const data = await api.get(`/api/tesoreria/ordenes-pago/${ordenId}`);
+    if (data) setOrdenPagoDetalleCc(data);
   };
 
   const handleGuardarCc = async () => {
@@ -7742,6 +7819,9 @@ const CuentaCorriente = ({modulo, globalFiltroProductor, globalFiltroEspecie}) =
   return (
     <div className="fade-in">
       <h2 style={{fontSize:18,fontWeight:700,marginBottom:20}}>Cuenta Corriente</h2>
+      <div className="alert-info" style={{marginBottom:16}}>
+        <strong>Solo consulta.</strong> Los pagos no se cargan en Cuenta Corriente: se originan en una Orden de Pago de Tesorería. Tocá el número de orden para ver transferencia, banco o cheque utilizado.
+      </div>
       <div className="tab-bar" style={{marginBottom:20}}>
         {["productores","compradores","transportistas"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>)}
       </div>
@@ -7848,11 +7928,7 @@ const CuentaCorriente = ({modulo, globalFiltroProductor, globalFiltroEspecie}) =
                   {selectedClient.saldo === 0 ? "$ 0.00" : selectedClient.saldo < 0 ? `-$ ${Math.abs(selectedClient.saldo).toLocaleString()}` : `$ ${selectedClient.saldo.toLocaleString()}`}
                 </div>
               </div>
-              <div style={{display: "flex", gap: 8}}>
-                <Btn variant="primary" size="sm" onClick={() => setShowRegPagoModal(true)}>
-                  💸 Registrar Movimiento Financiero
-                </Btn>
-              </div>
+              <div style={{display: "flex", gap: 8}}><Badge label="Solo consulta" color="blue" /></div>
             </div>
 
             {/* Tabla de Movimientos */}
@@ -7896,12 +7972,11 @@ const CuentaCorriente = ({modulo, globalFiltroProductor, globalFiltroEspecie}) =
                                 }
                               />
                             </td>
-                            <td
-                              onDoubleClick={() => !esFinanciero && m.id_liquidacion && abrirVerModalCc(m.id_liquidacion)}
-                              title={!esFinanciero && m.id_liquidacion ? "Doble clic para ver detalle de liquidación" : undefined}
-                              style={{cursor: !esFinanciero && m.id_liquidacion ? "pointer" : "default"}}
-                            >
-                              {m.descripcion || m.concepto}
+                            <td>
+                              <div>{m.descripcion || m.concepto}</div>
+                              {m.numero_orden_pago&&<button onClick={()=>abrirOrdenPagoCc(m.id_orden_pago)} style={{marginTop:4,background:"transparent",color:"#f5a623",textDecoration:"underline",fontFamily:"monospace",fontSize:12}} title="Ver cómo se pagó">{m.numero_orden_pago} · ver forma de pago</button>}
+                              {!m.numero_orden_pago&&!m.id_liquidacion&&esFinanciero&&<div style={{fontSize:10,color:"#8890a8",marginTop:3}}>Movimiento histórico anterior a Órdenes de Pago</div>}
+                              {!esFinanciero&&m.id_liquidacion&&<button onClick={()=>abrirVerModalCc(m.id_liquidacion)} style={{marginTop:4,background:"transparent",color:"#9b59b6",textDecoration:"underline",fontSize:11}}>Ver liquidación</button>}
                             </td>
                             <td 
                               style={{textAlign: "right", fontFamily: "monospace", color: parseFloat(m.debe) > 0 ? "#e8eaf0" : "#565d7a"}}
@@ -7917,41 +7992,12 @@ const CuentaCorriente = ({modulo, globalFiltroProductor, globalFiltroEspecie}) =
                               <td style={{textAlign: "center"}}>
                                 {m.tipo_movimiento === 'LIQUIDACION' ? (
                                   <Badge label={m.nro_liquidacion} color="purple" />
+                                ) : m.numero_orden_pago ? (
+                                  <button onClick={()=>abrirOrdenPagoCc(m.id_orden_pago)} style={{background:"transparent",border:"none"}}><Badge label={m.numero_orden_pago} color="blue" /></button>
                                 ) : estaAsignado ? (
                                   <Badge label={`Imputado a ${m.nro_liquidacion}`} color="green" />
                                 ) : (
-                                  <div style={{display: "flex", flexDirection: "column", alignItems: "center", gap: 4}}>
-                                    {assigningMovId === m.id ? (
-                                      <div style={{display: "flex", gap: 4, alignItems: "center"}}>
-                                        <select
-                                          value={selectedLiqIdForAssign}
-                                          onChange={e => setSelectedLiqIdForAssign(e.target.value)}
-                                          style={{padding: "2px 4px", fontSize: 11, background: "#0f1117", border: "1px solid #2a2d3e", borderRadius: 4, color: "#e8eaf0"}}
-                                        >
-                                          <option value="">-- Asignar a --</option>
-                                          {openLiquidaciones.map(liq => (
-                                            <option key={liq.id} value={liq.id}>
-                                              {liq.nro_liquidacion} (${parseFloat(liq.monto_neto_a_pagar).toLocaleString()})
-                                            </option>
-                                          ))}
-                                        </select>
-                                        <button
-                                          onClick={() => ejecutarAsignacion(m.id, selectedLiqIdForAssign)}
-                                          style={{background: "#27ae60", color: "#fff", border: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontSize: 11, fontWeight: "bold"}}
-                                        >
-                                          ✓
-                                        </button>
-                                        <button
-                                          onClick={() => setAssigningMovId(null)}
-                                          style={{background: "#e74c3c", color: "#fff", border: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontSize: 11, fontWeight: "bold"}}
-                                        >
-                                          ✗
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <Btn variant="secondary" size="xs" onClick={() => { setAssigningMovId(m.id); setSelectedLiqIdForAssign(""); }}>Imputar a Liq.</Btn>
-                                    )}
-                                  </div>
+                                  <Badge label="Sin orden (histórico)" color="gray" />
                                 )}
                               </td>
                             )}
@@ -8239,6 +8285,7 @@ const CuentaCorriente = ({modulo, globalFiltroProductor, globalFiltroEspecie}) =
           </div>
         </Modal>
       )}
+      {ordenPagoDetalleCc&&(()=>{const DetalleOrden=window.TesoreriaOrdenDetalle;return <DetalleOrden orden={ordenPagoDetalleCc} onClose={()=>setOrdenPagoDetalleCc(null)}/>;})()}
     </div>
   );
 };
@@ -12969,6 +13016,7 @@ const MENU_FORMAL = [
   {id:"liquidaciones",label:"Liquidaciones",icon:"📊"},
   {id:"certificados_1116",label:"Certificados 1116",icon:"📜"},
   {id:"cc",label:"Cuenta Corriente",icon:"💰"},
+  {id:"tesoreria",label:"Tesorería",icon:"🏦"},
   {id:"stock",label:"Stock",icon:"🌾"},
   {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚"},
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
@@ -12990,6 +13038,7 @@ const MENU_INFORMAL = [
   {id:"liquidaciones",label:"Liquidaciones",icon:"📊"},
   {id:"certificados_1116",label:"Certificados 1116",icon:"📜"},
   {id:"cc",label:"Cuenta Corriente",icon:"💰"},
+  {id:"tesoreria",label:"Tesorería",icon:"🏦"},
   {id:"stock",label:"Stock",icon:"🌾"},
   {id:"rep_fletes",label:"Rep. Fletes",icon:"🚚"},
   {id:"rep_calidades",label:"Rep. Calidades",icon:"🔬"},
@@ -13005,6 +13054,7 @@ const MENU_CONSOLIDADO = [
   {id:"dashboard",label:"Dashboard",icon:"⊞"},
   {id:"stock",label:"Stock Consolidado",icon:"🌾"},
   {id:"cc",label:"CC Consolidada",icon:"💰"},
+  {id:"tesoreria",label:"Tesorería Central",icon:"🏦"},
   {id:"posicion_abierta",label:"Posición Global",icon:"📌"},
   {id:"agente_ia",label:"Agente IA 🤖",icon:"💬"},
 ];
@@ -14300,6 +14350,7 @@ function App() {
 
   const render = () => {
     const userStr = usuario ? usuario.usuario : "";
+    const TesoreriaCentral = window.TesoreriaScreen;
     const p = {
       modulo, 
       usuario: userStr,
@@ -14316,6 +14367,7 @@ function App() {
         case "dashboard": return <DashboardConsolidado {...p}/>;
         case "stock": return <StockConsolidado {...p}/>;
         case "cc": return <CCConsolidada {...p}/>;
+        case "tesoreria": return <TesoreriaCentral {...p}/>;
         case "posicion_abierta": return <PosicionAbierta {...p}/>;
         case "agente_ia": return <AgenteIA {...p}/>;
         default: return <DashboardConsolidado {...p}/>;
@@ -14333,6 +14385,7 @@ function App() {
       case "liquidaciones": return <Liquidaciones {...p}/>;
       case "certificados_1116": return <Certificados1116 usuario={usuario}/>;
       case "cc": return <CuentaCorriente {...p}/>;
+      case "tesoreria": return <TesoreriaCentral {...p}/>;
       case "stock": return <Stock {...p}/>;
       case "rep_fletes": return <ReporteFletes {...p}/>;
       case "rep_calidades": return <ReporteCalidades {...p}/>;
@@ -14713,4 +14766,3 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App/
 </script>
 </body>
 </html>
-
