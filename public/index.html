@@ -14286,16 +14286,14 @@ function App() {
   }
 
   const handleAccesoOculto = () => {
-    if(usuario.rol==="ADMIN"){
-      setInformalUnlocked(true);
-      setModulo("INFORMAL");
-      setSec("dashboard");
-      setShowAccesoOculto(false);
-      setCodigoOculto("");
-    } else {
-      setCodigoOculto("");
-      alert("El acceso al circuito informal requiere rol ADMIN.");
-    }
+    // Todo usuario activo que pudo autenticarse puede operar el circuito
+    // informal. Los permisos administrativos siguen limitados a la gestión
+    // de usuarios, configuración y procesos sensibles.
+    setInformalUnlocked(true);
+    setModulo("INFORMAL");
+    setSec("dashboard");
+    setShowAccesoOculto(false);
+    setCodigoOculto("");
   };
 
   const menuActual = modulo==="FORMAL"?MENU_FORMAL:modulo==="INFORMAL"?MENU_INFORMAL:MENU_CONSOLIDADO;
